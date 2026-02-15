@@ -1,6 +1,27 @@
 # Skill Manager
 
-一个基于 Electron + React 的桌面工具，用来统一管理本地 AI Skills，并分发到 Claude Code、CodeX、Cursor、Trae。
+一个面向日常开发的桌面编程助手（Electron + React），帮助你统一管理本地 AI Skills、监控使用情况并切换 API 供应商。
+
+## 三大功能（编程助手核心）
+
+### 1) Skills 管理（导入 / 推送 / 停用）
+
+- 扫描 Claude Code、CodeX、Cursor、Trae 的 Skills
+- 导入到中央仓库统一管理
+- 一键批量推送或停用到多个工具
+- 支持自定义路径和自动增量刷新（仅新增）
+
+### 2) 用量监测（Token 统计）
+
+- 按 今日 / 近 7 天 / 近 30 天查看 Token 用量
+- 自动聚合 Claude 与 CodeX 日志
+- 查看模型分布和明细，辅助成本与使用行为分析
+
+### 3) API 配置（供应商切换）
+
+- 在 Claude Official / Kimi / AICodeMirror 之间切换
+- 保存第三方 API Key 到 `.env`
+- 统一维护当前接入配置，减少手动改环境变量的成本
 
 ## 这个工具能做什么
 
