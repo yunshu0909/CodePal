@@ -1,4 +1,4 @@
-# Skill Manager
+# Coding Assistant
 
 一个面向日常开发的桌面编程助手（Electron + React），帮助你统一管理本地 AI Skills、监控使用情况并切换 API 供应商。
 
