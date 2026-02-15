@@ -17,7 +17,7 @@ import './usage.css';
 const PERIODS = ['today', 'week', 'month'];
 const TODAY_REFRESH_INTERVAL_MS = 5 * 60 * 1000;
 const DAILY_REFRESH_MINUTE = 5;
-const USAGE_CACHE_STORAGE_KEY = 'usage-monitor-cache-v2';
+const USAGE_CACHE_STORAGE_KEY = 'usage-monitor-cache-v3';
 
 const EMPTY_USAGE_DATA = {
   total: 0,
@@ -592,7 +592,7 @@ function Legend({ distribution }) {
       {distribution.map((item) => (
         <div key={item.key} className="legend-item">
           <div className="legend-dot" style={{ backgroundColor: item.color }} />
-          <span>{item.name} {item.percent}%</span>
+          <span>{item.name} {item.displayPercent || item.percent + '%'}</span>
         </div>
       ))}
     </div>

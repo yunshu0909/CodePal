@@ -11,10 +11,10 @@
 
 import { parseClaudeLog, parseCodexTokenSnapshot, calculateTotalTokens } from './logParser.js';
 
-// 模型颜色映射表
+// 模型颜色映射表（每个模型唯一颜色，避免冲突）
 const MODEL_COLORS = {
-  'opus': '#2563eb',           // 蓝色
-  'claude-opus': '#2563eb',
+  'opus': '#f59e0b',           // 琥珀色（区别于 codex 的蓝色）
+  'claude-opus': '#f59e0b',
   'sonnet': '#6366f1',         // 靛紫色
   'claude-sonnet': '#6366f1',
   'haiku': '#8b5cf6',          // 紫色
@@ -22,8 +22,8 @@ const MODEL_COLORS = {
   'claude': '#ec4899',         // 粉色
   'gpt-5': '#e67e22',          // 橙色
   'gpt-4o': '#f97316',         // 橙红色
-  'gpt-4': '#f59e0b',          // 琥珀色
-  'gpt-3.5': '#fbbf24',        // 黄色
+  'gpt-4': '#fbbf24',          // 黄色（与 gpt-3.5 互换，避免与 opus 琥珀色太接近）
+  'gpt-3.5': '#f59e0b',        // 琥珀色
   'kimi': '#16a34a',           // 绿色
   'kimi-pro': '#22c55e',
   'deepseek': '#a855f7',       // 紫罗兰
@@ -31,7 +31,7 @@ const MODEL_COLORS = {
   'qwen': '#10b981',           // 翠绿色
   'yi': '#ec4899',             // 粉色
   'llama': '#06b6d4',          // 青色
-  'mistral': '#f59e0b',        // 琥珀色
+  'mistral': '#fbbf24',        // 黄色
   'codex': '#3b82f6',          // 蓝色
   'default': '#8b919a'         // 灰色
 };
@@ -354,14 +354,13 @@ function getModelColor(model) {
 /**
  * 生成视图数据
  * 规则：
- * - 模型数 <= 5：饼图展示全部模型
- * - 模型数 > 5：饼图展示 Top 5 + 其他
+ * - 模型数 <= 5：饼图展示全部模型（每个模型单独一项）
+ * - 模型数 > 5：饼图展示 Top 5 + 其他（合并第6名及以后）
  * @param {Map<string, object>} aggregated - 聚合后的数据
  * @returns {object} 视图数据
  */
 function generateViewData(aggregated) {
-  // 过滤掉总消耗为 0 的模型，避免在图例和明细表中展示无效项
-  // 这里只按 total 判断，确保输入/输出/缓存都为 0 的模型不会污染占比结果
+  // 过滤掉总消耗为 0 的模型，避免在饼图中展示无效项
   const nonZeroModels = Array.from(aggregated.values())
     .filter(model => model.total > 0);
 
@@ -378,42 +377,46 @@ function generateViewData(aggregated) {
   const totalOutput = models.reduce((sum, m) => sum + m.output, 0);
   const totalCache = models.reduce((sum, m) => sum + m.cacheRead + m.cacheCreate, 0);
 
-  // 计算每个模型的百分比
-  const modelsWithPercent = models.map(model => ({
-    ...model,
-    percent: total > 0 ? Math.round((model.total / total) * 100) : 0
-  }));
+  // 使用最大余数法计算百分比，确保总和为 100%
+  const modelsWithPercent = calculatePercentagesWithLargestRemainder(models, total);
 
-  // 判断是否极端场景（原始模型数 > 5）
+  // 判断是否极端场景（模型数 > 5）
   const isExtremeScenario = models.length > 5;
   let distribution = [];
 
   if (!isExtremeScenario) {
+    // ≤5 个模型：全部单独展示
     distribution = modelsWithPercent.map(model => ({
       name: model.name,
       percent: model.percent,
+      displayPercent: formatPercentDisplay(model.percent, model.total, total),
       color: model.color,
       key: model.name
     }));
   } else {
+    // >5 个模型：Top 5 + 其他
     const topModels = modelsWithPercent.slice(0, 5);
     const otherModels = modelsWithPercent.slice(5);
 
     distribution = topModels.map(model => ({
       name: model.name,
       percent: model.percent,
+      displayPercent: formatPercentDisplay(model.percent, model.total, total),
       color: model.color,
       key: model.name
     }));
 
     const othersTotal = otherModels.reduce((sum, model) => sum + model.total, 0);
-    const othersPercent = total > 0 ? Math.round((othersTotal / total) * 100) : 0;
+    const othersPercent = othersTotal > 0
+      ? 100 - topModels.reduce((sum, m) => sum + m.percent, 0) // 确保总和为 100
+      : 0;
 
-    // 仅在“其他”存在有效消耗时展示，避免出现“其他 0%”
-    if (othersTotal > 0) {
+    // 只要存在其他模型（无论占比多小），都展示“其他”项
+    if (otherModels.length > 0) {
       distribution.push({
         name: `其他 (${otherModels.length}个模型)`,
         percent: othersPercent,
+        displayPercent: formatPercentDisplay(othersPercent, othersTotal, total),
         color: MODEL_COLORS.default,
         key: 'others'
       });
@@ -430,6 +433,67 @@ function generateViewData(aggregated) {
     isExtremeScenario,
     modelCount: models.length
   };
+}
+
+/**
+ * 使用最大余数法计算百分比，确保总和为 100%
+ * @param {Array} models - 模型数据数组
+ * @param {number} total - 总 Token 数
+ * @returns {Array} 带百分比的模型数组
+ */
+function calculatePercentagesWithLargestRemainder(models, total) {
+  if (total === 0 || models.length === 0) {
+    return models.map(m => ({ ...m, percent: 0 }));
+  }
+
+  // 1. 计算原始百分比和小数部分
+  const withFraction = models.map(model => {
+    const exactPercent = (model.total / total) * 100;
+    const floorPercent = Math.floor(exactPercent);
+    const fraction = exactPercent - floorPercent;
+    return {
+      ...model,
+      exactPercent,
+      floorPercent,
+      fraction
+    };
+  });
+
+  // 2. 先分配 floor 值
+  let remaining = 100 - withFraction.reduce((sum, m) => sum + m.floorPercent, 0);
+
+  // 3. 按小数部分降序，依次加 1，直到分完剩余的百分比
+  const sortedByFraction = withFraction
+    .map((m, index) => ({ ...m, originalIndex: index }))
+    .sort((a, b) => b.fraction - a.fraction || b.total - a.total);
+
+  for (let i = 0; i < remaining && i < sortedByFraction.length; i++) {
+    sortedByFraction[i].floorPercent += 1;
+  }
+
+  // 4. 恢复原顺序并返回
+  return sortedByFraction
+    .sort((a, b) => a.originalIndex - b.originalIndex)
+    .map(m => ({
+      ...m,
+      percent: m.floorPercent
+    }));
+}
+
+/**
+ * 格式化百分比显示
+ * - 占比 > 0 但 < 1% 显示为 "<1%"
+ * - 占比 = 0 显示为 "0%"
+ * @param {number} percent - 计算后的百分比
+ * @param {number} modelTotal - 该模型的 Token 数
+ * @param {number} grandTotal - 总 Token 数
+ * @returns {string} 格式化后的显示文本
+ */
+function formatPercentDisplay(percent, modelTotal, grandTotal) {
+  if (percent === 0 && modelTotal > 0 && grandTotal > 0) {
+    return '<1%';
+  }
+  return percent + '%';
 }
 
 /**

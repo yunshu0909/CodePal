@@ -29,8 +29,8 @@
  */
 .title-spacer {
   height: 38px;
-  border-bottom: 1px solid #e5e3e0;
-  background-color: #f5f3f0;
+  border-bottom: 1px solid #e2e5ea;
+  background-color: #f8f9fb;
   flex-shrink: 0;
   -webkit-app-region: drag;
   user-select: none;
@@ -52,12 +52,12 @@
 
 /**
  * 左侧导航侧边栏
- * 固定宽度 180px，略浅的背景色
+ * 固定宽度 180px，Cool Steel 冷灰背景
  */
 .sidebar {
   width: 180px;
-  background-color: #faf9f7;
-  border-right: 1px solid #e5e3e0;
+  background-color: #f8f9fb;
+  border-right: 1px solid #e2e5ea;
   display: flex;
   flex-direction: column;
   padding: 12px 8px;
@@ -84,23 +84,24 @@
   border: none;
   border-radius: 6px;
   background: transparent;
-  color: #666;
+  color: #5a6070;
   font-size: 13px;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: all 150ms ease;
   text-align: left;
 }
 
 /* 悬停状态：轻微背景色 */
 .nav-item:hover {
-  background-color: #f0eeeb;
-  color: #333;
+  background-color: #eef0f4;
+  color: #1a1d23;
 }
 
-/* 激活状态：深色背景，白色文字 */
+/* 激活状态：浅灰背景，深色文字 */
 .nav-item.active {
-  background-color: #3d3d3d;
-  color: #fff;
+  background-color: #eef0f4;
+  color: #1a1d23;
+  font-weight: 600;
 }
 
 /**
@@ -113,16 +114,6 @@
   text-align: center;
 }
 
-/**
- * 导航标签
- */
-.nav-label {
-  font-weight: 400;
-}
-
-.nav-item.active .nav-label {
-  font-weight: 500;
-}
 
 /* ==================== 内容区域 ==================== */
 
@@ -135,8 +126,8 @@
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  background-color: #f5f3f0;
-  padding: 20px;
+  background-color: #eef0f4;
+  padding: 32px;
 }
 
 /* 滚动条样式优化 */

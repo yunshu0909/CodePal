@@ -1494,6 +1494,15 @@ const PROVIDER_DEFINITIONS = {
   },
 }
 const ACTIVE_PROVIDER_ENV_KEY = 'CLAUDE_CODE_PROVIDER'
+const CLAUDE_SETTINGS_FILE_PATH = path.join(os.homedir(), '.claude', 'settings.json')
+const CLAUDE_SETTINGS_BACKUP_DIR = path.join(os.homedir(), '.claude', 'backups')
+const MANAGED_CLAUDE_ENV_KEYS = [
+  'ANTHROPIC_AUTH_TOKEN',
+  'ANTHROPIC_API_KEY',
+  'ANTHROPIC_BASE_URL',
+  'OPENAI_API_KEY',
+  'OPENROUTER_API_KEY',
+]
 
 /**
  * 规范化环境变量值
@@ -1504,6 +1513,153 @@ function normalizeEnvValue(value) {
   if (typeof value !== 'string') return null
   const trimmed = value.trim()
   return trimmed || null
+}
+
+/**
+ * 判断是否为普通对象
+ * @param {unknown} value - 待检查的值
+ * @returns {boolean}
+ */
+function isPlainObject(value) {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+/**
+ * 生成备份文件名时间戳
+ * @returns {string}
+ */
+function createBackupTimestamp() {
+  return new Date().toISOString().replace(/[:.]/g, '-')
+}
+
+/**
+ * 备份 Claude settings 原始内容
+ * @param {string} rawContent - 原始文件内容
+ * @param {string} suffix - 备份后缀
+ * @returns {Promise<{success: boolean, backupPath: string|null, errorCode: string|null, error: string|null}>}
+ */
+async function backupClaudeSettingsRaw(rawContent, suffix = 'snapshot') {
+  try {
+    await fs.mkdir(CLAUDE_SETTINGS_BACKUP_DIR, { recursive: true })
+    const backupPath = path.join(
+      CLAUDE_SETTINGS_BACKUP_DIR,
+      `settings-${suffix}-${createBackupTimestamp()}.json`
+    )
+    await fs.writeFile(backupPath, rawContent, 'utf-8')
+    return { success: true, backupPath, errorCode: null, error: null }
+  } catch (error) {
+    if (error.code === 'EACCES' || error.code === 'EPERM') {
+      return {
+        success: false,
+        backupPath: null,
+        errorCode: 'PERMISSION_DENIED',
+        error: '无法写入 Claude settings 备份，请检查权限',
+      }
+    }
+    if (error.code === 'ENOSPC') {
+      return {
+        success: false,
+        backupPath: null,
+        errorCode: 'DISK_FULL',
+        error: '磁盘空间不足，无法写入 Claude settings 备份',
+      }
+    }
+    return {
+      success: false,
+      backupPath: null,
+      errorCode: 'WRITE_FAILED',
+      error: `写入 Claude settings 备份失败: ${error.message}`,
+    }
+  }
+}
+
+/**
+ * 读取 Claude settings.json 文件
+ * @returns {Promise<{success: boolean, exists: boolean, content: string, data: Record<string, any>, errorCode: string|null, error: string|null, backupPath: string|null}>}
+ */
+async function readClaudeSettingsFile() {
+  try {
+    const exists = await pathExists(CLAUDE_SETTINGS_FILE_PATH)
+    if (!exists) {
+      return {
+        success: true,
+        exists: false,
+        content: '',
+        data: {},
+        errorCode: null,
+        error: null,
+        backupPath: null,
+      }
+    }
+
+    const content = await fs.readFile(CLAUDE_SETTINGS_FILE_PATH, 'utf-8')
+    let data
+
+    try {
+      data = JSON.parse(content)
+    } catch (error) {
+      const backupResult = await backupClaudeSettingsRaw(content, 'corrupted')
+      const backupMessage = backupResult.success
+        ? `已备份到 ${backupResult.backupPath}`
+        : `备份失败（${backupResult.error || '未知错误'}）`
+      return {
+        success: false,
+        exists: true,
+        content,
+        data: {},
+        errorCode: 'CONFIG_CORRUPTED',
+        error: `Claude settings.json 已损坏，${backupMessage}`,
+        backupPath: backupResult.backupPath || null,
+      }
+    }
+
+    if (!isPlainObject(data)) {
+      const backupResult = await backupClaudeSettingsRaw(content, 'corrupted')
+      const backupMessage = backupResult.success
+        ? `已备份到 ${backupResult.backupPath}`
+        : `备份失败（${backupResult.error || '未知错误'}）`
+      return {
+        success: false,
+        exists: true,
+        content,
+        data: {},
+        errorCode: 'CONFIG_CORRUPTED',
+        error: `Claude settings.json 结构异常，${backupMessage}`,
+        backupPath: backupResult.backupPath || null,
+      }
+    }
+
+    return {
+      success: true,
+      exists: true,
+      content,
+      data,
+      errorCode: null,
+      error: null,
+      backupPath: null,
+    }
+  } catch (error) {
+    if (error.code === 'EACCES' || error.code === 'EPERM') {
+      return {
+        success: false,
+        exists: false,
+        content: '',
+        data: {},
+        errorCode: 'PERMISSION_DENIED',
+        error: '无法读取 Claude settings.json，请检查权限',
+        backupPath: null,
+      }
+    }
+    return {
+      success: false,
+      exists: false,
+      content: '',
+      data: {},
+      errorCode: 'READ_FAILED',
+      error: `读取 Claude settings.json 失败: ${error.message}`,
+      backupPath: null,
+    }
+  }
 }
 
 /**
@@ -1590,7 +1746,21 @@ async function readProjectEnvFile() {
  */
 async function loadMergedProviderEnv() {
   const envReadResult = await readProjectEnvFile()
-  const envSource = envReadResult.envMap
+  const envSource = { ...envReadResult.envMap }
+  const managedKeys = [ACTIVE_PROVIDER_ENV_KEY]
+
+  for (const definition of Object.values(PROVIDER_DEFINITIONS)) {
+    if (definition.tokenEnvKey) managedKeys.push(definition.tokenEnvKey)
+    if (definition.baseUrlEnvKey) managedKeys.push(definition.baseUrlEnvKey)
+  }
+
+  // 允许通过进程环境变量临时覆盖（如 CI/E2E），不影响 .env 持久化策略。
+  for (const key of managedKeys) {
+    const runtimeValue = normalizeEnvValue(process.env[key])
+    if (runtimeValue) {
+      envSource[key] = runtimeValue
+    }
+  }
 
   return {
     envSource,
@@ -1743,6 +1913,62 @@ function detectProviderFromEnv(envSource) {
 }
 
 /**
+ * 从 Claude settings 识别当前供应商
+ * @param {Record<string, any>} settingsData - settings.json 数据
+ * @param {Record<string, {token: string|null, baseUrl: string|null}>} providerProfiles - 供应商配置档
+ * @returns {string} official | kimi | aicodemirror | custom
+ */
+function detectProviderFromSettings(settingsData, providerProfiles) {
+  if (!isPlainObject(settingsData)) return 'official'
+
+  const envObject = isPlainObject(settingsData.env) ? settingsData.env : null
+  if (!envObject) return 'official'
+
+  const token = normalizeEnvValue(envObject.ANTHROPIC_AUTH_TOKEN)
+  const baseUrl = normalizeEnvValue(envObject.ANTHROPIC_BASE_URL)
+
+  if (!token && !baseUrl) {
+    return 'official'
+  }
+
+  for (const [providerKey, profile] of Object.entries(providerProfiles)) {
+    if (providerKey === 'official') continue
+    if (token === profile.token && baseUrl === profile.baseUrl) {
+      return providerKey
+    }
+  }
+
+  return 'custom'
+}
+
+/**
+ * 将供应商档应用到 Claude settings 数据
+ * @param {Record<string, any>} settingsData - 原始 settings 数据
+ * @param {{token: string|null, baseUrl: string|null, model: string}} profile - 目标供应商档
+ * @returns {Record<string, any>}
+ */
+function applyProviderProfileToSettings(settingsData, profile) {
+  const source = isPlainObject(settingsData) ? settingsData : {}
+  const updated = JSON.parse(JSON.stringify(source))
+  const envObject = isPlainObject(updated.env) ? updated.env : {}
+
+  for (const key of MANAGED_CLAUDE_ENV_KEYS) {
+    delete envObject[key]
+  }
+
+  if (profile.token) {
+    envObject.ANTHROPIC_AUTH_TOKEN = profile.token
+  }
+  if (profile.baseUrl) {
+    envObject.ANTHROPIC_BASE_URL = profile.baseUrl
+  }
+
+  updated.env = envObject
+  updated.model = profile.model
+  return updated
+}
+
+/**
  * 将供应商切换结果写入 .env（单一状态来源）
  * @param {string} profileKey - 供应商档位
  * @param {Record<string, {token: string|null, baseUrl: string|null}>} providerProfiles - 当前供应商配置档
@@ -1756,6 +1982,8 @@ async function switchProviderInEnv(profileKey, providerProfiles) {
       envPath: ENV_FILE_PATH,
       errorCode: envReadResult.errorCode,
       error: envReadResult.error,
+      previousContent: '',
+      previousExists: false,
     }
   }
 
@@ -1766,6 +1994,8 @@ async function switchProviderInEnv(profileKey, providerProfiles) {
       envPath: ENV_FILE_PATH,
       errorCode: 'INVALID_PROFILE_KEY',
       error: '无效的供应商档位',
+      previousContent: envReadResult.content,
+      previousExists: envReadResult.exists,
     }
   }
 
@@ -1785,10 +2015,120 @@ async function switchProviderInEnv(profileKey, providerProfiles) {
       envPath: ENV_FILE_PATH,
       errorCode: writeResult.error,
       error: `写入 .env 失败: ${writeResult.error}`,
+      previousContent: envReadResult.content,
+      previousExists: envReadResult.exists,
     }
   }
 
-  return { success: true, envPath: ENV_FILE_PATH, errorCode: null, error: null }
+  return {
+    success: true,
+    envPath: ENV_FILE_PATH,
+    errorCode: null,
+    error: null,
+    previousContent: envReadResult.content,
+    previousExists: envReadResult.exists,
+  }
+}
+
+/**
+ * 将供应商切换结果写入 Claude settings.json
+ * @param {string} profileKey - 供应商档位
+ * @param {Record<string, {token: string|null, baseUrl: string|null, model: string}>} providerProfiles - 当前供应商配置档
+ * @returns {Promise<{success: boolean, settingsPath: string, backupPath: string|null, error: string|null, errorCode: string|null}>}
+ */
+async function switchProviderInClaudeSettings(profileKey, providerProfiles) {
+  const profile = providerProfiles[profileKey]
+  if (!profile) {
+    return {
+      success: false,
+      settingsPath: CLAUDE_SETTINGS_FILE_PATH,
+      backupPath: null,
+      error: '无效的供应商档位',
+      errorCode: 'INVALID_PROFILE_KEY',
+    }
+  }
+
+  const settingsReadResult = await readClaudeSettingsFile()
+  if (!settingsReadResult.success) {
+    return {
+      success: false,
+      settingsPath: CLAUDE_SETTINGS_FILE_PATH,
+      backupPath: settingsReadResult.backupPath || null,
+      error: settingsReadResult.error || '读取 Claude settings.json 失败',
+      errorCode: settingsReadResult.errorCode || 'READ_FAILED',
+    }
+  }
+
+  let backupPath = null
+  if (settingsReadResult.exists) {
+    const backupResult = await backupClaudeSettingsRaw(settingsReadResult.content, 'switch')
+    if (!backupResult.success) {
+      return {
+        success: false,
+        settingsPath: CLAUDE_SETTINGS_FILE_PATH,
+        backupPath: null,
+        error: backupResult.error || '备份 Claude settings.json 失败',
+        errorCode: backupResult.errorCode || 'WRITE_FAILED',
+      }
+    }
+    backupPath = backupResult.backupPath
+  }
+
+  const updatedSettings = applyProviderProfileToSettings(settingsReadResult.data, profile)
+  const updatedSettingsText = `${JSON.stringify(updatedSettings, null, 2)}\n`
+  const writeResult = await atomicWriteText(CLAUDE_SETTINGS_FILE_PATH, updatedSettingsText)
+  if (!writeResult.success) {
+    return {
+      success: false,
+      settingsPath: CLAUDE_SETTINGS_FILE_PATH,
+      backupPath,
+      error: `写入 Claude settings.json 失败: ${writeResult.error}`,
+      errorCode: writeResult.error || 'WRITE_FAILED',
+    }
+  }
+
+  return {
+    success: true,
+    settingsPath: CLAUDE_SETTINGS_FILE_PATH,
+    backupPath,
+    error: null,
+    errorCode: null,
+  }
+}
+
+/**
+ * 尝试恢复 .env 到切换前快照
+ * @param {string} previousContent - 切换前 .env 内容
+ * @param {boolean} previousExists - 切换前 .env 是否存在
+ * @returns {Promise<{success: boolean, errorCode: string|null, error: string|null}>}
+ */
+async function restoreEnvSnapshot(previousContent, previousExists) {
+  try {
+    if (!previousExists) {
+      try {
+        await fs.unlink(ENV_FILE_PATH)
+      } catch (error) {
+        if (error.code !== 'ENOENT') throw error
+      }
+      return { success: true, errorCode: null, error: null }
+    }
+
+    const writeResult = await atomicWriteText(ENV_FILE_PATH, previousContent)
+    if (!writeResult.success) {
+      return {
+        success: false,
+        errorCode: writeResult.error || 'WRITE_FAILED',
+        error: `回滚 .env 失败: ${writeResult.error}`,
+      }
+    }
+    return { success: true, errorCode: null, error: null }
+  } catch (error) {
+    return {
+      success: false,
+      errorCode: error.code || 'ROLLBACK_FAILED',
+      error: `回滚 .env 失败: ${error.message}`,
+    }
+  }
 }
 
 /**
@@ -1864,14 +2204,42 @@ ipcMain.handle('get-claude-provider', async () => {
       }
     }
 
-    const current = detectProviderFromEnv(envSource)
-    const profile = providerProfiles[current]
+    const settingsReadResult = await readClaudeSettingsFile()
+    if (!settingsReadResult.success) {
+      // 配置损坏可降级：先用 .env 推断当前档位，并提示用户修复 settings 文件。
+      if (settingsReadResult.errorCode === 'CONFIG_CORRUPTED') {
+        const fallbackCurrent = detectProviderFromEnv(envSource)
+        return {
+          success: true,
+          current: fallbackCurrent,
+          profile: providerProfiles[fallbackCurrent] || null,
+          isNew: !envExists,
+          corruptedBackup: settingsReadResult.backupPath || null,
+          error: settingsReadResult.error,
+          errorCode: settingsReadResult.errorCode,
+        }
+      }
+
+      return {
+        success: false,
+        current: 'official',
+        profile: providerProfiles.official,
+        isNew: false,
+        corruptedBackup: settingsReadResult.backupPath || null,
+        error: settingsReadResult.error || '读取 Claude settings.json 失败',
+        errorCode: settingsReadResult.errorCode || 'READ_FAILED',
+      }
+    }
+
+    // 以 Claude 实际运行配置为准，避免页面显示与真实生效状态不一致。
+    const current = detectProviderFromSettings(settingsReadResult.data, providerProfiles)
+    const profile = providerProfiles[current] || null
 
     return {
       success: true,
       current,
-      profile: profile || null,
-      isNew: !envExists,
+      profile,
+      isNew: !envExists && !settingsReadResult.exists,
       corruptedBackup: null,
       error: null,
       errorCode: null
@@ -1960,7 +2328,15 @@ ipcMain.handle('switch-claude-provider', async (event, profileKey) => {
   }
 
   try {
-    const { envSource } = await loadMergedProviderEnv()
+    const { envSource, errorCode, error } = await loadMergedProviderEnv()
+    if (errorCode) {
+      return {
+        success: false,
+        backupPath: null,
+        error: error || '读取 .env 文件失败',
+        errorCode,
+      }
+    }
     const providerProfiles = getProviderProfiles(envSource)
 
     // 非官方档位要求必须已配置 API Key，避免写入无效配置。
@@ -1991,9 +2367,44 @@ ipcMain.handle('switch-claude-provider', async (event, profileKey) => {
       }
     }
 
+    const settingsSwitchResult = await switchProviderInClaudeSettings(profileKey, providerProfiles)
+    if (!settingsSwitchResult.success) {
+      const rollbackResult = await restoreEnvSnapshot(
+        switchResult.previousContent,
+        switchResult.previousExists
+      )
+
+      const settingsErrorMap = {
+        PERMISSION_DENIED: '写入失败：无法更新 ~/.claude/settings.json（权限不足）',
+        DISK_FULL: '写入失败：磁盘空间不足，无法更新 ~/.claude/settings.json',
+        CONFIG_CORRUPTED: settingsSwitchResult.error || 'Claude settings.json 已损坏，无法切换',
+        READ_FAILED: settingsSwitchResult.error || '读取 ~/.claude/settings.json 失败',
+        WRITE_FAILED: settingsSwitchResult.error || '写入 ~/.claude/settings.json 失败',
+        RENAME_FAILED: settingsSwitchResult.error || '更新 ~/.claude/settings.json 失败',
+      }
+      const baseError = settingsErrorMap[settingsSwitchResult.errorCode] ||
+        `切换失败: ${settingsSwitchResult.error || 'settings 同步失败'}`
+
+      if (!rollbackResult.success) {
+        return {
+          success: false,
+          backupPath: settingsSwitchResult.backupPath || null,
+          error: `${baseError}；同时回滚 .env 失败，请手动检查 .env 与 ~/.claude/settings.json`,
+          errorCode: 'ROLLBACK_FAILED',
+        }
+      }
+
+      return {
+        success: false,
+        backupPath: settingsSwitchResult.backupPath || null,
+        error: `${baseError}；已自动回滚 .env，当前状态保持不变`,
+        errorCode: settingsSwitchResult.errorCode || 'SETTINGS_SYNC_FAILED',
+      }
+    }
+
     return {
       success: true,
-      backupPath: null,
+      backupPath: settingsSwitchResult.backupPath || null,
       error: null,
       errorCode: null
     }
