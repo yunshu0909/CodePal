@@ -2,7 +2,7 @@
  * API 配置页面
  *
  * 负责：
- * - 展示三档供应商卡片（Claude Official、Kimi For Coding、AICodeMirror）
+ * - 展示供应商卡片（Claude Official、Qwen3.5 Plus、Kimi For Coding、AICodeMirror）
  * - 显示当前使用的供应商
  * - 支持切换供应商（调用 IPC 写入配置）
  * - 支持编辑第三方供应商的 API Key（展开/收起面板）
@@ -22,6 +22,13 @@ const PROVIDER_BASES = [
     url: 'https://www.anthropic.com/claude-code',
     icon: 'A',
     color: '#6b5ce7',
+  },
+  {
+    id: 'qwen',
+    name: 'Qwen3 Coder Plus',
+    url: 'https://dashscope.aliyuncs.com/apps/anthropic',
+    icon: 'Q',
+    color: '#0891b2',
   },
   {
     id: 'kimi',
@@ -377,7 +384,20 @@ function ProviderCard({
                 </button>
               )}
             </>
+          ) : provider.id !== 'official' && !provider.token ? (
+            // 第三方供应商未配置 API Key：显示编辑按钮引导配置
+            <button
+              className="btn btn--secondary btn--sm"
+              disabled={isSwitching}
+              onClick={(e) => {
+                e.stopPropagation()
+                onEdit()
+              }}
+            >
+              编辑 API Key
+            </button>
           ) : (
+            // official 供应商 或 已配置 API Key 的第三方供应商
             <button
               className="btn btn--primary btn--sm"
               disabled={isSwitching}

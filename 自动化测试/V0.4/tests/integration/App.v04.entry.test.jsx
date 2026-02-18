@@ -26,16 +26,19 @@ vi.mock('@/store/data.js', () => ({
 }))
 
 vi.mock('@/components/SkillManagerModule.jsx', () => ({
-  default: () => <div data-testid="skills-module">技能管理模块</div>,
+  default: ({ initialPage, onAfterImport }) => (
+    <div data-testid="skills-module">
+      <div>技能管理模块</div>
+      <div data-testid="skills-initial-page">{initialPage}</div>
+      {initialPage === 'import' && (
+        <button onClick={onAfterImport}>完成导入</button>
+      )}
+    </div>
+  ),
 }))
 
 vi.mock('@/pages/ImportPage.jsx', () => ({
-  default: ({ onImportComplete }) => (
-    <div>
-      <div data-testid="import-page">导入页</div>
-      <button onClick={onImportComplete}>完成导入</button>
-    </div>
-  ),
+  default: () => <div data-testid="import-page">导入页</div>,
 }))
 
 async function waitUntil(assertion, timeoutMs = 1200) {
@@ -102,7 +105,7 @@ describe('App 历史回归入口流 (V0.4)', () => {
     })
 
     await waitUntil(() => {
-      expect(container.textContent).toContain('导入页')
+      expect(container.querySelector('[data-testid="skills-initial-page"]')?.textContent).toBe('import')
     })
 
     const importButton = [...container.querySelectorAll('button')].find((button) =>
@@ -114,7 +117,7 @@ describe('App 历史回归入口流 (V0.4)', () => {
     })
 
     await waitUntil(() => {
-      expect(container.textContent).toContain('技能管理模块')
+      expect(container.querySelector('[data-testid="skills-initial-page"]')?.textContent).toBe('manage')
     })
   })
 

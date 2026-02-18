@@ -116,6 +116,7 @@
   gap: var(--space-3);
   margin-bottom: var(--space-5);
   padding: var(--space-2) 0;
+  position: relative;
 }
 
 .segment-control {
@@ -126,6 +127,10 @@
 }
 
 .segment-item {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-1);
   padding: 4px 12px;
   border-radius: var(--radius-sm);
   font-size: var(--text-xs);
@@ -136,6 +141,12 @@
   border: none;
   background: transparent;
   font-family: var(--font-family);
+}
+
+.calendar-icon {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
 }
 
 .segment-item:hover {
@@ -408,6 +419,147 @@
 }
 
 /* ============================================================
+   Date Picker Dropdown (v0.8)
+   ============================================================ */
+
+/* [v0.8 新增] 日期选择器下拉弹窗
+   - 绝对定位，相对于 .toolbar 定位
+   - 白底圆角卡片样式，带阴影
+   - z-index: 100 确保浮于其他元素之上
+*/
+.date-picker-dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  background: var(--bg-base);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-xl);
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.12);
+  padding: var(--space-4);
+  min-width: 280px;
+  z-index: 100;
+}
+
+/* 日期输入区域 */
+.date-inputs {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+}
+
+.date-input-wrapper {
+  flex: 1;
+}
+
+.date-input-label {
+  font-size: var(--text-2xs);
+  font-weight: 600;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  margin-bottom: var(--space-1);
+}
+
+.date-input {
+  width: 100%;
+  padding: 8px 10px;
+  font-size: var(--text-xs);
+  font-family: var(--font-family);
+  color: var(--text-primary);
+  background: var(--bg-subtle);
+  border: 1.5px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  outline: none;
+  transition: all var(--transition-fast);
+}
+
+.date-input:hover {
+  border-color: var(--border-strong);
+}
+
+.date-input:focus {
+  border-color: var(--color-primary);
+  background: var(--bg-base);
+}
+
+.date-separator {
+  font-size: var(--text-sm);
+  color: var(--text-tertiary);
+  padding-top: 18px;
+}
+
+/* 错误提示 */
+.date-picker-error {
+  display: flex;
+  align-items: center;
+  padding: var(--space-2) var(--space-3);
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: var(--radius-md);
+  color: #dc2626;
+  font-size: var(--text-xs);
+  margin-bottom: var(--space-3);
+}
+
+.date-picker-error span {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+/* 操作按钮 */
+.date-picker-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border-light);
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  padding: 6px 14px;
+  font-size: var(--text-xs);
+  font-weight: 500;
+  font-family: var(--font-family);
+  border-radius: var(--radius-lg);
+  border: 1.5px solid transparent;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  white-space: nowrap;
+}
+
+.btn:active {
+  transform: scale(0.98);
+}
+
+.btn--primary {
+  background: var(--color-primary);
+  color: #fff;
+  border-color: var(--color-primary);
+}
+
+.btn--primary:hover {
+  background: var(--color-primary-hover);
+  border-color: var(--color-primary-hover);
+}
+
+.btn--secondary {
+  background: var(--bg-base);
+  color: var(--text-secondary);
+  border-color: var(--border-strong);
+}
+
+.btn--secondary:hover {
+  background: var(--bg-subtle);
+  border-color: var(--text-tertiary);
+}
+
+/* ============================================================
    Loading State
    ============================================================ */
 
@@ -433,6 +585,34 @@
 @keyframes spin {
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
+}
+
+/* 页面内容区加载遮罩 */
+.usage-loading-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(255, 255, 255, 0.85);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  border-radius: var(--radius-3xl);
+}
+
+.usage-loading-overlay .loading-spinner {
+  width: 32px;
+  height: 32px;
+  border-width: 2px;
+  margin-bottom: var(--space-3);
+}
+
+.usage-loading-overlay span {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
 }
 
 /* ============================================================

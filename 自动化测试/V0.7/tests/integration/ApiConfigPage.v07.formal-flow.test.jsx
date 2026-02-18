@@ -81,11 +81,20 @@ describe('V0.7 API Config Formal Flow (Integration)', () => {
   })
 
   it('TC-S2-IT-01: 启用成功后应刷新当前供应商与提示文案', async () => {
-    window.electronAPI.getClaudeProvider.mockResolvedValueOnce({
+    window.electronAPI.getClaudeProvider.mockResolvedValue({
       success: true,
       current: 'official',
       profile: null,
       isNew: false,
+      error: null,
+      errorCode: null,
+    })
+    window.electronAPI.getProviderEnvConfig.mockResolvedValue({
+      success: true,
+      providers: {
+        kimi: { token: 'sk-kimi-ready' },
+      },
+      envPath: '/tmp/mock/.env',
       error: null,
       errorCode: null,
     })
@@ -110,11 +119,20 @@ describe('V0.7 API Config Formal Flow (Integration)', () => {
   })
 
   it('TC-S2-IT-02: 启用失败时应保留原状态并提示错误', async () => {
-    window.electronAPI.getClaudeProvider.mockResolvedValueOnce({
+    window.electronAPI.getClaudeProvider.mockResolvedValue({
       success: true,
       current: 'official',
       profile: null,
       isNew: false,
+      error: null,
+      errorCode: null,
+    })
+    window.electronAPI.getProviderEnvConfig.mockResolvedValue({
+      success: true,
+      providers: {
+        kimi: { token: 'sk-kimi-ready' },
+      },
+      envPath: '/tmp/mock/.env',
       error: null,
       errorCode: null,
     })
@@ -143,11 +161,20 @@ describe('V0.7 API Config Formal Flow (Integration)', () => {
   })
 
   it('TC-S2-IT-04: custom 档位点击切换时应先确认，取消后不触发后端', async () => {
-    window.electronAPI.getClaudeProvider.mockResolvedValueOnce({
+    window.electronAPI.getClaudeProvider.mockResolvedValue({
       success: true,
       current: 'custom',
       profile: null,
       isNew: false,
+      error: null,
+      errorCode: null,
+    })
+    window.electronAPI.getProviderEnvConfig.mockResolvedValue({
+      success: true,
+      providers: {
+        kimi: { token: 'sk-kimi-ready' },
+      },
+      envPath: '/tmp/mock/.env',
       error: null,
       errorCode: null,
     })
@@ -174,7 +201,8 @@ describe('V0.7 API Config Formal Flow (Integration)', () => {
       expect(getCurrentProviderText()).toBe('Kimi For Coding')
     })
 
-    fireEvent.click(screen.getByRole('button', { name: '编辑 API Key' }))
+    const kimiCard = getProviderCard('Kimi For Coding')
+    fireEvent.click(within(kimiCard).getByRole('button', { name: '编辑 API Key' }))
     const tokenInput = await screen.findByPlaceholderText('输入 API Key...')
     fireEvent.change(tokenInput, { target: { value: 'sk-kimi-updated-token' } })
     fireEvent.click(screen.getByRole('button', { name: '保存' }))
@@ -187,7 +215,7 @@ describe('V0.7 API Config Formal Flow (Integration)', () => {
       expect(screen.queryByPlaceholderText('输入 API Key...')).toBeNull()
     })
 
-    fireEvent.click(screen.getByRole('button', { name: '编辑 API Key' }))
+    fireEvent.click(within(kimiCard).getByRole('button', { name: '编辑 API Key' }))
     const reopenedInput = await screen.findByPlaceholderText('输入 API Key...')
     expect(reopenedInput.value).toBe('sk-kimi-updated-token')
 

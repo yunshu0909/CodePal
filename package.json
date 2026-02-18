@@ -18,6 +18,8 @@
     "test:v06:watch": "vitest --config 自动化测试/V0.6/vitest.config.js",
     "test:v07": "vitest run --config 自动化测试/V0.7/vitest.config.js",
     "test:v07:watch": "vitest --config 自动化测试/V0.7/vitest.config.js",
+    "test:v08": "vitest run --config 自动化测试/V0.8/vitest.config.js",
+    "test:v08:watch": "vitest --config 自动化测试/V0.8/vitest.config.js",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "test:ui": "vitest --ui",

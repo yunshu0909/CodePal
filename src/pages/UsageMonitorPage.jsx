@@ -2,19 +2,21 @@
  * 用量监测页面
  *
  * 负责：
- * - 展示 Token 用量数据（今日/近7天/近30天）
+ * - 展示 Token 用量数据（今日/近7天/近30天/自定义日期）
  * - 饼图展示模型分布（正常场景展示全部，极端场景展示 Top 5 + 其他）
  * - 明细表格展示全部模型数据
  * - 自动刷新机制
+ * - 自定义日期范围选择（V0.8）
  *
  * @module pages/UsageMonitorPage
  */
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { aggregateUsage, formatNumber } from '../store/usageAggregator';
+import { aggregateUsage } from '../store/usageAggregator';
+import { PieChart, Legend, DetailTable } from './usage/components/UsageDisplayComponents';
 import './usage.css';
 
-const PERIODS = ['today', 'week', 'month'];
+const PERIODS = ['today', 'week', 'month', 'custom'];
 const TODAY_REFRESH_INTERVAL_MS = 5 * 60 * 1000;
 const DAILY_REFRESH_MINUTE = 5;
 const USAGE_CACHE_STORAGE_KEY = 'usage-monitor-cache-v3';
@@ -72,6 +74,18 @@ function getBeijingDateTimeParts(date = new Date()) {
 function getBeijingDayKey(date = new Date()) {
   const parts = getBeijingDateTimeParts(date);
   return `${parts.year}-${parts.month}-${parts.day}`;
+}
+
+/**
+ * 获取北京时间相对日期 key（YYYY-MM-DD）
+ * @param {number} offsetDays - 相对今天的偏移天数（-1 表示昨天）
+ * @param {Date} date - 参考时间
+ * @returns {string}
+ */
+function getBeijingRelativeDayKey(offsetDays, date = new Date()) {
+  const dayStart = getBeijingDayStart(date);
+  dayStart.setUTCDate(dayStart.getUTCDate() + offsetDays);
+  return getBeijingDayKey(dayStart);
 }
 
 /**
@@ -198,15 +212,64 @@ function shouldRefreshPeriod(period, entry, now) {
 }
 
 /**
+ * 将后端错误码映射为用户可读文案
+ * @param {string|undefined} errorCode - 后端错误码或错误消息
+ * @returns {string}
+ */
+function mapRangeErrorToMessage(errorCode) {
+  switch (errorCode) {
+    case 'INVALID_DATE_RANGE':
+      return '日期范围无效，请检查开始和结束日期'
+    case 'DATE_OUT_OF_RANGE':
+      return '结束日期不能为今天或未来日期'
+    case 'INVALID_TIMEZONE':
+      return '时区参数无效，仅支持北京时间'
+    case 'PERMISSION_DENIED':
+      return '无权限读取日志目录，请检查系统权限'
+    case 'RECOMPUTE_FAILED':
+    case 'RECOMPUTE_EMPTY':
+    case 'AGGREGATE_FAILED':
+      return '区间数据聚合失败，请稍后重试'
+    default:
+      return errorCode || '数据获取失败'
+  }
+}
+
+/**
  * 用量监测页面组件
  * @returns {JSX.Element}
  */
 export default function UsageMonitorPage() {
-  // 当前周期：'today' | 'week' | 'month'
+  // 当前周期：'today' | 'week' | 'month' | 'custom'
   const [currentPeriod, setCurrentPeriod] = useState('today');
+
+  // 自定义日期弹窗显隐状态
+  const [showCustomDateModal, setShowCustomDateModal] = useState(false);
+
+  // 自定义日期范围（临时状态，确认后才生效）
+  const [customDateRange, setCustomDateRange] = useState(() => {
+    // 默认日期：昨天（北京时间）
+    const yestStr = getBeijingRelativeDayKey(-1);
+    return {
+      startDate: yestStr,
+      endDate: yestStr
+    };
+  });
+
+  // 当前生效的自定义日期范围（用于展示）
+  const [appliedCustomRange, setAppliedCustomRange] = useState({
+    startDate: '',
+    endDate: ''
+  });
+
+  // 自定义日期校验错误信息
+  const [customDateError, setCustomDateError] = useState(null);
 
   // 三个周期的数据缓存（内存态 + 本地持久化）
   const [periodCache, setPeriodCache] = useState(() => readUsageCache());
+
+  // 自定义日期范围的数据（独立状态，不缓存到本地存储）
+  const [customData, setCustomData] = useState(null);
 
   // 加载状态
   const [loading, setLoading] = useState(false);
@@ -232,6 +295,9 @@ export default function UsageMonitorPage() {
 
   // 防止同周期并发重算
   const refreshingSetRef = useRef(new Set());
+
+  // 自定义日期请求中标志（用于加载态）
+  const [customLoading, setCustomLoading] = useState(false);
 
   /**
    * 合并并持久化缓存
@@ -393,14 +459,244 @@ export default function UsageMonitorPage() {
   }, [checkAutoRefresh]);
 
   /**
+   * 获取今天的日期字符串（YYYY-MM-DD）
+   * @returns {string}
+   */
+  const getTodayString = useCallback(() => {
+    const parts = getBeijingDateTimeParts(new Date());
+    return `${parts.year}-${parts.month}-${parts.day}`;
+  }, []);
+
+  /**
+   * 格式化日期显示为 M/D 格式
+   * @param {string} dateStr - YYYY-MM-DD 格式日期
+   * @returns {string}
+   */
+  const formatDateDisplay = (dateStr) => {
+    if (!dateStr) return '';
+    const [year, month, day] = dateStr.split('-');
+    return `${Number(month)}/${Number(day)}`;
+  };
+
+  /**
+   * 获取自定义按钮文案
+   * @returns {string}
+   */
+  const getCustomButtonLabel = () => {
+    if (currentPeriod === 'custom' && appliedCustomRange.startDate && appliedCustomRange.endDate) {
+      const start = formatDateDisplay(appliedCustomRange.startDate);
+      const end = formatDateDisplay(appliedCustomRange.endDate);
+      return `${start} - ${end}`;
+    }
+    return '自定义';
+  };
+
+  /**
+   * 验证自定义日期范围
+   * @returns {{valid: boolean, error: string|null}}
+   */
+  const validateCustomDateRange = useCallback(() => {
+    const { startDate, endDate } = customDateRange;
+
+    // 1. 开始/结束必填
+    if (!startDate || !endDate) {
+      return { valid: false, error: '请选择开始日期和结束日期' };
+    }
+
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+    const today = new Date(getTodayString());
+
+    // 2. 开始日期 <= 结束日期
+    if (start > end) {
+      return { valid: false, error: '开始日期不能晚于结束日期' };
+    }
+
+    // 3. 结束日期 < 今天（今天和未来都不允许）
+    if (end >= today) {
+      return { valid: false, error: '结束日期不能为今天或未来日期' };
+    }
+
+    return { valid: true, error: null };
+  }, [customDateRange, getTodayString]);
+
+  // dropdown 容器 ref，用于点击外部检测
+  const dropdownRef = useRef(null);
+  // 自定义日期按钮 ref，用于计算 dropdown 定位
+  const customTriggerRef = useRef(null);
+  // dropdown 在 toolbar 内的相对位置
+  const [datePickerPosition, setDatePickerPosition] = useState({ left: 0, top: 0 });
+
+  /**
+   * 计算并更新日期选择器位置
+   */
+  const updateDatePickerPosition = useCallback(() => {
+    if (!dropdownRef.current || !customTriggerRef.current) return;
+
+    const triggerRect = customTriggerRef.current.getBoundingClientRect();
+    const toolbarRect = dropdownRef.current.getBoundingClientRect();
+
+    setDatePickerPosition({
+      left: triggerRect.left - toolbarRect.left,
+      top: triggerRect.bottom - toolbarRect.top + 4
+    });
+  }, []);
+
+  /**
    * 处理周期切换
    * @param {string} period - 新周期
    */
   const handlePeriodChange = (period) => {
+    // 点击自定义时切换 dropdown 显隐，但不立即切换周期
+    if (period === 'custom') {
+      setShowCustomDateModal((prev) => {
+        const next = !prev;
+        if (next) {
+          updateDatePickerPosition();
+        }
+        return next;
+      });
+      setCustomDateError(null);
+      return;
+    }
+
     if (period === currentPeriod) return;
+
+    // 切换到预设时：关闭 dropdown，取消自定义激活态，文案恢复"自定义"
+    setShowCustomDateModal(false);
     setCurrentPeriod(period);
     setError(null);
   };
+
+  /**
+   * 获取自定义日期范围数据
+   * @param {string} startDate - 开始日期 (YYYY-MM-DD)
+   * @param {string} endDate - 结束日期 (YYYY-MM-DD)
+   * @returns {Promise<{success: boolean, data?: object, error?: string}>}
+   */
+  const fetchCustomRangeData = useCallback(async (startDate, endDate) => {
+    // 前后端并行阶段：后端接口未就绪时允许跳过请求，仅保留前端交互验证
+    if (!window.electronAPI?.aggregateUsageRange) {
+      return { success: true, data: null, skipped: true };
+    }
+
+    try {
+      const result = await window.electronAPI.aggregateUsageRange({
+        startDate,
+        endDate,
+        timezone: 'Asia/Shanghai'
+      });
+
+      return result;
+    } catch (err) {
+      return { success: false, error: err.message || '请求异常' };
+    }
+  }, []);
+
+  /**
+   * 获取可选最大日期（昨天）
+   * @returns {string}
+   */
+  const getMaxSelectableDate = useCallback(() => {
+    return getBeijingRelativeDayKey(-1);
+  }, []);
+
+  /**
+   * 处理自定义日期确认
+   */
+  const handleCustomDateConfirm = async () => {
+    // 执行日期校验
+    const validation = validateCustomDateRange();
+
+    if (!validation.valid) {
+      // 校验失败：显示错误文案，不触发数据更新
+      setCustomDateError(validation.error);
+      return;
+    }
+
+    // 校验通过：应用日期范围，关闭弹窗
+    const newRange = { ...customDateRange };
+
+    // 首次切换自定义时，先复用当前已展示数据，避免出现“空白闪烁”
+    if (!customData) {
+      const fallbackData =
+        periodCacheRef.current[currentPeriodRef.current]?.data || EMPTY_USAGE_DATA;
+      setCustomData(fallbackData);
+    }
+
+    setAppliedCustomRange(newRange);
+    setCurrentPeriod('custom');
+    setShowCustomDateModal(false);
+    setCustomDateError(null);
+    setError(null);
+
+    // 开始加载自定义日期数据
+    setCustomLoading(true);
+
+    try {
+      const result = await fetchCustomRangeData(newRange.startDate, newRange.endDate);
+
+      if (result.success && result.data) {
+        // 成功：更新自定义数据，清除错误
+        setCustomData(result.data);
+        setError(null);
+      } else if (result.success && result.skipped) {
+        // 后端未接入时仅完成交互，不展示错误
+        setError(null);
+      } else {
+        // 失败：保留上一次有效展示（如果有），显示错误提示
+        const mappedError = mapRangeErrorToMessage(result.error);
+        const hasFallback = Boolean(customData);
+        setError(hasFallback
+          ? `数据获取失败：${mappedError}，显示上次数据`
+          : mappedError);
+      }
+    } catch (err) {
+      // 异常：保留上一次有效展示，显示错误提示
+      const mappedError = mapRangeErrorToMessage(err.message);
+      const hasFallback = Boolean(customData);
+      setError(hasFallback
+        ? `数据获取失败：${mappedError}，显示上次数据`
+        : mappedError);
+    } finally {
+      setCustomLoading(false);
+    }
+  };
+
+  /**
+   * 处理自定义日期取消
+   */
+  const handleCustomDateCancel = () => {
+    setShowCustomDateModal(false);
+    setCustomDateError(null);
+    // 不修改当前周期和日期范围
+  };
+
+  // 点击外部关闭 dropdown 的 effect
+  useEffect(() => {
+    if (!showCustomDateModal) return;
+
+    const handleClickOutside = (e) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target)) {
+        handleCustomDateCancel();
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [showCustomDateModal]);
+
+  // dropdown 打开后跟随窗口变化更新位置，避免错位
+  useEffect(() => {
+    if (!showCustomDateModal) return;
+
+    updateDatePickerPosition();
+    window.addEventListener('resize', updateDatePickerPosition);
+
+    return () => {
+      window.removeEventListener('resize', updateDatePickerPosition);
+    };
+  }, [showCustomDateModal, updateDatePickerPosition]);
 
   /**
    * 手动刷新
@@ -410,7 +706,10 @@ export default function UsageMonitorPage() {
   };
 
   // 当前周期显示数据：优先读取缓存，缺省回退空态
-  const displayData = periodCache[currentPeriod]?.data || EMPTY_USAGE_DATA;
+  // 自定义周期使用独立状态 customData，失败时保留上一次有效数据
+  const displayData = currentPeriod === 'custom'
+    ? (customData || EMPTY_USAGE_DATA)
+    : (periodCache[currentPeriod]?.data || EMPTY_USAGE_DATA);
 
   // 格式化数字显示（带单位）
   const formatMetricValue = (num) => {
@@ -435,7 +734,7 @@ export default function UsageMonitorPage() {
       </div>
 
       {/* 工具栏 - 分段控制器 */}
-      <div className="toolbar">
+      <div className="toolbar" ref={dropdownRef}>
         <div className="segment-control">
           <button
             className={`segment-item ${currentPeriod === 'today' ? 'active' : ''}`}
@@ -455,16 +754,101 @@ export default function UsageMonitorPage() {
           >
             近30天
           </button>
+          <button
+            ref={customTriggerRef}
+            className={`segment-item ${currentPeriod === 'custom' ? 'active' : ''}`}
+            onClick={() => handlePeriodChange('custom')}
+            title={currentPeriod === 'custom' ? `${appliedCustomRange.startDate} 至 ${appliedCustomRange.endDate}` : '选择自定义日期范围'}
+          >
+            <svg className="calendar-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+              <rect x="2" y="3" width="12" height="11" rx="1.5" />
+              <path d="M2 6h12M5 2v3M11 2v3" />
+            </svg>
+            <span>{getCustomButtonLabel()}</span>
+          </button>
         </div>
+
+        {/* 自定义日期 dropdown */}
+        {showCustomDateModal && (
+          <div
+            className="date-picker-dropdown"
+            style={{ left: `${datePickerPosition.left}px`, top: `${datePickerPosition.top}px` }}
+          >
+            {/* 日期输入区域：左右两个输入框 + 中间分隔符 */}
+            <div className="date-inputs">
+              <div className="date-input-wrapper">
+                <div className="date-input-label">开始日期</div>
+                <input
+                  type="date"
+                  className="date-input"
+                  value={customDateRange.startDate}
+                  max={getMaxSelectableDate()}
+                  onChange={(e) => {
+                    setCustomDateRange((prev) => ({
+                      ...prev,
+                      startDate: e.target.value
+                    }));
+                    // 用户修改时清除错误提示
+                    if (customDateError) setCustomDateError(null);
+                  }}
+                />
+              </div>
+              <div className="date-separator">~</div>
+              <div className="date-input-wrapper">
+                <div className="date-input-label">结束日期</div>
+                <input
+                  type="date"
+                  className="date-input"
+                  value={customDateRange.endDate}
+                  max={getMaxSelectableDate()}
+                  onChange={(e) => {
+                    setCustomDateRange((prev) => ({
+                      ...prev,
+                      endDate: e.target.value
+                    }));
+                    // 用户修改时清除错误提示
+                    if (customDateError) setCustomDateError(null);
+                  }}
+                />
+              </div>
+            </div>
+            {/* 错误提示 */}
+            {customDateError && (
+              <div className="date-picker-error">
+                <span>⚠️ {customDateError}</span>
+              </div>
+            )}
+            {/* 操作按钮区 */}
+            <div className="date-picker-actions">
+              <button className="btn btn--secondary" onClick={handleCustomDateCancel}>
+                取消
+              </button>
+              <button className="btn btn--primary" onClick={handleCustomDateConfirm}>
+                确定
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* 错误提示 */}
       {error && (
         <div className="error-banner">
           <span>⚠️ {error}</span>
-          <button onClick={handleRefresh}>重试</button>
+          {currentPeriod !== 'custom' && (
+            <button onClick={handleRefresh}>重试</button>
+          )}
         </div>
       )}
+
+      {/* 加载态 */}
+      {(loading || customLoading) && (
+        <div className="usage-loading-overlay">
+          <div className="loading-spinner" />
+          <span>加载中...</span>
+        </div>
+      )}
+
 
       {/* 图表行：左侧指标卡(2x2) + 右侧饼图 */}
       <div className="chart-row">
@@ -515,150 +899,5 @@ export default function UsageMonitorPage() {
         </div>
       </div>
     </div>
-  );
-}
-
-/**
- * 饼图组件
- * @param {Object} props
- * @param {Array} props.distribution - 分布数据
- * @param {string} props.total - 格式化后的总值
- * @returns {JSX.Element}
- */
-function PieChart({ distribution, total }) {
-  const CIRCUMFERENCE = 251.2; // 2 * PI * 40
-
-  // 空状态
-  if (!distribution || distribution.length === 0) {
-    return (
-      <div className="pie-chart">
-        <svg className="pie-svg" viewBox="0 0 100 100">
-          <circle cx="50" cy="50" r="40" fill="none" stroke="#e2e5ea" strokeWidth="20" />
-        </svg>
-        <div className="pie-center">
-          <div className="pie-total">0</div>
-          <div className="pie-unit">tokens</div>
-        </div>
-      </div>
-    );
-  }
-
-  let accumulatedPercent = 0;
-
-  return (
-    <div className="pie-chart">
-      <svg className="pie-svg" viewBox="0 0 100 100">
-        {distribution.map((item, index) => {
-          const dashArray = (item.percent / 100) * CIRCUMFERENCE;
-          const dashOffset = -(accumulatedPercent / 100) * CIRCUMFERENCE;
-          accumulatedPercent += item.percent;
-
-          return (
-            <circle
-              key={item.key || index}
-              cx="50"
-              cy="50"
-              r="40"
-              fill="none"
-              stroke={item.color}
-              strokeWidth="20"
-              strokeDasharray={`${dashArray} ${CIRCUMFERENCE}`}
-              strokeDashoffset={dashOffset}
-            />
-          );
-        })}
-      </svg>
-      <div className="pie-center">
-        <div className="pie-total">{total}</div>
-        <div className="pie-unit">tokens</div>
-      </div>
-    </div>
-  );
-}
-
-/**
- * 图例组件
- * @param {Object} props
- * @param {Array} props.distribution - 分布数据
- * @returns {JSX.Element}
- */
-function Legend({ distribution }) {
-  if (!distribution || distribution.length === 0) {
-    return <div className="legend" />;
-  }
-
-  return (
-    <div className="legend">
-      {distribution.map((item) => (
-        <div key={item.key} className="legend-item">
-          <div className="legend-dot" style={{ backgroundColor: item.color }} />
-          <span>{item.name} {item.displayPercent || item.percent + '%'}</span>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-/**
- * 明细表格组件
- * @param {Object} props
- * @param {Array} props.models - 模型数据列表
- * @returns {JSX.Element}
- */
-function DetailTable({ models }) {
-  if (!models || models.length === 0) {
-    return (
-      <table className="data-table">
-        <thead>
-          <tr>
-            <th>模型</th>
-            <th className="number">总 Token</th>
-            <th className="number">输入</th>
-            <th className="number">输出</th>
-            <th className="number">缓存命中</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr>
-            <td colSpan="5" style={{ textAlign: 'center', padding: '40px', color: '#8b919a' }}>
-              暂无数据
-            </td>
-          </tr>
-        </tbody>
-      </table>
-    );
-  }
-
-  return (
-    <table className="data-table">
-      <thead>
-        <tr>
-          <th>模型</th>
-          <th className="number">总 Token</th>
-          <th className="number">输入</th>
-          <th className="number">输出</th>
-          <th className="number">缓存命中</th>
-        </tr>
-      </thead>
-      <tbody>
-        {models.map((model) => (
-          <tr key={model.name}>
-            <td>
-              <div className="model-name">
-                <div
-                  className="model-dot"
-                  style={{ backgroundColor: model.color }}
-                />
-                {model.name}
-              </div>
-            </td>
-            <td className="number">{formatNumber(model.total)}</td>
-            <td className="number">{formatNumber(model.input)}</td>
-            <td className="number">{formatNumber(model.output)}</td>
-            <td className="number">{formatNumber(model.cacheRead + model.cacheCreate)}</td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
   );
 }

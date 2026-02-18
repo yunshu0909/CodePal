@@ -215,12 +215,22 @@ contextBridge.exposeInMainWorld('electronAPI', {
    */
   scanLogFiles: (params) => ipcRenderer.invoke('scan-log-files', params),
 
+  /**
+   * 聚合自定义日期范围用量
+   * @param {Object} params - 聚合参数
+   * @param {string} params.startDate - 开始日期（YYYY-MM-DD）
+   * @param {string} params.endDate - 结束日期（YYYY-MM-DD）
+   * @param {string} params.timezone - 时区（当前仅支持 Asia/Shanghai）
+   * @returns {Promise<{success: boolean, data?: object, meta?: {fromDailySummaryDays: number, recomputedDays: number, totalDays: number, failedDays: number}, error?: string}>}
+   */
+  aggregateUsageRange: (params) => ipcRenderer.invoke('aggregate-usage-range', params),
+
   // V0.7 API 配置 - 供应商切换
 
   /**
    * 获取当前 Claude 供应商配置
    * @returns {Promise<{success: boolean, current: string, profile: Object|null, error: string|null}>}
-   * current: 'official' | 'kimi' | 'aicodemirror' | 'custom'
+   * current: 'official' | 'qwen' | 'kimi' | 'aicodemirror' | 'custom'
    */
   getClaudeProvider: () => ipcRenderer.invoke('get-claude-provider'),
 
@@ -232,7 +242,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   /**
    * 保存供应商 API Key 到 .env
-   * @param {string} providerKey - 供应商 key ('kimi' | 'aicodemirror')
+   * @param {string} providerKey - 供应商 key ('qwen' | 'kimi' | 'aicodemirror')
    * @param {string} token - API Key
    * @returns {Promise<{success: boolean, envPath: string, error: string|null, errorCode: string|null}>}
    */
@@ -240,7 +250,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   /**
    * 切换 Claude 供应商
-   * @param {string} profileKey - 目标档位 ('official' | 'kimi' | 'aicodemirror')
+   * @param {string} profileKey - 目标档位 ('official' | 'qwen' | 'kimi' | 'aicodemirror')
    * @returns {Promise<{success: boolean, backupPath: string|null, error: string|null}>}
    */
   switchClaudeProvider: (profileKey) => ipcRenderer.invoke('switch-claude-provider', profileKey),
