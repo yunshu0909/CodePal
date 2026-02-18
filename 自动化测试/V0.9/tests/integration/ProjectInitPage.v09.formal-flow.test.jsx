@@ -3,8 +3,8 @@
  *
  * 负责：
  * - 基于真实 React 页面验证项目初始化参数收集链路
- * - 验证 validate/execute 成功与失败的前端行为
- * - 验证模板、Git、覆盖开关与路径浏览交互
+ * - 验证成功/失败统一弹窗结果展示
+ * - 验证失败弹窗的关闭与重试交互
  *
  * @module 自动化测试/V0.9/tests/integration/ProjectInitPage.v09.formal-flow.test
  */
@@ -13,9 +13,48 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import ProjectInitPage from '@/pages/ProjectInitPage.jsx'
 
+/**
+ * 构造默认成功执行返回
+ * @param {string} projectRoot - 项目根路径
+ * @returns {object}
+ */
+function buildExecuteSuccessResult(projectRoot) {
+  return {
+    success: true,
+    error: null,
+    data: {
+      validation: {
+        data: {
+          resolvedPaths: {
+            projectRoot,
+          },
+          plannedDirectories: [
+            `${projectRoot}/prd`,
+            `${projectRoot}/design`,
+            `${projectRoot}/code`,
+          ],
+        },
+      },
+      summary: {
+        createdDirectories: [
+          `${projectRoot}/prd`,
+          `${projectRoot}/design`,
+          `${projectRoot}/code`,
+        ],
+      },
+      steps: [
+        { step: 'CREATE_DIRECTORY', status: 'success', path: `${projectRoot}/prd`, code: null, message: 'ok' },
+      ],
+      rollback: {
+        attempted: false,
+        success: true,
+      },
+    },
+  }
+}
+
 describe('V0.9 Project Init Formal Flow (Integration)', () => {
   beforeEach(() => {
-    // 默认 mock：成功校验 + 成功执行，具体用例可覆盖
     window.electronAPI = {
       selectFolder: vi.fn().mockResolvedValue({
         success: true,
@@ -33,29 +72,9 @@ describe('V0.9 Project Init Formal Flow (Integration)', () => {
           warnings: [],
         },
       }),
-      executeProjectInit: vi.fn().mockResolvedValue({
-        success: true,
-        error: null,
-        data: {
-          validation: {
-            data: {
-              resolvedPaths: {
-                projectRoot: '/tmp/mock-selected-path/demo-success',
-              },
-            },
-          },
-          summary: {
-            createdDirectories: ['/tmp/mock-selected-path/demo-success/prd', '/tmp/mock-selected-path/demo-success/design', '/tmp/mock-selected-path/demo-success/code'],
-          },
-          steps: [
-            { step: 'CREATE_DIRECTORY', status: 'success', path: '/tmp/demo/prd', code: null, message: 'ok' },
-          ],
-          rollback: {
-            attempted: false,
-            success: true,
-          },
-        },
-      }),
+      executeProjectInit: vi.fn().mockResolvedValue(
+        buildExecuteSuccessResult('/tmp/mock-selected-path/demo-success')
+      ),
     }
   })
 
@@ -101,13 +120,13 @@ describe('V0.9 Project Init Formal Flow (Integration)', () => {
     })
   })
 
-  it('TC-S2-IT-01: validate 失败时应展示错误且不触发 execute', async () => {
+  it('TC-S2-IT-01: 校验失败时应展示失败弹窗且不触发 execute', async () => {
     window.electronAPI.validateProjectInit.mockResolvedValueOnce({
       success: true,
       valid: false,
       error: 'VALIDATION_FAILED',
       data: {
-        errors: [{ code: 'TARGET_CONFLICT', message: '目标冲突', path: '/tmp/mock/demo/AGENTS.md' }],
+        errors: [{ code: 'TARGET_CONFLICT', message: '目标路径存在冲突', path: '/tmp/mock/demo/AGENTS.md' }],
         conflicts: [{ type: 'FILE_EXISTS' }],
       },
     })
@@ -121,8 +140,10 @@ describe('V0.9 Project Init Formal Flow (Integration)', () => {
     })
 
     expect(window.electronAPI.executeProjectInit).toHaveBeenCalledTimes(0)
-    expect(screen.getByTestId('project-init-validation-result')).toBeTruthy()
-    expect(screen.getByText(/TARGET_CONFLICT/)).toBeTruthy()
+    expect(screen.getByTestId('project-init-error-modal')).toBeTruthy()
+    expect(screen.getByText('创建前校验未通过')).toBeTruthy()
+    expect(screen.getByText('目标路径存在冲突')).toBeTruthy()
+    expect(screen.getByText('提示：请更换项目名称或删除现有目录后重试')).toBeTruthy()
   })
 
   it('TC-S2-IT-02: validate+execute 成功时应提交正确参数并展示成功弹窗', async () => {
@@ -144,7 +165,6 @@ describe('V0.9 Project Init Formal Flow (Integration)', () => {
     expect(requestPayload.targetPath).toBe('/tmp/project-root')
     expect(requestPayload.gitMode).toBe('none')
     expect(requestPayload.overwrite).toBe(false)
-    // 关闭 CLAUDE 模板后仅保留 AGENTS + design
     expect(requestPayload.templates).toEqual(['agents', 'design'])
 
     expect(screen.getByTestId('project-init-success-modal')).toBeTruthy()
@@ -153,7 +173,7 @@ describe('V0.9 Project Init Formal Flow (Integration)', () => {
     expect(screen.getByTestId('project-init-success-config-status').textContent).toBe('已生成')
   })
 
-  it('TC-S2-IT-04: 成功弹窗确认后应重置页面', async () => {
+  it('TC-S2-IT-03: 成功弹窗确认后应重置页面', async () => {
     render(<ProjectInitPage />)
 
     fireEvent.change(screen.getByTestId('project-name-input'), { target: { value: 'demo-reset' } })
@@ -172,9 +192,10 @@ describe('V0.9 Project Init Formal Flow (Integration)', () => {
 
     expect(screen.getByTestId('project-name-input').value).toBe('')
     expect(screen.getByTestId('target-path-input').value).toBe('~/Documents/projects/')
+    expect(screen.getByTestId('git-mode-root').className).toContain('selected')
   })
 
-  it('TC-S2-IT-03: execute 失败时应展示失败步骤与回滚状态', async () => {
+  it('TC-S2-IT-04: execute 失败时应展示失败弹窗并可关闭', async () => {
     window.electronAPI.executeProjectInit.mockResolvedValueOnce({
       success: false,
       error: 'GIT_NOT_INSTALLED',
@@ -204,8 +225,43 @@ describe('V0.9 Project Init Formal Flow (Integration)', () => {
       expect(window.electronAPI.executeProjectInit).toHaveBeenCalledTimes(1)
     })
 
-    expect(screen.getByTestId('project-init-execution-failed')).toBeTruthy()
-    expect(screen.getByText(/GIT_NOT_INSTALLED/)).toBeTruthy()
-    expect(screen.getByText('回滚状态：成功')).toBeTruthy()
+    expect(screen.getByTestId('project-init-error-modal')).toBeTruthy()
+    expect(screen.getByText('项目创建失败')).toBeTruthy()
+    expect(screen.getByText('GIT_NOT_INSTALLED')).toBeTruthy()
+    expect(screen.getByText('提示：未检测到 Git')).toBeTruthy()
+
+    fireEvent.click(screen.getByTestId('project-init-error-close-button'))
+    await waitFor(() => {
+      expect(screen.queryByTestId('project-init-error-modal')).toBeNull()
+    })
+  })
+
+  it('TC-S2-IT-05: execute 失败后点击重试应再次执行并在成功后展示成功弹窗', async () => {
+    window.electronAPI.executeProjectInit
+      .mockResolvedValueOnce({
+        success: false,
+        error: 'GIT_NOT_INSTALLED',
+        data: {
+          steps: [{ step: 'EXECUTION_FAILED', status: 'failed', message: '未检测到 Git' }],
+          rollback: { attempted: true, success: true, steps: [] },
+        },
+      })
+      .mockResolvedValueOnce(buildExecuteSuccessResult('/tmp/mock-selected-path/demo-retry-ok'))
+
+    render(<ProjectInitPage />)
+    fireEvent.change(screen.getByTestId('project-name-input'), { target: { value: 'demo-retry' } })
+    fireEvent.click(screen.getByTestId('create-project-button'))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('project-init-error-modal')).toBeTruthy()
+    })
+
+    fireEvent.click(screen.getByTestId('project-init-error-retry-button'))
+
+    await waitFor(() => {
+      expect(window.electronAPI.executeProjectInit).toHaveBeenCalledTimes(2)
+    })
+    expect(screen.getByTestId('project-init-success-modal')).toBeTruthy()
+    expect(screen.queryByTestId('project-init-error-modal')).toBeNull()
   })
 })

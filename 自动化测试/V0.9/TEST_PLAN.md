@@ -4,7 +4,8 @@
 - PRD：`/Users/wuhaoyang/Documents/trae_projects/skills/docs/prd/PRD-Skill-Manager-V0.9-新建项目一键初始化.md`
 - 设计稿：`/Users/wuhaoyang/Documents/trae_projects/skills/设计/v0.9-新建项目/项目初始化-双栏布局-v0.9.html`
 - 范围内：
-  - 新建项目页面（字段输入、模板勾选、Git 模式、覆盖开关）
+  - 新建项目页面（字段输入、模板勾选、Git 模式）
+  - 成功/失败统一弹窗（含失败重试）
   - 后端 `project-init-validate` 校验与冲突检测
   - 后端 `project-init-execute` 执行、Git 初始化与安全回滚
   - Electron 端真实落盘（目录/模板/.git）
@@ -28,7 +29,7 @@
   - 双栏视觉细节（间距、阴影、字体渲染）
   - 页面操作流畅度与动画体感
 - A+H（联合）：
-  - 创建成功后的可读反馈（结果区 + Toast）
+  - 创建结果弹窗可读性（成功摘要/失败建议/重试入口）
 
 ## 4. 分层测试编排
 - Backend（Vitest / Node）
@@ -36,10 +37,10 @@
   - 关注点：校验、冲突、覆盖、Git 失败回滚
 - Integration（Vitest / jsdom）
   - 文件：`自动化测试/V0.9/tests/integration/ProjectInitPage.v09.formal-flow.test.jsx`
-  - 关注点：表单联动、validate/execute 链路、失败展示
+  - 关注点：表单联动、validate/execute 链路、成功/失败弹窗、失败重试
 - E2E（Playwright / Electron）
   - 文件：`自动化测试/V0.9/tests/e2e/project-init.v09.formal-electron.spec.js`
-  - 关注点：真实创建目录/模板/.git、冲突与覆盖行为
+  - 关注点：真实创建目录/模板/.git、冲突失败弹窗与重试成功
 
 ## 5. 执行顺序
 1. `npm run test:v09:backend`

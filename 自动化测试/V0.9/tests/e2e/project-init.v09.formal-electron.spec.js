@@ -4,7 +4,7 @@
  * 负责：
  * - 在真实 Electron 环境验证项目初始化页面主流程
  * - 验证创建后目录/模板/Git 落盘结果
- * - 验证冲突校验与覆盖开关行为
+ * - 验证冲突校验失败弹窗与重试行为
  *
  * @module 自动化测试/V0.9/tests/e2e/project-init.v09.formal-electron.spec
  */
@@ -64,6 +64,19 @@ async function assertAndConfirmSuccessModal(page) {
   await expect(page.getByTestId('project-init-success-modal')).toBeVisible()
   await page.getByTestId('project-init-success-confirm-button').click()
   await expect(page.getByTestId('project-init-success-modal')).toBeHidden()
+}
+
+/**
+ * 断言失败弹窗可见并包含关键信息
+ * @param {import('@playwright/test').Page} page - 当前窗口
+ * @param {RegExp|string} titleText - 标题文本
+ * @param {RegExp|string} messageText - 错误信息文本
+ * @returns {Promise<void>}
+ */
+async function assertErrorModalVisible(page, titleText, messageText) {
+  await expect(page.getByTestId('project-init-error-modal')).toBeVisible()
+  await expect(page.getByTestId('project-init-error-modal').getByText(titleText)).toBeVisible()
+  await expect(page.getByTestId('project-init-error-modal').getByText(messageText)).toBeVisible()
 }
 
 /**
@@ -160,7 +173,7 @@ test.describe('V0.9 Project Init Formal E2E (Electron)', () => {
     expect(await pathExists(path.join(projectRoot, '.git'))).toBe(true)
   })
 
-  test('E2E-03: 未开启覆盖时遇到同名模板应提示校验失败且保留旧文件', async () => {
+  test('E2E-03: 冲突场景应展示校验失败弹窗且保留旧文件', async () => {
     const projectName = 'v09-e2e-conflict'
     const projectRoot = path.join(workspaceRoot, projectName)
     const agentsPath = path.join(projectRoot, 'AGENTS.md')
@@ -175,16 +188,16 @@ test.describe('V0.9 Project Init Formal E2E (Electron)', () => {
     })
     await page.getByTestId('create-project-button').click()
 
-    await expect(page.getByTestId('project-init-validation-result')).toBeVisible()
-    await expect(
-      page.getByTestId('project-init-validation-result').getByRole('heading', { name: '创建前校验未通过' })
-    ).toBeVisible()
+    await assertErrorModalVisible(page, '创建前校验未通过', /目标路径存在冲突|目标文件已存在/)
+    await expect(page.getByTestId('project-init-error-retry-button')).toBeVisible()
+    await page.getByTestId('project-init-error-close-button').click()
+    await expect(page.getByTestId('project-init-error-modal')).toBeHidden()
 
     const content = await fs.readFile(agentsPath, 'utf-8')
     expect(content).toBe('legacy-agents-content\n')
   })
 
-  test('E2E-04: 冲突修复后再次创建应成功并展示成功弹窗', async () => {
+  test('E2E-04: 冲突修复后点击重试应成功并展示成功弹窗', async () => {
     const projectName = 'v09-e2e-conflict-resolved'
     const projectRoot = path.join(workspaceRoot, projectName)
     const agentsPath = path.join(projectRoot, 'AGENTS.md')
@@ -198,10 +211,10 @@ test.describe('V0.9 Project Init Formal E2E (Electron)', () => {
       gitMode: 'none',
     })
     await page.getByTestId('create-project-button').click()
-    await expect(page.getByTestId('project-init-validation-result')).toBeVisible()
+    await assertErrorModalVisible(page, '创建前校验未通过', /目标路径存在冲突|目标文件已存在/)
 
     await fs.rm(agentsPath, { force: true })
-    await page.getByTestId('create-project-button').click()
+    await page.getByTestId('project-init-error-retry-button').click()
     await assertAndConfirmSuccessModal(page)
 
     expect(await pathExists(path.join(projectRoot, 'AGENTS.md'))).toBe(true)

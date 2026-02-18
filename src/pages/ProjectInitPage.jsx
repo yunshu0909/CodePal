@@ -12,7 +12,7 @@
 
 import React, { useEffect, useMemo, useState } from 'react'
 import PathPickerField from '../components/PathPickerField'
-import ProjectInitSuccessModal from '../components/ProjectInitSuccessModal'
+import ProjectInitSuccessModal, { ProjectInitErrorModal } from '../components/ProjectInitSuccessModal'
 import Toast from '../components/Toast'
 import '../styles/project-init.css'
 
@@ -72,6 +72,16 @@ export default function ProjectInitPage() {
   const [isSuccessModalVisible, setIsSuccessModalVisible] = useState(false)
   // 成功弹窗摘要信息
   const [successModalSummary, setSuccessModalSummary] = useState(DEFAULT_SUCCESS_MODAL_SUMMARY)
+  // 失败弹窗是否可见
+  const [isErrorModalVisible, setIsErrorModalVisible] = useState(false)
+  // 失败弹窗信息
+  const [errorModalData, setErrorModalData] = useState({
+    errorTitle: '',
+    errorMessage: '',
+    errorHint: '',
+    failedSteps: [],
+    rollback: null,
+  })
   // Toast 提示消息
   const [toastMessage, setToastMessage] = useState(null)
 
@@ -175,7 +185,15 @@ export default function ProjectInitPage() {
    */
   const handleCreateProject = async () => {
     if (!window.electronAPI?.validateProjectInit || !window.electronAPI?.executeProjectInit) {
-      setToastMessage('当前版本未接入项目初始化 IPC')
+      // 显示弹窗
+      setErrorModalData({
+        errorTitle: '功能不可用',
+        errorMessage: '当前版本未接入项目初始化 IPC',
+        errorHint: '请检查应用版本或联系技术支持',
+        failedSteps: [],
+        rollback: null,
+      })
+      setIsErrorModalVisible(true)
       return
     }
 
@@ -198,12 +216,37 @@ export default function ProjectInitPage() {
       setValidationResult(validateResponse)
 
       if (!validateResponse.success) {
-        setToastMessage(validateResponse.error || '创建前校验异常')
+        // 校验异常，显示弹窗
+        setErrorModalData({
+          errorTitle: '创建前校验异常',
+          errorMessage: validateResponse.error || '校验过程发生错误',
+          errorHint: '请检查网络连接或稍后重试',
+          failedSteps: [],
+          rollback: null,
+        })
+        setIsErrorModalVisible(true)
         return
       }
 
       if (!validateResponse.valid) {
-        setToastMessage('创建前校验未通过')
+        // 校验失败，显示弹窗
+        const errors = validateResponse.data?.errors || []
+        const firstError = errors[0]
+
+        setErrorModalData({
+          errorTitle: '创建前校验未通过',
+          errorMessage: firstError?.message || '参数校验失败',
+          errorHint: firstError?.code === 'TARGET_CONFLICT'
+            ? '请更换项目名称或删除现有目录后重试'
+            : '请检查输入参数后重试',
+          failedSteps: errors.map(e => ({
+            step: e.code || '校验',
+            status: 'failed',
+            message: e.message,
+          })),
+          rollback: null,
+        })
+        setIsErrorModalVisible(true)
         return
       }
 
@@ -224,11 +267,31 @@ export default function ProjectInitPage() {
         })
         setIsSuccessModalVisible(true)
       } else {
-        setToastMessage('项目初始化失败，请查看结果明细')
+        // 显示失败弹窗
+        const steps = executeResponse.data?.steps || []
+        const failedSteps = steps.filter(s => s.status === 'failed' || s.status === 'error')
+        const rollback = executeResponse.data?.rollback
+
+        setErrorModalData({
+          errorTitle: '项目创建失败',
+          errorMessage: executeResponse.error || '初始化过程中发生错误',
+          errorHint: failedSteps[0]?.message || '请检查日志或更换项目路径后重试',
+          failedSteps,
+          rollback: rollback || null,
+        })
+        setIsErrorModalVisible(true)
       }
     } catch (error) {
       console.error('Error creating project:', error)
-      setToastMessage('项目初始化失败')
+      // 异常显示弹窗
+      setErrorModalData({
+        errorTitle: '项目初始化失败',
+        errorMessage: error?.message || '未知错误',
+        errorHint: '请检查网络连接或稍后重试',
+        failedSteps: [],
+        rollback: null,
+      })
+      setIsErrorModalVisible(true)
     } finally {
       setIsSubmitting(false)
     }
@@ -252,6 +315,23 @@ export default function ProjectInitPage() {
     setSuccessModalSummary(DEFAULT_SUCCESS_MODAL_SUMMARY)
     setToastMessage('页面已重置，可以开始新的配置')
   }
+
+  /**
+   * 失败弹窗关闭
+   */
+  const handleCloseErrorModal = () => {
+    setIsErrorModalVisible(false)
+  }
+
+  /**
+   * 失败弹窗重试
+   */
+  const handleRetryErrorModal = () => {
+    setIsErrorModalVisible(false)
+    // 重新执行创建
+    handleCreateProject()
+  }
+
 
   return (
     <div className="project-init-page" data-testid="project-init-page">
@@ -419,51 +499,21 @@ export default function ProjectInitPage() {
         </div>
       </div>
 
-      {validationResult && !validationResult.valid && (
-        <section className="pi-result pi-result-error" data-testid="project-init-validation-result">
-          <h3>创建前校验未通过</h3>
-          <ul>
-            {(validationResult.data?.errors || []).map((errorItem, index) => (
-              <li key={`${errorItem.code}-${index}`}>
-                <strong>{errorItem.code}</strong> - {errorItem.message}
-                {errorItem.path ? ` (${errorItem.path})` : ''}
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
-
-      {executionResult && !executionResult.success && (
-        <section
-          className="pi-result pi-result-error"
-          data-testid="project-init-execution-failed"
-        >
-          <h3>初始化失败</h3>
-          <ul>
-            {(executionResult.data?.steps || []).map((stepItem, index) => (
-              <li key={`${stepItem.step}-${index}`}>
-                <strong>[{stepItem.status}]</strong> {stepItem.step}
-                {stepItem.path ? ` - ${stepItem.path}` : ''}
-                {stepItem.code ? ` (${stepItem.code})` : ''}
-                {stepItem.message ? `：${stepItem.message}` : ''}
-              </li>
-            ))}
-          </ul>
-
-          {executionResult.data?.rollback?.attempted && (
-            <div className="pi-rollback">
-              回滚状态：{executionResult.data.rollback.success ? '成功' : '部分失败'}
-            </div>
-          )}
-        </section>
-      )}
-
       <ProjectInitSuccessModal
         visible={isSuccessModalVisible}
         projectPath={successModalSummary.projectPath}
         createdDirectoryCount={successModalSummary.createdDirectoryCount}
         configStatus={successModalSummary.configStatus}
         onConfirm={handleConfirmSuccessModal}
+      />
+
+      <ProjectInitErrorModal
+        visible={isErrorModalVisible}
+        errorTitle={errorModalData.errorTitle}
+        errorMessage={errorModalData.errorMessage}
+        errorHint={errorModalData.errorHint}
+        onClose={handleCloseErrorModal}
+        onRetry={handleRetryErrorModal}
       />
 
       {toastMessage && <Toast message={toastMessage} onClose={() => setToastMessage(null)} />}

@@ -479,18 +479,230 @@
   font-weight: 600;
 }
 
+/* ===== Result Modal 样式（来自设计规范 v0.9）===== */
 .pi-modal-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.35);
-  backdrop-filter: blur(2px);
+  background: rgba(0, 0, 0, 0.45);
   display: flex;
   align-items: center;
   justify-content: center;
   z-index: 1200;
   animation: pi-fade-in 200ms ease;
+  padding: var(--pi-space-6, 24px);
 }
 
+.pi-result-modal {
+  width: 360px;
+  max-width: calc(100vw - 32px);
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
+  background: var(--pi-bg-base);
+  border-radius: var(--pi-radius-3xl);
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.12);
+  padding: 40px 32px 32px;
+  text-align: center;
+  animation: pi-modal-in 300ms ease;
+}
+
+@keyframes pi-modal-in {
+  from { opacity: 0; transform: scale(0.96) translateY(10px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+/* 图标 */
+.pi-result-modal__icon {
+  width: 56px;
+  height: 56px;
+  border-radius: var(--pi-radius-full);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto 20px;
+}
+
+.pi-result-modal__icon--success {
+  background: #f0fdf4;
+  color: #16a34a;
+}
+
+.pi-result-modal__icon--error {
+  background: #fef2f2;
+  color: #dc2626;
+}
+
+.pi-result-modal__icon svg {
+  width: 28px;
+  height: 28px;
+}
+
+/* 标题 */
+.pi-result-modal__title {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--pi-text-primary);
+  margin-bottom: 8px;
+}
+
+/* 信息区 */
+.pi-result-modal__info {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 24px;
+}
+
+.pi-result-modal__info-row {
+  display: grid;
+  grid-template-columns: 72px 1fr;
+  gap: 12px;
+  align-items: baseline;
+  padding: 10px 14px;
+  background: var(--pi-bg-subtle);
+  border-radius: var(--pi-radius-lg);
+  font-size: 13px;
+  text-align: left;
+}
+
+.pi-result-modal__info-label {
+  color: var(--pi-text-tertiary);
+  line-height: 1.5;
+}
+
+.pi-result-modal__info-value {
+  color: var(--pi-text-primary);
+  font-weight: 500;
+  line-height: 1.5;
+  word-break: break-all;
+}
+
+/* 错误信息展示 */
+.pi-result-modal__error {
+  padding: 14px;
+  background: #fef2f2;
+  border-radius: var(--pi-radius-lg);
+  margin-bottom: 20px;
+  text-align: left;
+}
+
+.pi-result-modal__error-text {
+  font-size: 13px;
+  color: #dc2626;
+  line-height: 1.6;
+}
+
+.pi-result-modal__error-hint {
+  font-size: 12px;
+  color: var(--pi-text-tertiary);
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--pi-border-default);
+}
+
+/* 步骤列表 */
+.pi-result-modal__steps {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 20px;
+  text-align: left;
+}
+
+.pi-result-modal__step {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: var(--pi-radius-lg);
+  font-size: 13px;
+}
+
+.pi-result-modal__step--error {
+  background: #fef2f2;
+}
+
+.pi-result-modal__step--rollback {
+  background: var(--pi-bg-subtle);
+}
+
+.pi-result-modal__step--rollback.success {
+  color: #16a34a;
+}
+
+.pi-result-modal__step--rollback.partial {
+  color: #d97706;
+}
+
+.pi-result-modal__step-status {
+  font-weight: 600;
+}
+
+.pi-result-modal__step-name {
+  color: var(--pi-text-primary);
+  font-weight: 500;
+}
+
+.pi-result-modal__step-message {
+  color: var(--pi-text-tertiary);
+  font-size: 12px;
+  margin-left: auto;
+}
+
+/* 按钮区 */
+.pi-result-modal__actions {
+  display: flex;
+  gap: 12px;
+}
+
+.pi-result-modal__actions--single {
+  display: flex;
+  justify-content: center;
+}
+
+.pi-result-modal__actions--single .pi-result-modal__btn {
+  width: 100%;
+  max-width: 200px;
+}
+
+.pi-result-modal__btn {
+  flex: 1;
+  padding: 11px 16px;
+  border: none;
+  border-radius: var(--pi-radius-full);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--pi-transition-fast);
+}
+
+.pi-result-modal__btn--primary {
+  background: var(--pi-color-primary);
+  color: #fff;
+}
+
+.pi-result-modal__btn--primary:hover {
+  background: var(--pi-color-primary-hover);
+}
+
+.pi-result-modal__btn--secondary {
+  background: var(--pi-bg-muted);
+  color: var(--pi-text-secondary);
+}
+
+.pi-result-modal__btn--secondary:hover {
+  background: var(--pi-border-default);
+}
+
+.pi-result-modal__btn--danger {
+  background: #dc2626;
+  color: #fff;
+}
+
+.pi-result-modal__btn--danger:hover {
+  background: #b91c1c;
+}
+
+/* 兼容旧样式 */
 .pi-success-modal {
   width: 400px;
   max-width: calc(100vw - 32px);
