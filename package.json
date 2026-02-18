@@ -20,6 +20,10 @@
     "test:v07:watch": "vitest --config 自动化测试/V0.7/vitest.config.js",
     "test:v08": "vitest run --config 自动化测试/V0.8/vitest.config.js",
     "test:v08:watch": "vitest --config 自动化测试/V0.8/vitest.config.js",
+    "test:v09": "npm run test:v09:backend && npm run test:v09:integration",
+    "test:v09:backend": "vitest run --config 自动化测试/V0.9/vitest.backend.config.js",
+    "test:v09:integration": "vitest run --config 自动化测试/V0.9/vitest.integration.config.js",
+    "test:v09:watch": "vitest --config 自动化测试/V0.9/vitest.integration.config.js",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "test:ui": "vitest --ui",
@@ -30,11 +34,13 @@
     "test:e2e:v05": "npm run build && playwright test --config 自动化测试/V0.5/playwright.config.js",
     "test:e2e:v06": "npm run build && playwright test --config 自动化测试/V0.6/playwright.config.js",
     "test:e2e:v07": "npm run build && playwright test --config 自动化测试/V0.7/playwright.config.js",
+    "test:e2e:v09": "npm run build && playwright test --config 自动化测试/V0.9/playwright.config.js",
     "test:v04:all": "npm run test:v04 && npm run test:e2e:v04",
     "test:regression:all": "npm run test:v04:all && npm run test:v05:all",
     "test:v05:all": "npm run test:v05 && npm run test:e2e:v05",
     "test:v06:all": "npm run test:v06 && npm run test:e2e:v06",
-    "test:v07:all": "npm run test:v07 && npm run test:e2e:v07"
+    "test:v07:all": "npm run test:v07 && npm run test:e2e:v07",
+    "test:v09:all": "npm run test:v09 && npm run test:e2e:v09"
   },
   "keywords": [
     "electron",

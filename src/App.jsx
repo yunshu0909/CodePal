@@ -16,6 +16,7 @@ import WorkbenchLayout from './components/WorkbenchLayout'
 import SkillManagerModule from './components/SkillManagerModule'
 import UsageMonitorModule from './components/UsageMonitorModule'
 import ApiConfigPage from './pages/ApiConfigPage'
+import ProjectInitPage from './pages/ProjectInitPage'
 import Toast from './components/Toast'
 import { dataStore } from './store/data'
 
@@ -26,7 +27,7 @@ export default function App() {
   const [initialSkillManagerPage, setInitialSkillManagerPage] = useState(null)
   // Toast 提示消息
   const [toast, setToast] = useState(null)
-  // 活跃模块：'skills' | 'usage' | 'api'
+  // 活跃模块：'skills' | 'project-init' | 'usage' | 'api'
   const [activeModule, setActiveModule] = useState('skills')
   // 技能模块刷新信号（自动增量导入新增 skill 后触发）
   const [skillsRefreshSignal, setSkillsRefreshSignal] = useState(0)
@@ -144,6 +145,7 @@ export default function App() {
         )}
         {activeModule === 'usage' && <UsageMonitorModule />}
         {activeModule === 'api' && <ApiConfigPage />}
+        {activeModule === 'project-init' && <ProjectInitPage />}
       </WorkbenchLayout>
 
       {/* Toast */}

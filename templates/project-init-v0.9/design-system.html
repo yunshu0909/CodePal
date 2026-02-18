@@ -1,0 +1,1800 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Skill Manager Design System — Cool Steel</title>
+<style>
+/* ============================================================
+   Design Tokens — Cool Steel
+   ============================================================ */
+:root {
+  /* ---- Color: Primary ---- */
+  --color-primary:        #2563eb;
+  --color-primary-hover:   #1d4ed8;
+  --color-primary-light:   #eff6ff;
+
+  /* ---- Color: Text ---- */
+  --text-primary:    #1a1d23;
+  --text-secondary:  #5a6070;
+  --text-tertiary:   #8b919a;
+  --text-placeholder: #aab0ba;
+
+  /* ---- Color: Background ---- */
+  --bg-base:   #fff;
+  --bg-subtle: #f8f9fb;
+  --bg-muted:  #eef0f4;
+
+  /* ---- Color: Border ---- */
+  --border-light:   #f0f1f4;
+  --border-default: #e2e5ea;
+  --border-strong:  #cbd0d8;
+
+  /* ---- Color: Semantic ---- */
+  --color-success:    #16a34a;
+  --color-success-bg: #f0fdf4;
+  --color-danger:     #dc2626;
+  --color-danger-bg:  #fef2f2;
+
+  /* ---- Color: Brand ---- */
+  --color-claude: #6b5ce7;
+  --color-codex:  #e67e22;
+  --color-cursor: #2ecc71;
+  --color-trae:   #1a9aff;
+
+  /* ---- Typography ---- */
+  --font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', sans-serif;
+  --font-mono:   'SF Mono', 'Menlo', 'Monaco', 'Consolas', monospace;
+  --text-xl:  22px;
+  --text-lg:  18px;
+  --text-md:  15px;
+  --text-base: 14px;
+  --text-sm:  13px;
+  --text-xs:  12px;
+  --text-2xs: 11px;
+
+  /* ---- Spacing (4px base) ---- */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-7: 28px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+
+  /* ---- Border Radius ---- */
+  --radius-sm:   6px;
+  --radius-md:   8px;
+  --radius-lg:   10px;
+  --radius-xl:   12px;
+  --radius-2xl:  14px;
+  --radius-3xl:  20px;
+  --radius-full: 9999px;
+
+  /* ---- Shadow ---- */
+  --shadow-card:  0 2px 20px rgba(0,0,0,0.05), 0 0 0 1px rgba(0,0,0,0.03);
+  --shadow-modal: 0 10px 40px rgba(0,0,0,0.12);
+
+  /* ---- Transition ---- */
+  --transition-fast: 150ms ease;
+}
+
+
+/* ============================================================
+   Page Layout
+   ============================================================ */
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  font-family: var(--font-family);
+  font-size: var(--text-base);
+  color: var(--text-primary);
+  background: var(--bg-muted);
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+
+.ds-layout {
+  display: flex;
+  min-height: 100vh;
+}
+
+/* ---- Sidebar ---- */
+.ds-sidebar {
+  width: 220px;
+  background: var(--bg-base);
+  border-right: 1px solid var(--border-default);
+  position: fixed;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  overflow-y: auto;
+  z-index: 10;
+}
+
+.ds-sidebar-header {
+  padding: var(--space-6) var(--space-5);
+  border-bottom: 1px solid var(--border-light);
+}
+
+.ds-sidebar-header h1 {
+  font-size: var(--text-md);
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: -0.3px;
+}
+
+.ds-sidebar-header .ds-version {
+  font-size: var(--text-2xs);
+  color: var(--text-tertiary);
+  margin-top: var(--space-1);
+}
+
+.ds-nav {
+  padding: var(--space-3) var(--space-3);
+}
+
+.ds-nav-group {
+  margin-bottom: var(--space-4);
+}
+
+.ds-nav-group-title {
+  font-size: var(--text-2xs);
+  font-weight: 600;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding: var(--space-2) var(--space-3);
+}
+
+.ds-nav a {
+  display: block;
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  text-decoration: none;
+  border-radius: var(--radius-sm);
+  transition: all var(--transition-fast);
+}
+
+.ds-nav a:hover {
+  background: var(--bg-muted);
+  color: var(--text-primary);
+}
+
+/* ---- Main Content ---- */
+.ds-main {
+  margin-left: 220px;
+  flex: 1;
+  padding: var(--space-10) var(--space-12);
+  max-width: 960px;
+}
+
+.ds-section { margin-bottom: 64px; }
+
+.ds-section-title {
+  font-size: var(--text-xl);
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-bottom: var(--space-2);
+  letter-spacing: -0.5px;
+}
+
+.ds-section-desc {
+  font-size: var(--text-base);
+  color: var(--text-secondary);
+  margin-bottom: var(--space-8);
+  line-height: 1.7;
+}
+
+.ds-subsection { margin-bottom: var(--space-10); }
+
+.ds-subsection-title {
+  font-size: var(--text-md);
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: var(--space-4);
+}
+
+
+/* ============================================================
+   Section: Colors
+   ============================================================ */
+.ds-color-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: var(--space-3);
+  margin-bottom: var(--space-6);
+}
+
+.ds-color-card {
+  background: var(--bg-base);
+  border-radius: var(--radius-xl);
+  overflow: hidden;
+  border: 1px solid var(--border-default);
+}
+
+.ds-color-swatch { height: 72px; }
+
+.ds-color-info { padding: var(--space-3); }
+
+.ds-color-name {
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 2px;
+}
+
+.ds-color-token {
+  font-size: var(--text-2xs);
+  color: var(--text-tertiary);
+  font-family: var(--font-mono);
+}
+
+.ds-color-hex {
+  font-size: var(--text-2xs);
+  color: var(--text-tertiary);
+  font-family: var(--font-mono);
+  margin-top: 2px;
+}
+
+
+/* ============================================================
+   Section: Typography
+   ============================================================ */
+.ds-type-row {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-8);
+  padding: var(--space-4) 0;
+  border-bottom: 1px solid var(--border-light);
+}
+
+.ds-type-meta { flex-shrink: 0; width: 200px; }
+
+.ds-type-token {
+  font-size: var(--text-xs);
+  font-family: var(--font-mono);
+  color: var(--text-tertiary);
+}
+
+.ds-type-spec {
+  font-size: var(--text-2xs);
+  color: var(--text-placeholder);
+  margin-top: 2px;
+}
+
+
+/* ============================================================
+   Section: Spacing
+   ============================================================ */
+.ds-spacing-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-2) 0;
+}
+
+.ds-spacing-bar {
+  height: 24px;
+  background: var(--color-primary);
+  border-radius: 4px;
+  opacity: 0.75;
+}
+
+.ds-spacing-label {
+  font-size: var(--text-xs);
+  font-family: var(--font-mono);
+  color: var(--text-tertiary);
+  min-width: 100px;
+}
+
+.ds-spacing-value {
+  font-size: var(--text-xs);
+  color: var(--text-placeholder);
+  min-width: 40px;
+}
+
+
+/* ============================================================
+   Section: Radius & Shadow
+   ============================================================ */
+.ds-radius-grid {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--space-5);
+  flex-wrap: wrap;
+  margin-bottom: var(--space-8);
+}
+
+.ds-radius-item { text-align: center; }
+
+.ds-radius-box {
+  width: 72px;
+  height: 72px;
+  background: var(--bg-base);
+  border: 2px solid var(--border-default);
+  margin-bottom: var(--space-2);
+}
+
+.ds-radius-token {
+  font-size: var(--text-2xs);
+  font-family: var(--font-mono);
+  color: var(--text-tertiary);
+}
+
+.ds-radius-value {
+  font-size: var(--text-2xs);
+  color: var(--text-placeholder);
+}
+
+.ds-shadow-grid {
+  display: flex;
+  gap: var(--space-8);
+  flex-wrap: wrap;
+}
+
+.ds-shadow-item { text-align: center; }
+
+.ds-shadow-box {
+  width: 160px;
+  height: 100px;
+  background: var(--bg-base);
+  border-radius: var(--radius-3xl);
+  margin-bottom: var(--space-3);
+}
+
+
+/* ============================================================
+   Component Preview Shared
+   ============================================================ */
+.ds-preview {
+  background: var(--bg-base);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-xl);
+  padding: var(--space-6);
+  margin-bottom: var(--space-4);
+}
+
+.ds-preview-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+}
+
+.ds-preview-col {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.ds-preview-label {
+  font-size: var(--text-2xs);
+  color: var(--text-tertiary);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.ds-code {
+  background: #1e1e2e;
+  color: #cdd6f4;
+  border-radius: var(--radius-lg);
+  padding: var(--space-4) var(--space-5);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  line-height: 1.8;
+  overflow-x: auto;
+  margin-bottom: var(--space-4);
+}
+
+.ds-code .hl-prop { color: #89b4fa; }
+.ds-code .hl-val  { color: #a6e3a1; }
+.ds-code .hl-sel  { color: #f9e2af; }
+.ds-code .hl-cmt  { color: #6c7086; }
+
+
+/* ============================================================
+   Component: Button
+   ============================================================ */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  padding: 8px 16px;
+  font-size: var(--text-sm);
+  font-weight: 500;
+  font-family: var(--font-family);
+  border-radius: var(--radius-lg);
+  border: 1.5px solid transparent;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  white-space: nowrap;
+  line-height: 1.4;
+}
+
+.btn:active { transform: scale(0.98); }
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.btn--primary {
+  background: var(--color-primary);
+  color: #fff;
+  border-color: var(--color-primary);
+}
+.btn--primary:hover {
+  background: var(--color-primary-hover);
+  border-color: var(--color-primary-hover);
+}
+
+.btn--secondary {
+  background: var(--bg-base);
+  color: var(--text-secondary);
+  border-color: var(--border-strong);
+}
+.btn--secondary:hover {
+  background: var(--bg-subtle);
+  border-color: var(--text-tertiary);
+}
+
+.btn--danger {
+  background: transparent;
+  color: var(--color-danger);
+  border-color: transparent;
+}
+.btn--danger:hover { background: var(--color-danger-bg); }
+
+.btn--ghost {
+  background: transparent;
+  color: var(--text-secondary);
+  border-color: transparent;
+}
+.btn--ghost:hover { background: var(--bg-muted); }
+
+.btn--dashed {
+  background: transparent;
+  color: var(--text-tertiary);
+  border: 1.5px dashed var(--border-strong);
+  width: 100%;
+}
+.btn--dashed:hover {
+  color: var(--text-secondary);
+  border-color: var(--text-tertiary);
+  background: var(--bg-subtle);
+}
+
+.btn--sm { padding: 6px 12px; font-size: var(--text-xs); }
+.btn--lg { padding: 10px 24px; font-size: var(--text-base); }
+
+
+/* ============================================================
+   Component: Checkbox
+   ============================================================ */
+.checkbox {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: var(--radius-sm);
+  border: 1.5px solid var(--border-strong);
+  background: var(--bg-base);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  flex-shrink: 0;
+}
+
+.checkbox:hover { border-color: var(--text-tertiary); }
+.checkbox--checked {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+}
+.checkbox--indeterminate {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+}
+
+.checkbox--sm { width: 16px; height: 16px; border-radius: 4px; }
+.checkbox--sm svg { width: 10px; height: 10px; }
+.checkbox svg { width: 12px; height: 12px; }
+
+
+/* ============================================================
+   Component: Card
+   ============================================================ */
+.card {
+  display: flex;
+  align-items: center;
+  padding: 14px 16px;
+  border-radius: var(--radius-2xl);
+  border: 1.5px solid var(--border-default);
+  background: var(--bg-base);
+  transition: all var(--transition-fast);
+  gap: var(--space-3);
+}
+
+.card--selectable { cursor: pointer; }
+.card--selectable:hover { border-color: var(--border-strong); }
+.card--selectable.is-selected {
+  background: var(--color-primary-light);
+  border-color: #bfdbfe;
+}
+
+.card__icon {
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-lg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--text-base);
+  flex-shrink: 0;
+  color: #fff;
+  font-weight: 600;
+}
+
+.card__body { flex: 1; min-width: 0; }
+
+.card__title {
+  font-size: var(--text-base);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.card__meta {
+  font-size: var(--text-2xs);
+  color: var(--text-tertiary);
+  margin-top: 2px;
+}
+
+.card__action { flex-shrink: 0; }
+
+
+/* ============================================================
+   Component: StatusTag
+   ============================================================ */
+.tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 10px;
+  border-radius: var(--radius-full);
+  font-size: var(--text-xs);
+  font-weight: 500;
+  transition: all var(--transition-fast);
+  cursor: default;
+}
+
+.tag--success { color: var(--color-success); background: var(--color-success-bg); }
+.tag--neutral { color: var(--text-tertiary); background: var(--bg-muted); }
+.tag--danger  { color: var(--color-danger);  background: var(--color-danger-bg); }
+
+
+/* ============================================================
+   Component: Input
+   ============================================================ */
+.input {
+  width: 100%;
+  padding: 9px 14px;
+  font-size: var(--text-sm);
+  font-family: var(--font-family);
+  color: var(--text-primary);
+  background: var(--bg-subtle);
+  border: 1.5px solid var(--border-default);
+  border-radius: var(--radius-xl);
+  outline: none;
+  transition: all var(--transition-fast);
+}
+
+.input:hover { border-color: var(--border-strong); }
+.input:focus { border-color: var(--color-primary); background: var(--bg-base); }
+.input::placeholder { color: var(--text-placeholder); }
+
+.input--search {
+  padding-left: 36px;
+  background-image: url("data:image/svg+xml,%3Csvg width='16' height='16' viewBox='0 0 16 16' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Ccircle cx='7' cy='7' r='4.5' stroke='%238b919a' stroke-width='1.5'/%3E%3Cpath d='M10.5 10.5L13.5 13.5' stroke='%238b919a' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: 12px center;
+}
+
+.input--display {
+  background: var(--bg-muted);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  cursor: default;
+}
+
+
+/* ============================================================
+   Component: Toast
+   ============================================================ */
+.toast-demo-container {
+  position: relative;
+  height: 80px;
+  background: var(--bg-muted);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+
+.toast {
+  position: absolute;
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--color-primary);
+  color: #fff;
+  padding: 10px 20px;
+  border-radius: var(--radius-xl);
+  font-size: var(--text-sm);
+  white-space: nowrap;
+  box-shadow: 0 4px 16px rgba(37,99,235,0.25);
+  animation: toast-in 300ms ease;
+}
+
+@keyframes toast-in {
+  from { opacity: 0; transform: translateX(-50%) translateY(8px); }
+  to   { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+
+
+/* ============================================================
+   Component: Modal
+   ============================================================ */
+.modal-demo {
+  position: relative;
+  min-height: 320px;
+  background: rgba(0,0,0,0.12);
+  border-radius: var(--radius-lg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.modal {
+  width: 420px;
+  background: var(--bg-base);
+  border-radius: var(--radius-3xl);
+  box-shadow: var(--shadow-modal);
+  overflow: hidden;
+}
+
+.modal__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20px 24px;
+  border-bottom: 1px solid var(--border-light);
+}
+
+.modal__title {
+  font-size: var(--text-lg);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.modal__close {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  color: var(--text-tertiary);
+  font-size: 18px;
+  transition: all var(--transition-fast);
+}
+.modal__close:hover { background: var(--bg-muted); color: var(--text-primary); }
+
+.modal__body {
+  padding: 24px;
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  line-height: 1.7;
+}
+
+.modal__footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-3);
+  padding: 16px 24px;
+  border-top: 1px solid var(--border-light);
+}
+
+
+/* ============================================================
+   Component: BatchBar
+   ============================================================ */
+.batch-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 20px;
+  background: var(--bg-subtle);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-xl);
+}
+
+.batch-bar__info { font-size: var(--text-sm); color: var(--text-secondary); }
+.batch-bar__info strong { color: var(--text-primary); font-weight: 600; }
+.batch-bar__actions { display: flex; gap: var(--space-2); }
+
+
+/* ============================================================
+   Component: NavItem
+   ============================================================ */
+.nav-item-demo {
+  width: 180px;
+  background: var(--bg-subtle);
+  border-radius: var(--radius-lg);
+  padding: var(--space-3);
+}
+
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  border: none;
+  background: transparent;
+  width: 100%;
+  text-align: left;
+  font-family: var(--font-family);
+}
+
+.nav-item:hover { background: var(--bg-muted); }
+.nav-item.is-active {
+  background: var(--bg-muted);
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.nav-item__icon {
+  width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+
+/* ============================================================
+   Layout Diagram
+   ============================================================ */
+.ds-layout-diagram {
+  background: var(--bg-base);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-xl);
+  padding: var(--space-6);
+  margin-bottom: var(--space-4);
+}
+
+
+/* ============================================================
+   Transition Demo
+   ============================================================ */
+.ds-transition-box {
+  width: 120px;
+  height: 48px;
+  background: var(--bg-muted);
+  border: 1.5px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  transition: all var(--transition-fast);
+  cursor: pointer;
+}
+
+.ds-transition-box:hover {
+  background: var(--color-primary);
+  color: #fff;
+  border-color: var(--color-primary);
+  transform: scale(1.02);
+}
+
+.ds-transition-box:active { transform: scale(0.98); }
+
+
+/* ============================================================
+   Tables
+   ============================================================ */
+.ds-token-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-sm);
+  margin-bottom: var(--space-6);
+}
+
+.ds-token-table th {
+  text-align: left;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--text-tertiary);
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 2px solid var(--border-default);
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.ds-token-table td {
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--border-light);
+  vertical-align: middle;
+}
+
+.ds-token-table code {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--color-primary);
+  background: var(--color-primary-light);
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.ds-inline-swatch {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  vertical-align: middle;
+  margin-right: 6px;
+  border: 1px solid rgba(0,0,0,0.08);
+}
+
+
+/* ============================================================
+   Hero
+   ============================================================ */
+.ds-hero {
+  margin-bottom: 56px;
+  padding-bottom: var(--space-8);
+  border-bottom: 1px solid var(--border-light);
+}
+
+.ds-hero h1 {
+  font-size: 32px;
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: -0.8px;
+  margin-bottom: var(--space-2);
+}
+
+.ds-hero p {
+  font-size: var(--text-md);
+  color: var(--text-secondary);
+  line-height: 1.7;
+}
+
+.ds-hero .ds-hero-meta {
+  display: flex;
+  gap: var(--space-6);
+  margin-top: var(--space-4);
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+}
+</style>
+</head>
+
+<body>
+<div class="ds-layout">
+
+<!-- ============================================================
+     Sidebar Navigation
+     ============================================================ -->
+<aside class="ds-sidebar">
+  <div class="ds-sidebar-header">
+    <h1>Skill Manager</h1>
+    <div class="ds-version">Design System v1.0 — Cool Steel</div>
+  </div>
+  <nav class="ds-nav">
+    <div class="ds-nav-group">
+      <div class="ds-nav-group-title">Tokens</div>
+      <a href="#colors">色彩系统</a>
+      <a href="#typography">字体阶梯</a>
+      <a href="#spacing">间距系统</a>
+      <a href="#radius-shadow">圆角与阴影</a>
+    </div>
+    <div class="ds-nav-group">
+      <div class="ds-nav-group-title">Components</div>
+      <a href="#button">Button</a>
+      <a href="#checkbox">Checkbox</a>
+      <a href="#card">Card</a>
+      <a href="#input">Input</a>
+      <a href="#status-tag">StatusTag</a>
+      <a href="#toast">Toast</a>
+      <a href="#modal">Modal</a>
+      <a href="#batch-bar">BatchBar</a>
+      <a href="#nav-item">NavItem</a>
+    </div>
+    <div class="ds-nav-group">
+      <div class="ds-nav-group-title">Patterns</div>
+      <a href="#layout">布局规范</a>
+      <a href="#transition">动效规范</a>
+    </div>
+  </nav>
+</aside>
+
+
+<!-- ============================================================
+     Main Content
+     ============================================================ -->
+<main class="ds-main">
+
+<!-- Hero -->
+<div class="ds-hero">
+  <h1>Skill Manager Design System</h1>
+  <p>Cool Steel 色彩方案 — 冷灰色调 + 蓝色主色，专业技术感。</p>
+  <div class="ds-hero-meta">
+    <span>风格：Cool Steel 冷灰</span>
+    <span>平台：macOS Electron</span>
+    <span>框架：React 19</span>
+  </div>
+</div>
+
+
+<!-- ============================================================
+     Section: Colors
+     ============================================================ -->
+<section id="colors" class="ds-section">
+  <h2 class="ds-section-title">色彩系统</h2>
+  <p class="ds-section-desc">
+    Cool Steel 方案：冷灰中性色 + 蓝色主色 (#2563eb)。灰色去掉暖黄调，偏冷偏蓝，更有技术专业感。
+  </p>
+
+  <!-- Primary -->
+  <div class="ds-subsection">
+    <h3 class="ds-subsection-title">主色 Primary</h3>
+    <div class="ds-color-grid">
+      <div class="ds-color-card">
+        <div class="ds-color-swatch" style="background: #2563eb"></div>
+        <div class="ds-color-info">
+          <div class="ds-color-name">Primary</div>
+          <div class="ds-color-token">--color-primary</div>
+          <div class="ds-color-hex">#2563eb</div>
+        </div>
+      </div>
+      <div class="ds-color-card">
+        <div class="ds-color-swatch" style="background: #1d4ed8"></div>
+        <div class="ds-color-info">
+          <div class="ds-color-name">Primary Hover</div>
+          <div class="ds-color-token">--color-primary-hover</div>
+          <div class="ds-color-hex">#1d4ed8</div>
+        </div>
+      </div>
+      <div class="ds-color-card">
+        <div class="ds-color-swatch" style="background: #eff6ff"></div>
+        <div class="ds-color-info">
+          <div class="ds-color-name">Primary Light</div>
+          <div class="ds-color-token">--color-primary-light</div>
+          <div class="ds-color-hex">#eff6ff</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Text -->
+  <div class="ds-subsection">
+    <h3 class="ds-subsection-title">文字 Text</h3>
+    <div class="ds-color-grid">
+      <div class="ds-color-card">
+        <div class="ds-color-swatch" style="background: #1a1d23"></div>
+        <div class="ds-color-info">
+          <div class="ds-color-name">Text Primary</div>
+          <div class="ds-color-token">--text-primary</div>
+          <div class="ds-color-hex">#1a1d23</div>
+        </div>
+      </div>
+      <div class="ds-color-card">
+        <div class="ds-color-swatch" style="background: #5a6070"></div>
+        <div class="ds-color-info">
+          <div class="ds-color-name">Text Secondary</div>
+          <div class="ds-color-token">--text-secondary</div>
+          <div class="ds-color-hex">#5a6070</div>
+        </div>
+      </div>
+      <div class="ds-color-card">
+        <div class="ds-color-swatch" style="background: #8b919a"></div>
+        <div class="ds-color-info">
+          <div class="ds-color-name">Text Tertiary</div>
+          <div class="ds-color-token">--text-tertiary</div>
+          <div class="ds-color-hex">#8b919a</div>
+        </div>
+      </div>
+      <div class="ds-color-card">
+        <div class="ds-color-swatch" style="background: #aab0ba"></div>
+        <div class="ds-color-info">
+          <div class="ds-color-name">Text Placeholder</div>
+          <div class="ds-color-token">--text-placeholder</div>
+          <div class="ds-color-hex">#aab0ba</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Background -->
+  <div class="ds-subsection">
+    <h3 class="ds-subsection-title">背景 Background</h3>
+    <div class="ds-color-grid">
+      <div class="ds-color-card">
+        <div class="ds-color-swatch" style="background: #fff; border-bottom: 1px solid #eee"></div>
+        <div class="ds-color-info">
+          <div class="ds-color-name">Base</div>
+          <div class="ds-color-token">--bg-base</div>
+          <div class="ds-color-hex">#ffffff</div>
+        </div>
+      </div>
+      <div class="ds-color-card">
+        <div class="ds-color-swatch" style="background: #f8f9fb"></div>
+        <div class="ds-color-info">
+          <div class="ds-color-name">Subtle</div>
+          <div class="ds-color-token">--bg-subtle</div>
+          <div class="ds-color-hex">#f8f9fb</div>
+        </div>
+      </div>
+      <div class="ds-color-card">
+        <div class="ds-color-swatch" style="background: #eef0f4"></div>
+        <div class="ds-color-info">
+          <div class="ds-color-name">Muted</div>
+          <div class="ds-color-token">--bg-muted</div>
+          <div class="ds-color-hex">#eef0f4</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Border -->
+  <div class="ds-subsection">
+    <h3 class="ds-subsection-title">边框 Border</h3>
+    <div class="ds-color-grid">
+      <div class="ds-color-card">
+        <div class="ds-color-swatch" style="background: #f0f1f4"></div>
+        <div class="ds-color-info">
+          <div class="ds-color-name">Light</div>
+          <div class="ds-color-token">--border-light</div>
+          <div class="ds-color-hex">#f0f1f4</div>
+        </div>
+      </div>
+      <div class="ds-color-card">
+        <div class="ds-color-swatch" style="background: #e2e5ea"></div>
+        <div class="ds-color-info">
+          <div class="ds-color-name">Default</div>
+          <div class="ds-color-token">--border-default</div>
+          <div class="ds-color-hex">#e2e5ea</div>
+        </div>
+      </div>
+      <div class="ds-color-card">
+        <div class="ds-color-swatch" style="background: #cbd0d8"></div>
+        <div class="ds-color-info">
+          <div class="ds-color-name">Strong</div>
+          <div class="ds-color-token">--border-strong</div>
+          <div class="ds-color-hex">#cbd0d8</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Semantic -->
+  <div class="ds-subsection">
+    <h3 class="ds-subsection-title">语义色 Semantic</h3>
+    <div class="ds-color-grid">
+      <div class="ds-color-card">
+        <div class="ds-color-swatch" style="background: #16a34a"></div>
+        <div class="ds-color-info">
+          <div class="ds-color-name">Success</div>
+          <div class="ds-color-token">--color-success</div>
+          <div class="ds-color-hex">#16a34a</div>
+        </div>
+      </div>
+      <div class="ds-color-card">
+        <div class="ds-color-swatch" style="background: #f0fdf4"></div>
+        <div class="ds-color-info">
+          <div class="ds-color-name">Success BG</div>
+          <div class="ds-color-token">--color-success-bg</div>
+          <div class="ds-color-hex">#f0fdf4</div>
+        </div>
+      </div>
+      <div class="ds-color-card">
+        <div class="ds-color-swatch" style="background: #dc2626"></div>
+        <div class="ds-color-info">
+          <div class="ds-color-name">Danger</div>
+          <div class="ds-color-token">--color-danger</div>
+          <div class="ds-color-hex">#dc2626</div>
+        </div>
+      </div>
+      <div class="ds-color-card">
+        <div class="ds-color-swatch" style="background: #fef2f2"></div>
+        <div class="ds-color-info">
+          <div class="ds-color-name">Danger BG</div>
+          <div class="ds-color-token">--color-danger-bg</div>
+          <div class="ds-color-hex">#fef2f2</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Brand -->
+  <div class="ds-subsection">
+    <h3 class="ds-subsection-title">品牌色 Brand</h3>
+    <div class="ds-color-grid">
+      <div class="ds-color-card">
+        <div class="ds-color-swatch" style="background: #6b5ce7"></div>
+        <div class="ds-color-info">
+          <div class="ds-color-name">Claude Code</div>
+          <div class="ds-color-token">--color-claude</div>
+          <div class="ds-color-hex">#6b5ce7</div>
+        </div>
+      </div>
+      <div class="ds-color-card">
+        <div class="ds-color-swatch" style="background: #e67e22"></div>
+        <div class="ds-color-info">
+          <div class="ds-color-name">CodeX</div>
+          <div class="ds-color-token">--color-codex</div>
+          <div class="ds-color-hex">#e67e22</div>
+        </div>
+      </div>
+      <div class="ds-color-card">
+        <div class="ds-color-swatch" style="background: #2ecc71"></div>
+        <div class="ds-color-info">
+          <div class="ds-color-name">Cursor</div>
+          <div class="ds-color-token">--color-cursor</div>
+          <div class="ds-color-hex">#2ecc71</div>
+        </div>
+      </div>
+      <div class="ds-color-card">
+        <div class="ds-color-swatch" style="background: #1a9aff"></div>
+        <div class="ds-color-info">
+          <div class="ds-color-name">Trae</div>
+          <div class="ds-color-token">--color-trae</div>
+          <div class="ds-color-hex">#1a9aff</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Change log table -->
+  <div class="ds-subsection">
+    <h3 class="ds-subsection-title">Warm Neutral → Cool Steel 变更对照</h3>
+    <table class="ds-token-table">
+      <thead><tr><th>Token</th><th>旧值 (Warm)</th><th>新值 (Cool Steel)</th></tr></thead>
+      <tbody>
+        <tr><td><code>--color-primary</code></td><td><span class="ds-inline-swatch" style="background:#3d3d3d"></span>#3d3d3d</td><td><span class="ds-inline-swatch" style="background:#2563eb"></span>#2563eb</td></tr>
+        <tr><td><code>--text-primary</code></td><td><span class="ds-inline-swatch" style="background:#2d2d2d"></span>#2d2d2d</td><td><span class="ds-inline-swatch" style="background:#1a1d23"></span>#1a1d23</td></tr>
+        <tr><td><code>--text-secondary</code></td><td><span class="ds-inline-swatch" style="background:#555"></span>#555</td><td><span class="ds-inline-swatch" style="background:#5a6070"></span>#5a6070</td></tr>
+        <tr><td><code>--text-tertiary</code></td><td><span class="ds-inline-swatch" style="background:#999"></span>#999</td><td><span class="ds-inline-swatch" style="background:#8b919a"></span>#8b919a</td></tr>
+        <tr><td><code>--bg-subtle</code></td><td><span class="ds-inline-swatch" style="background:#fafaf9"></span>#fafaf9</td><td><span class="ds-inline-swatch" style="background:#f8f9fb"></span>#f8f9fb</td></tr>
+        <tr><td><code>--bg-muted</code></td><td><span class="ds-inline-swatch" style="background:#f5f3f0"></span>#f5f3f0</td><td><span class="ds-inline-swatch" style="background:#eef0f4"></span>#eef0f4</td></tr>
+        <tr><td><code>--border-default</code></td><td><span class="ds-inline-swatch" style="background:#e8e6e3"></span>#e8e6e3</td><td><span class="ds-inline-swatch" style="background:#e2e5ea"></span>#e2e5ea</td></tr>
+        <tr><td><code>--border-strong</code></td><td><span class="ds-inline-swatch" style="background:#d4d0cb"></span>#d4d0cb</td><td><span class="ds-inline-swatch" style="background:#cbd0d8"></span>#cbd0d8</td></tr>
+        <tr><td><code>--color-success</code></td><td><span class="ds-inline-swatch" style="background:#5a9a6e"></span>#5a9a6e</td><td><span class="ds-inline-swatch" style="background:#16a34a"></span>#16a34a</td></tr>
+        <tr><td><code>--color-danger</code></td><td><span class="ds-inline-swatch" style="background:#c45a5a"></span>#c45a5a</td><td><span class="ds-inline-swatch" style="background:#dc2626"></span>#dc2626</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+
+<!-- ============================================================
+     Section: Typography
+     ============================================================ -->
+<section id="typography" class="ds-section">
+  <h2 class="ds-section-title">字体阶梯</h2>
+  <p class="ds-section-desc">
+    统一为 7 级字号，每级固定 font-size + font-weight。字体族：<code style="font-size:12px">-apple-system, BlinkMacSystemFont, 'PingFang SC', sans-serif</code>
+  </p>
+
+  <div class="ds-preview">
+    <div class="ds-type-row">
+      <div class="ds-type-meta"><div class="ds-type-token">--text-xl</div><div class="ds-type-spec">22px / 600</div></div>
+      <div style="font-size: 22px; font-weight: 600;">页面主标题 Page Title</div>
+    </div>
+    <div class="ds-type-row">
+      <div class="ds-type-meta"><div class="ds-type-token">--text-lg</div><div class="ds-type-spec">18px / 600</div></div>
+      <div style="font-size: 18px; font-weight: 600;">区块标题 Section Heading</div>
+    </div>
+    <div class="ds-type-row">
+      <div class="ds-type-meta"><div class="ds-type-token">--text-md</div><div class="ds-type-spec">15px / 600</div></div>
+      <div style="font-size: 15px; font-weight: 600;">小节标题 Subsection Title</div>
+    </div>
+    <div class="ds-type-row">
+      <div class="ds-type-meta"><div class="ds-type-token">--text-base</div><div class="ds-type-spec">14px / 400</div></div>
+      <div style="font-size: 14px; font-weight: 400;">正文内容 Body text，技能名称</div>
+    </div>
+    <div class="ds-type-row">
+      <div class="ds-type-meta"><div class="ds-type-token">--text-sm</div><div class="ds-type-spec">13px / 400</div></div>
+      <div style="font-size: 13px; font-weight: 400;">按钮文字、标签 Button / Label</div>
+    </div>
+    <div class="ds-type-row">
+      <div class="ds-type-meta"><div class="ds-type-token">--text-xs</div><div class="ds-type-spec">12px / 400</div></div>
+      <div style="font-size: 12px; font-weight: 400;">状态标签、小注 Status tag / Note</div>
+    </div>
+    <div class="ds-type-row" style="border-bottom: none;">
+      <div class="ds-type-meta"><div class="ds-type-token">--text-2xs</div><div class="ds-type-spec">11px / 400</div></div>
+      <div style="font-size: 11px; font-weight: 400;">路径显示、最小 meta ~/.claude/skills/</div>
+    </div>
+  </div>
+
+  <table class="ds-token-table">
+    <thead><tr><th>Token</th><th>尺寸</th><th>字重</th><th>用途</th></tr></thead>
+    <tbody>
+      <tr><td><code>--text-xl</code></td><td>22px</td><td>600</td><td>页面主标题</td></tr>
+      <tr><td><code>--text-lg</code></td><td>18px</td><td>600</td><td>区块标题</td></tr>
+      <tr><td><code>--text-md</code></td><td>15px</td><td>600</td><td>小节标题</td></tr>
+      <tr><td><code>--text-base</code></td><td>14px</td><td>400</td><td>正文、技能名称</td></tr>
+      <tr><td><code>--text-sm</code></td><td>13px</td><td>400</td><td>按钮文字、标签</td></tr>
+      <tr><td><code>--text-xs</code></td><td>12px</td><td>400</td><td>状态标签、小注</td></tr>
+      <tr><td><code>--text-2xs</code></td><td>11px</td><td>400</td><td>路径显示、最小 meta</td></tr>
+    </tbody>
+  </table>
+</section>
+
+
+<!-- ============================================================
+     Section: Spacing
+     ============================================================ -->
+<section id="spacing" class="ds-section">
+  <h2 class="ds-section-title">间距系统</h2>
+  <p class="ds-section-desc">以 4px 为基数，8 个常用档位覆盖所有场景。</p>
+
+  <div class="ds-preview">
+    <div class="ds-spacing-row"><div class="ds-spacing-label"><code>--space-1</code></div><div class="ds-spacing-value">4px</div><div class="ds-spacing-bar" style="width: 4px"></div></div>
+    <div class="ds-spacing-row"><div class="ds-spacing-label"><code>--space-2</code></div><div class="ds-spacing-value">8px</div><div class="ds-spacing-bar" style="width: 8px"></div></div>
+    <div class="ds-spacing-row"><div class="ds-spacing-label"><code>--space-3</code></div><div class="ds-spacing-value">12px</div><div class="ds-spacing-bar" style="width: 12px"></div></div>
+    <div class="ds-spacing-row"><div class="ds-spacing-label"><code>--space-4</code></div><div class="ds-spacing-value">16px</div><div class="ds-spacing-bar" style="width: 16px"></div></div>
+    <div class="ds-spacing-row"><div class="ds-spacing-label"><code>--space-5</code></div><div class="ds-spacing-value">20px</div><div class="ds-spacing-bar" style="width: 20px"></div></div>
+    <div class="ds-spacing-row"><div class="ds-spacing-label"><code>--space-6</code></div><div class="ds-spacing-value">24px</div><div class="ds-spacing-bar" style="width: 24px"></div></div>
+    <div class="ds-spacing-row"><div class="ds-spacing-label"><code>--space-7</code></div><div class="ds-spacing-value">28px</div><div class="ds-spacing-bar" style="width: 28px"></div></div>
+    <div class="ds-spacing-row"><div class="ds-spacing-label"><code>--space-8</code></div><div class="ds-spacing-value">32px</div><div class="ds-spacing-bar" style="width: 32px"></div></div>
+  </div>
+
+  <table class="ds-token-table">
+    <thead><tr><th>Token</th><th>值</th><th>典型场景</th></tr></thead>
+    <tbody>
+      <tr><td><code>--space-1</code></td><td>4px</td><td>紧凑间隙、label 与 badge 间距</td></tr>
+      <tr><td><code>--space-2</code></td><td>8px</td><td>列表 gap、按钮组间距</td></tr>
+      <tr><td><code>--space-3</code></td><td>12px</td><td>按钮内边距、卡片内元素间距</td></tr>
+      <tr><td><code>--space-4</code></td><td>16px</td><td>卡片内边距、内容 gap</td></tr>
+      <tr><td><code>--space-5</code></td><td>20px</td><td>中等留白</td></tr>
+      <tr><td><code>--space-6</code></td><td>24px</td><td>section 间距、弹窗内边距</td></tr>
+      <tr><td><code>--space-7</code></td><td>28px</td><td>header 内边距</td></tr>
+      <tr><td><code>--space-8</code></td><td>32px</td><td>页面水平内边距</td></tr>
+    </tbody>
+  </table>
+</section>
+
+
+<!-- ============================================================
+     Section: Radius & Shadow
+     ============================================================ -->
+<section id="radius-shadow" class="ds-section">
+  <h2 class="ds-section-title">圆角与阴影</h2>
+  <p class="ds-section-desc">圆角 7 级递进，阴影仅 2 级（轻浮层 + 弹窗），保持克制。</p>
+
+  <div class="ds-subsection">
+    <h3 class="ds-subsection-title">圆角 Border Radius</h3>
+    <div class="ds-preview">
+      <div class="ds-radius-grid">
+        <div class="ds-radius-item"><div class="ds-radius-box" style="border-radius: 6px"></div><div class="ds-radius-token">--radius-sm</div><div class="ds-radius-value">6px</div></div>
+        <div class="ds-radius-item"><div class="ds-radius-box" style="border-radius: 8px"></div><div class="ds-radius-token">--radius-md</div><div class="ds-radius-value">8px</div></div>
+        <div class="ds-radius-item"><div class="ds-radius-box" style="border-radius: 10px"></div><div class="ds-radius-token">--radius-lg</div><div class="ds-radius-value">10px</div></div>
+        <div class="ds-radius-item"><div class="ds-radius-box" style="border-radius: 12px"></div><div class="ds-radius-token">--radius-xl</div><div class="ds-radius-value">12px</div></div>
+        <div class="ds-radius-item"><div class="ds-radius-box" style="border-radius: 14px"></div><div class="ds-radius-token">--radius-2xl</div><div class="ds-radius-value">14px</div></div>
+        <div class="ds-radius-item"><div class="ds-radius-box" style="border-radius: 20px"></div><div class="ds-radius-token">--radius-3xl</div><div class="ds-radius-value">20px</div></div>
+        <div class="ds-radius-item"><div class="ds-radius-box" style="border-radius: 9999px; width: 100px"></div><div class="ds-radius-token">--radius-full</div><div class="ds-radius-value">9999px</div></div>
+      </div>
+    </div>
+    <table class="ds-token-table">
+      <thead><tr><th>Token</th><th>值</th><th>用途</th></tr></thead>
+      <tbody>
+        <tr><td><code>--radius-sm</code></td><td>6px</td><td>checkbox、nav-item</td></tr>
+        <tr><td><code>--radius-md</code></td><td>8px</td><td>小按钮、tag、错误提示</td></tr>
+        <tr><td><code>--radius-lg</code></td><td>10px</td><td>按钮、输入框</td></tr>
+        <tr><td><code>--radius-xl</code></td><td>12px</td><td>搜索框、skill 卡片</td></tr>
+        <tr><td><code>--radius-2xl</code></td><td>14px</td><td>配置项卡片</td></tr>
+        <tr><td><code>--radius-3xl</code></td><td>20px</td><td>页面容器、弹窗</td></tr>
+        <tr><td><code>--radius-full</code></td><td>9999px</td><td>状态药丸标签</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="ds-subsection">
+    <h3 class="ds-subsection-title">阴影 Shadow</h3>
+    <div class="ds-preview">
+      <div class="ds-shadow-grid">
+        <div class="ds-shadow-item"><div class="ds-shadow-box" style="box-shadow: var(--shadow-card)"></div><div class="ds-radius-token">--shadow-card</div><div class="ds-radius-value">轻浮层 · 卡片/容器</div></div>
+        <div class="ds-shadow-item"><div class="ds-shadow-box" style="box-shadow: var(--shadow-modal)"></div><div class="ds-radius-token">--shadow-modal</div><div class="ds-radius-value">弹窗</div></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+
+<!-- ============================================================
+     Section: Button
+     ============================================================ -->
+<section id="button" class="ds-section">
+  <h2 class="ds-section-title">Button</h2>
+  <p class="ds-section-desc">5 种变体，统一基础样式。padding: 8px 16px, font-size: 13px, border-radius: 10px。</p>
+
+  <div class="ds-subsection">
+    <h3 class="ds-subsection-title">变体 Variants</h3>
+    <div class="ds-preview">
+      <div class="ds-preview-row">
+        <div class="ds-preview-col" style="align-items: center;"><div class="ds-preview-label">Primary</div><button class="btn btn--primary">保存配置</button></div>
+        <div class="ds-preview-col" style="align-items: center;"><div class="ds-preview-label">Secondary</div><button class="btn btn--secondary">返回</button></div>
+        <div class="ds-preview-col" style="align-items: center;"><div class="ds-preview-label">Danger</div><button class="btn btn--danger">删除</button></div>
+        <div class="ds-preview-col" style="align-items: center;"><div class="ds-preview-label">Ghost</div><button class="btn btn--ghost">配置</button></div>
+      </div>
+    </div>
+    <div class="ds-preview">
+      <div class="ds-preview-label" style="margin-bottom: 12px;">Dashed（添加操作，全宽）</div>
+      <button class="btn btn--dashed" style="max-width: 400px;">+ 添加自定义路径</button>
+    </div>
+  </div>
+
+  <div class="ds-subsection">
+    <h3 class="ds-subsection-title">尺寸 Sizes</h3>
+    <div class="ds-preview">
+      <div class="ds-preview-row">
+        <div class="ds-preview-col" style="align-items: center;"><div class="ds-preview-label">Small</div><button class="btn btn--primary btn--sm">更改位置</button></div>
+        <div class="ds-preview-col" style="align-items: center;"><div class="ds-preview-label">Default</div><button class="btn btn--primary">保存配置</button></div>
+        <div class="ds-preview-col" style="align-items: center;"><div class="ds-preview-label">Large</div><button class="btn btn--primary btn--lg">一键导入</button></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="ds-subsection">
+    <h3 class="ds-subsection-title">状态 States</h3>
+    <div class="ds-preview">
+      <div class="ds-preview-row">
+        <div class="ds-preview-col" style="align-items: center;"><div class="ds-preview-label">Default</div><button class="btn btn--primary">保存</button></div>
+        <div class="ds-preview-col" style="align-items: center;"><div class="ds-preview-label">Hover it</div><button class="btn btn--primary">悬停试试</button></div>
+        <div class="ds-preview-col" style="align-items: center;"><div class="ds-preview-label">Disabled</div><button class="btn btn--primary" disabled>不可用</button></div>
+      </div>
+    </div>
+  </div>
+
+  <table class="ds-token-table">
+    <thead><tr><th>变体</th><th>背景</th><th>文字</th><th>边框</th><th>场景</th></tr></thead>
+    <tbody>
+      <tr><td>Primary</td><td><code>--color-primary</code></td><td>#fff</td><td>同背景</td><td>保存、导入、推送</td></tr>
+      <tr><td>Secondary</td><td><code>--bg-base</code></td><td><code>--text-secondary</code></td><td><code>--border-strong</code></td><td>返回、取消</td></tr>
+      <tr><td>Danger</td><td>transparent</td><td><code>--color-danger</code></td><td>transparent</td><td>删除、停用</td></tr>
+      <tr><td>Ghost</td><td>transparent</td><td><code>--text-secondary</code></td><td>transparent</td><td>配置、内联操作</td></tr>
+      <tr><td>Dashed</td><td>transparent</td><td><code>--text-tertiary</code></td><td>dashed <code>--border-strong</code></td><td>+ 添加路径</td></tr>
+    </tbody>
+  </table>
+</section>
+
+
+<!-- ============================================================
+     Section: Checkbox
+     ============================================================ -->
+<section id="checkbox" class="ds-section">
+  <h2 class="ds-section-title">Checkbox</h2>
+  <p class="ds-section-desc">统一为 1 个组件 + 2 种尺寸。选中态蓝色填充 + SVG 对勾。</p>
+
+  <div class="ds-preview">
+    <div class="ds-preview-row">
+      <div class="ds-preview-col" style="align-items: center;"><div class="ds-preview-label">md 未选中</div><div class="checkbox"></div></div>
+      <div class="ds-preview-col" style="align-items: center;"><div class="ds-preview-label">md 选中</div><div class="checkbox checkbox--checked"><svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M2.5 6L5 8.5L9.5 3.5" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></div></div>
+      <div class="ds-preview-col" style="align-items: center;"><div class="ds-preview-label">md 半选</div><div class="checkbox checkbox--indeterminate"><svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M3 6H9" stroke="white" stroke-width="1.5" stroke-linecap="round"/></svg></div></div>
+      <div class="ds-preview-col" style="align-items: center;"><div class="ds-preview-label">sm 未选中</div><div class="checkbox checkbox--sm"></div></div>
+      <div class="ds-preview-col" style="align-items: center;"><div class="ds-preview-label">sm 选中</div><div class="checkbox checkbox--sm checkbox--checked"><svg width="10" height="10" viewBox="0 0 12 12" fill="none"><path d="M2.5 6L5 8.5L9.5 3.5" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></div></div>
+    </div>
+  </div>
+
+  <table class="ds-token-table">
+    <thead><tr><th>尺寸</th><th>大小</th><th>圆角</th><th>用途</th></tr></thead>
+    <tbody>
+      <tr><td>md (默认)</td><td>20px</td><td><code>--radius-sm</code> (6px)</td><td>技能选择、导入来源</td></tr>
+      <tr><td>sm</td><td>16px</td><td>4px</td><td>配置页推送目标</td></tr>
+    </tbody>
+  </table>
+</section>
+
+
+<!-- ============================================================
+     Section: Card
+     ============================================================ -->
+<section id="card" class="ds-section">
+  <h2 class="ds-section-title">Card</h2>
+  <p class="ds-section-desc">统一基础样式：1.5px border + 14px radius + 14px 16px padding。选中态用浅蓝底色。</p>
+
+  <div class="ds-subsection">
+    <h3 class="ds-subsection-title">可选择卡片 Selectable</h3>
+    <p style="font-size: 13px; color: var(--text-tertiary); margin-bottom: 16px;">点击试试选中效果：</p>
+    <div class="ds-preview">
+      <div style="display: flex; flex-direction: column; gap: 8px; max-width: 480px;">
+        <div class="card card--selectable is-selected" onclick="this.classList.toggle('is-selected')">
+          <div class="checkbox checkbox--checked"><svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M2.5 6L5 8.5L9.5 3.5" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+          <div class="card__icon" style="background: var(--color-claude);">C</div>
+          <div class="card__body"><div class="card__title">Claude Code</div><div class="card__meta">~/.claude/skills/ · 12 个 skill</div></div>
+        </div>
+        <div class="card card--selectable" onclick="this.classList.toggle('is-selected'); this.querySelector('.checkbox').classList.toggle('checkbox--checked')">
+          <div class="checkbox"></div>
+          <div class="card__icon" style="background: var(--color-codex);">X</div>
+          <div class="card__body"><div class="card__title">CodeX</div><div class="card__meta">~/.codex/skills/ · 5 个 skill</div></div>
+        </div>
+        <div class="card card--selectable" onclick="this.classList.toggle('is-selected'); this.querySelector('.checkbox').classList.toggle('checkbox--checked')">
+          <div class="checkbox"></div>
+          <div class="card__icon" style="background: var(--color-cursor);">Cu</div>
+          <div class="card__body"><div class="card__title">Cursor</div><div class="card__meta">~/.cursor/skills/ · 8 个 skill</div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="ds-subsection">
+    <h3 class="ds-subsection-title">技能卡片 Skill</h3>
+    <div class="ds-preview">
+      <div style="display: flex; flex-direction: column; gap: 8px; max-width: 560px;">
+        <div class="card">
+          <div class="checkbox checkbox--checked"><svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M2.5 6L5 8.5L9.5 3.5" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+          <div class="card__body"><div class="card__title">code-review</div><div class="card__meta">代码审查技能，自动检查代码质量</div></div>
+          <div class="card__action"><span class="tag tag--success">已推送</span></div>
+        </div>
+        <div class="card">
+          <div class="checkbox"></div>
+          <div class="card__body"><div class="card__title">git-commit-helper</div><div class="card__meta">辅助生成规范的 commit message</div></div>
+          <div class="card__action"><span class="tag tag--neutral">未推送</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="ds-subsection">
+    <h3 class="ds-subsection-title">仓库卡片 Repo</h3>
+    <div class="ds-preview">
+      <div style="max-width: 480px;">
+        <div class="card">
+          <div class="card__body"><div class="card__title" style="font-family: var(--font-mono); font-size: 13px; font-weight: 400; color: var(--text-secondary);">~/Documents/SkillManager/</div></div>
+          <div class="card__action"><button class="btn btn--secondary btn--sm">更改位置</button></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+
+<!-- ============================================================
+     Section: Input
+     ============================================================ -->
+<section id="input" class="ds-section">
+  <h2 class="ds-section-title">Input</h2>
+  <p class="ds-section-desc">2 种类型：搜索输入和只读路径展示。Focus 时边框变蓝。</p>
+
+  <div class="ds-preview">
+    <div style="display: flex; flex-direction: column; gap: 16px; max-width: 400px;">
+      <div><div class="ds-preview-label" style="margin-bottom: 8px;">Search</div><input class="input input--search" type="text" placeholder="搜索 skill 名称..."></div>
+      <div><div class="ds-preview-label" style="margin-bottom: 8px;">Display (readonly)</div><input class="input input--display" type="text" value="~/Documents/SkillManager/" readonly></div>
+      <div><div class="ds-preview-label" style="margin-bottom: 8px;">Default</div><input class="input" type="text" placeholder="请输入..."></div>
+    </div>
+  </div>
+
+  <table class="ds-token-table">
+    <thead><tr><th>属性</th><th>值</th></tr></thead>
+    <tbody>
+      <tr><td>padding</td><td>9px 14px（search 左侧 36px）</td></tr>
+      <tr><td>font-size</td><td><code>--text-sm</code> (13px)</td></tr>
+      <tr><td>border</td><td>1.5px solid <code>--border-default</code></td></tr>
+      <tr><td>border-radius</td><td><code>--radius-xl</code> (12px)</td></tr>
+      <tr><td>background</td><td><code>--bg-subtle</code></td></tr>
+      <tr><td>focus border</td><td><code>--color-primary</code> (#2563eb)</td></tr>
+    </tbody>
+  </table>
+</section>
+
+
+<!-- ============================================================
+     Section: StatusTag
+     ============================================================ -->
+<section id="status-tag" class="ds-section">
+  <h2 class="ds-section-title">StatusTag</h2>
+  <p class="ds-section-desc">药丸形状态标签，3 种语义。</p>
+
+  <div class="ds-preview">
+    <div class="ds-preview-row">
+      <div class="ds-preview-col" style="align-items: center;"><div class="ds-preview-label">Success</div><span class="tag tag--success">已推送</span></div>
+      <div class="ds-preview-col" style="align-items: center;"><div class="ds-preview-label">Neutral</div><span class="tag tag--neutral">未推送</span></div>
+      <div class="ds-preview-col" style="align-items: center;"><div class="ds-preview-label">Danger</div><span class="tag tag--danger">已失效</span></div>
+    </div>
+  </div>
+
+  <table class="ds-token-table">
+    <thead><tr><th>属性</th><th>值</th></tr></thead>
+    <tbody>
+      <tr><td>padding</td><td>3px 10px</td></tr>
+      <tr><td>font-size</td><td><code>--text-xs</code> (12px)</td></tr>
+      <tr><td>border-radius</td><td><code>--radius-full</code> (9999px)</td></tr>
+      <tr><td>font-weight</td><td>500</td></tr>
+    </tbody>
+  </table>
+</section>
+
+
+<!-- ============================================================
+     Section: Toast
+     ============================================================ -->
+<section id="toast" class="ds-section">
+  <h2 class="ds-section-title">Toast</h2>
+  <p class="ds-section-desc">底部居中通知，蓝色底色 + 蓝色投影，2 秒自动消失。</p>
+
+  <div class="ds-preview">
+    <div class="toast-demo-container">
+      <div class="toast">已导入 12 个 skill</div>
+    </div>
+  </div>
+
+  <table class="ds-token-table">
+    <thead><tr><th>属性</th><th>值</th></tr></thead>
+    <tbody>
+      <tr><td>background</td><td><code>--color-primary</code> (#2563eb)</td></tr>
+      <tr><td>color</td><td>#fff</td></tr>
+      <tr><td>padding</td><td>10px 20px</td></tr>
+      <tr><td>border-radius</td><td><code>--radius-xl</code> (12px)</td></tr>
+      <tr><td>shadow</td><td>0 4px 16px rgba(37,99,235,0.25)</td></tr>
+      <tr><td>duration</td><td>2000ms 后 fade-out</td></tr>
+    </tbody>
+  </table>
+</section>
+
+
+<!-- ============================================================
+     Section: Modal
+     ============================================================ -->
+<section id="modal" class="ds-section">
+  <h2 class="ds-section-title">Modal</h2>
+  <p class="ds-section-desc">标准弹窗结构：Header + Body + Footer。宽度 420-480px。</p>
+
+  <div class="ds-preview" style="padding: 0; overflow: hidden;">
+    <div class="modal-demo">
+      <div class="modal">
+        <div class="modal__header"><div class="modal__title">添加自定义路径</div><button class="modal__close">&times;</button></div>
+        <div class="modal__body"><p style="margin-bottom: 16px;">选择包含 skills 目录的文件夹，系统将自动扫描其中的技能。</p><button class="btn btn--secondary" style="width: 100%;">浏览文件夹...</button></div>
+        <div class="modal__footer"><button class="btn btn--secondary">取消</button><button class="btn btn--primary">确认添加</button></div>
+      </div>
+    </div>
+  </div>
+
+  <table class="ds-token-table">
+    <thead><tr><th>属性</th><th>值</th></tr></thead>
+    <tbody>
+      <tr><td>width</td><td>420 ~ 480px</td></tr>
+      <tr><td>border-radius</td><td><code>--radius-3xl</code> (20px)</td></tr>
+      <tr><td>shadow</td><td><code>--shadow-modal</code></td></tr>
+      <tr><td>overlay</td><td>rgba(0,0,0,0.3)</td></tr>
+      <tr><td>分割线</td><td>1px solid <code>--border-light</code></td></tr>
+    </tbody>
+  </table>
+</section>
+
+
+<!-- ============================================================
+     Section: BatchBar
+     ============================================================ -->
+<section id="batch-bar" class="ds-section">
+  <h2 class="ds-section-title">BatchBar</h2>
+  <p class="ds-section-desc">选中技能后出现的批量操作栏。</p>
+
+  <div class="ds-preview">
+    <div style="max-width: 560px;">
+      <div class="batch-bar">
+        <div class="batch-bar__info">已选 <strong>3</strong> 项</div>
+        <div class="batch-bar__actions">
+          <button class="btn btn--primary btn--sm">推送所选</button>
+          <button class="btn btn--danger btn--sm">取消推送</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+
+<!-- ============================================================
+     Section: NavItem
+     ============================================================ -->
+<section id="nav-item" class="ds-section">
+  <h2 class="ds-section-title">NavItem</h2>
+  <p class="ds-section-desc">侧边栏导航项，SVG 图标。</p>
+
+  <div class="ds-preview">
+    <div class="ds-preview-row" style="gap: 32px;">
+      <div class="nav-item-demo">
+        <div class="ds-preview-label" style="margin-bottom: 12px; padding-left: 12px;">Sidebar Nav</div>
+        <button class="nav-item is-active">
+          <span class="nav-item__icon"><svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M4 4h3v3H4V4zm5 0h3v3H9V4zM4 9h3v3H4V9zm5 0h3v3H9V9z" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+          技能管理
+        </button>
+        <button class="nav-item">
+          <span class="nav-item__icon"><svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 12V6l2-3h6l2 3v6a1 1 0 01-1 1H4a1 1 0 01-1-1z" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/><path d="M6 9h4" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg></span>
+          用量监测
+        </button>
+      </div>
+    </div>
+  </div>
+</section>
+
+
+<!-- ============================================================
+     Section: Layout
+     ============================================================ -->
+<section id="layout" class="ds-section">
+  <h2 class="ds-section-title">布局规范</h2>
+  <p class="ds-section-desc">两种主要页面布局。</p>
+
+  <div class="ds-subsection">
+    <h3 class="ds-subsection-title">Workbench 布局</h3>
+    <div class="ds-layout-diagram">
+      <div style="border: 2px solid var(--color-primary); border-radius: 8px; overflow: hidden;">
+        <div style="height: 38px; background: var(--bg-subtle); border-bottom: 1px solid var(--border-default); display: flex; align-items: center; justify-content: center; font-size: 11px; font-family: var(--font-mono); color: var(--text-tertiary);">
+          Title Spacer · 38px · -webkit-app-region: drag
+        </div>
+        <div style="display: flex; height: 260px;">
+          <div style="width: 180px; background: var(--bg-subtle); border-right: 1px solid var(--border-default); padding: 12px; position: relative;">
+            <div style="font-size: 11px; font-family: var(--font-mono); color: var(--color-primary); font-weight: 600; margin-bottom: 8px;">Sidebar · 180px</div>
+            <div style="padding: 6px 8px; background: var(--bg-muted); border-radius: 4px; font-size: 12px; color: var(--text-primary); margin-bottom: 4px; font-weight: 600;">技能管理</div>
+            <div style="padding: 6px 8px; font-size: 12px; color: var(--text-tertiary);">用量监测</div>
+          </div>
+          <div style="flex: 1; padding: 20px; background: var(--bg-muted); position: relative;">
+            <div style="font-size: 11px; font-family: var(--font-mono); color: var(--color-primary); font-weight: 600; margin-bottom: 8px;">Content · padding: 32px</div>
+            <div style="background: var(--bg-base); border-radius: 16px; box-shadow: var(--shadow-card); height: 180px; display: flex; align-items: center; justify-content: center; font-size: 12px; font-family: var(--font-mono); color: var(--text-tertiary);">
+              Page Container<br>radius: 20px · shadow: card
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <table class="ds-token-table">
+      <thead><tr><th>区域</th><th>尺寸</th><th>备注</th></tr></thead>
+      <tbody>
+        <tr><td>Title Spacer</td><td>38px 高</td><td>macOS 拖拽区域</td></tr>
+        <tr><td>Sidebar</td><td>180px 宽</td><td>固定宽度，<code>--bg-subtle</code> 底色</td></tr>
+        <tr><td>Content Area</td><td>弹性宽度</td><td>padding: 32px，<code>--bg-muted</code> 底色</td></tr>
+        <tr><td>Page Container</td><td>弹性</td><td>radius: 20px，shadow: card，白底</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="ds-subsection">
+    <h3 class="ds-subsection-title">Import 布局</h3>
+    <div class="ds-layout-diagram">
+      <div style="background: var(--bg-muted); border-radius: 8px; padding: 24px; display: flex; justify-content: center;">
+        <div style="width: 360px;">
+          <div style="font-size: 11px; font-family: var(--font-mono); color: var(--color-primary); font-weight: 600; text-align: center; margin-bottom: 12px;">居中容器 · max-width: 520px</div>
+          <div style="background: var(--bg-base); border: 1.5px solid var(--border-default); border-radius: 8px; padding: 12px; margin-bottom: 8px; font-size: 12px; color: var(--text-tertiary); text-align: center;">Section: 工具选择卡片 Grid</div>
+          <div style="background: var(--bg-base); border: 1.5px solid var(--border-default); border-radius: 8px; padding: 12px; margin-bottom: 8px; font-size: 12px; color: var(--text-tertiary); text-align: center;">Section: 自定义路径</div>
+          <div style="background: var(--bg-base); border: 1.5px solid var(--border-default); border-radius: 8px; padding: 12px; margin-bottom: 8px; font-size: 12px; color: var(--text-tertiary); text-align: center;">Section: 中央仓库</div>
+          <div style="background: var(--color-primary); border-radius: 8px; padding: 12px; font-size: 12px; color: #fff; text-align: center;">Action Bar: 底部操作栏</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+
+<!-- ============================================================
+     Section: Transition
+     ============================================================ -->
+<section id="transition" class="ds-section">
+  <h2 class="ds-section-title">动效规范</h2>
+  <p class="ds-section-desc">
+    所有交互状态统一使用 <code style="font-size: 12px;">--transition-fast: 150ms ease</code>。
+  </p>
+
+  <div class="ds-subsection">
+    <h3 class="ds-subsection-title">交互演示</h3>
+    <p style="font-size: 13px; color: var(--text-tertiary); margin-bottom: 16px;">Hover / Active 试试：</p>
+    <div class="ds-preview">
+      <div class="ds-preview-row">
+        <div class="ds-transition-box">Hover me</div>
+        <button class="btn btn--primary">Button</button>
+        <button class="btn btn--secondary">Button</button>
+        <div class="checkbox" style="cursor: pointer;" onclick="this.classList.toggle('checkbox--checked')"></div>
+        <span class="tag tag--success" style="cursor: pointer;">已推送</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="ds-subsection">
+    <h3 class="ds-subsection-title">状态规范</h3>
+    <table class="ds-token-table">
+      <thead><tr><th>状态</th><th>表现</th><th>统一值</th></tr></thead>
+      <tbody>
+        <tr><td>hover</td><td>背景色 / 边框色变化</td><td><code>transition: 150ms ease</code></td></tr>
+        <tr><td>active</td><td>微缩 scale(0.98)</td><td>仅 Button 类元素</td></tr>
+        <tr><td>disabled</td><td>opacity: 0.5 + cursor: not-allowed</td><td>所有可交互元素</td></tr>
+        <tr><td>focus</td><td>边框变蓝 <code>--color-primary</code></td><td>输入框</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="ds-subsection">
+    <h3 class="ds-subsection-title">CSS 变量汇总</h3>
+    <div class="ds-code"><span class="hl-cmt">/* Cool Steel Token — 复制到项目 :root 即可 */</span>
+<span class="hl-sel">:root</span> {
+  <span class="hl-cmt">/* Color */</span>
+  <span class="hl-prop">--color-primary</span>:        <span class="hl-val">#2563eb</span>;
+  <span class="hl-prop">--color-primary-hover</span>:   <span class="hl-val">#1d4ed8</span>;
+  <span class="hl-prop">--color-primary-light</span>:   <span class="hl-val">#eff6ff</span>;
+  <span class="hl-prop">--text-primary</span>:          <span class="hl-val">#1a1d23</span>;
+  <span class="hl-prop">--text-secondary</span>:        <span class="hl-val">#5a6070</span>;
+  <span class="hl-prop">--text-tertiary</span>:         <span class="hl-val">#8b919a</span>;
+  <span class="hl-prop">--text-placeholder</span>:      <span class="hl-val">#aab0ba</span>;
+  <span class="hl-prop">--bg-base</span>:               <span class="hl-val">#fff</span>;
+  <span class="hl-prop">--bg-subtle</span>:             <span class="hl-val">#f8f9fb</span>;
+  <span class="hl-prop">--bg-muted</span>:              <span class="hl-val">#eef0f4</span>;
+  <span class="hl-prop">--border-light</span>:          <span class="hl-val">#f0f1f4</span>;
+  <span class="hl-prop">--border-default</span>:        <span class="hl-val">#e2e5ea</span>;
+  <span class="hl-prop">--border-strong</span>:         <span class="hl-val">#cbd0d8</span>;
+  <span class="hl-prop">--color-success</span>:         <span class="hl-val">#16a34a</span>;
+  <span class="hl-prop">--color-success-bg</span>:      <span class="hl-val">#f0fdf4</span>;
+  <span class="hl-prop">--color-danger</span>:          <span class="hl-val">#dc2626</span>;
+  <span class="hl-prop">--color-danger-bg</span>:       <span class="hl-val">#fef2f2</span>;
+  <span class="hl-prop">--color-claude</span>:          <span class="hl-val">#6b5ce7</span>;
+  <span class="hl-prop">--color-codex</span>:           <span class="hl-val">#e67e22</span>;
+  <span class="hl-prop">--color-cursor</span>:          <span class="hl-val">#2ecc71</span>;
+  <span class="hl-prop">--color-trae</span>:            <span class="hl-val">#1a9aff</span>;
+
+  <span class="hl-cmt">/* Typography */</span>
+  <span class="hl-prop">--font-family</span>: <span class="hl-val">-apple-system, BlinkMacSystemFont, 'PingFang SC', sans-serif</span>;
+  <span class="hl-prop">--font-mono</span>:   <span class="hl-val">'SF Mono', Menlo, monospace</span>;
+  <span class="hl-prop">--text-xl</span>:  <span class="hl-val">22px</span>;  <span class="hl-prop">--text-lg</span>:  <span class="hl-val">18px</span>;
+  <span class="hl-prop">--text-md</span>:  <span class="hl-val">15px</span>;  <span class="hl-prop">--text-base</span>: <span class="hl-val">14px</span>;
+  <span class="hl-prop">--text-sm</span>:  <span class="hl-val">13px</span>;  <span class="hl-prop">--text-xs</span>:  <span class="hl-val">12px</span>;
+  <span class="hl-prop">--text-2xs</span>: <span class="hl-val">11px</span>;
+
+  <span class="hl-cmt">/* Spacing */</span>
+  <span class="hl-prop">--space-1</span>: <span class="hl-val">4px</span>;   <span class="hl-prop">--space-2</span>: <span class="hl-val">8px</span>;
+  <span class="hl-prop">--space-3</span>: <span class="hl-val">12px</span>;  <span class="hl-prop">--space-4</span>: <span class="hl-val">16px</span>;
+  <span class="hl-prop">--space-5</span>: <span class="hl-val">20px</span>;  <span class="hl-prop">--space-6</span>: <span class="hl-val">24px</span>;
+  <span class="hl-prop">--space-7</span>: <span class="hl-val">28px</span>;  <span class="hl-prop">--space-8</span>: <span class="hl-val">32px</span>;
+
+  <span class="hl-cmt">/* Radius */</span>
+  <span class="hl-prop">--radius-sm</span>:   <span class="hl-val">6px</span>;   <span class="hl-prop">--radius-md</span>:   <span class="hl-val">8px</span>;
+  <span class="hl-prop">--radius-lg</span>:   <span class="hl-val">10px</span>;  <span class="hl-prop">--radius-xl</span>:   <span class="hl-val">12px</span>;
+  <span class="hl-prop">--radius-2xl</span>:  <span class="hl-val">14px</span>;  <span class="hl-prop">--radius-3xl</span>:  <span class="hl-val">20px</span>;
+  <span class="hl-prop">--radius-full</span>: <span class="hl-val">9999px</span>;
+
+  <span class="hl-cmt">/* Shadow */</span>
+  <span class="hl-prop">--shadow-card</span>:  <span class="hl-val">0 2px 20px rgba(0,0,0,0.05), 0 0 0 1px rgba(0,0,0,0.03)</span>;
+  <span class="hl-prop">--shadow-modal</span>: <span class="hl-val">0 10px 40px rgba(0,0,0,0.12)</span>;
+
+  <span class="hl-cmt">/* Transition */</span>
+  <span class="hl-prop">--transition-fast</span>: <span class="hl-val">150ms ease</span>;
+}</div>
+  </div>
+</section>
+
+
+</main>
+</div>
+
+<script>
+document.querySelectorAll('.ds-nav a').forEach(link => {
+  link.addEventListener('click', e => {
+    e.preventDefault();
+    const id = link.getAttribute('href').slice(1);
+    const el = document.getElementById(id);
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
+});
+</script>
+</body>
+</html>

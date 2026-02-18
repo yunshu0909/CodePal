@@ -26,6 +26,7 @@ const { handleScanLogFiles } = require('./scanLogFilesHandler')
 const { handleAggregateUsageRange } = require('./aggregateUsageRangeHandler')
 const { registerSkillHandlers } = require('./handlers/registerSkillHandlers')
 const { registerProviderHandlers } = require('./handlers/registerProviderHandlers')
+const { registerProjectInitHandlers } = require('./handlers/registerProjectInitHandlers')
 
 const store = new Store()
 
@@ -889,6 +890,16 @@ registerSkillHandlers({
   parseSkillMd,
   PRESET_TOOLS,
   isPathInAllowedDirs,
+})
+
+/**
+ * 注册 V0.9 新建项目初始化相关 IPC handlers
+ */
+registerProjectInitHandlers({
+  ipcMain,
+  expandHome,
+  pathExists,
+  templateBaseDir: path.resolve(__dirname, '..', 'templates', 'project-init-v0.9'),
 })
 
 // IPC handlers for V0.6 usage monitoring

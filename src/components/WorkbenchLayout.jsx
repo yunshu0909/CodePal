@@ -17,7 +17,7 @@ import '../styles/workbench.css'
  * 工作台布局组件
  * @param {Object} props
  * @param {React.ReactNode} props.children - 内容区域要渲染的子元素
- * @param {'skills'|'usage'|'api'} props.activeModule - 当前激活的模块
+ * @param {'skills'|'usage'|'api'|'project-init'} props.activeModule - 当前激活的模块
  * @param {function} props.onModuleChange - 模块切换回调函数
  * @returns {React.ReactElement}
  */
@@ -28,6 +28,7 @@ function WorkbenchLayout({ children, activeModule, onModuleChange }) {
    */
   const navItems = [
     { id: 'skills', label: 'Skills 管理', icon: '🛠️' },
+    { id: 'project-init', label: '新建项目', icon: '🚀' },
     { id: 'usage', label: '用量监测', icon: '📊' },
     { id: 'api', label: 'API 配置', icon: '🔌' }
   ]

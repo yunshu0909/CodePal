@@ -254,4 +254,25 @@ contextBridge.exposeInMainWorld('electronAPI', {
    * @returns {Promise<{success: boolean, backupPath: string|null, error: string|null}>}
    */
   switchClaudeProvider: (profileKey) => ipcRenderer.invoke('switch-claude-provider', profileKey),
+
+  // V0.9 项目初始化 APIs
+
+  /**
+   * 新建项目创建前校验
+   * @param {Object} params - 校验参数
+   * @param {string} params.projectName - 项目名称
+   * @param {string} params.targetPath - 目标路径
+   * @param {'root'|'code'|'none'} [params.gitMode] - Git 模式
+   * @param {string[]|Object} [params.templates] - 模板选择
+   * @param {boolean} [params.overwrite] - 是否覆盖已有文件
+   * @returns {Promise<{success: boolean, valid: boolean, error: string|null, data: Object}>}
+   */
+  validateProjectInit: (params) => ipcRenderer.invoke('project-init-validate', params),
+
+  /**
+   * 执行新建项目初始化
+   * @param {Object} params - 执行参数（与 validateProjectInit 相同）
+   * @returns {Promise<{success: boolean, error: string|null, data: Object}>}
+   */
+  executeProjectInit: (params) => ipcRenderer.invoke('project-init-execute', params),
 })
