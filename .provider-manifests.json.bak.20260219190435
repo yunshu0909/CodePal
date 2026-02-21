@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "providers": [
+    {
+      "id": "demo-proxy",
+      "name": "demo1",
+      "baseUrl": "https://api.example-llm.com/v1",
+      "tokenEnvKey": "DEMO_PROXY_API_KEY",
+      "baseUrlEnvKey": "DEMO_PROXY_BASE_URL",
+      "model": "opus",
+      "settingsEnv": {},
+      "icon": "D",
+      "color": "#8b5cf6",
+      "uiUrl": "https://console.example-llm.com"
+    },
+    {
+      "id": "demo2",
+      "name": "Demo2 Proxy",
+      "baseUrl": "https://api.demo2-proxy.com/v1",
+      "tokenEnvKey": "DEMO2_API_KEY",
+      "baseUrlEnvKey": "DEMO2_BASE_URL",
+      "model": "sonnet",
+      "settingsEnv": {},
+      "icon": "D2",
+      "color": "#10b981",
+      "uiUrl": "https://console.demo2-proxy.com"
+    }
+  ]
+}

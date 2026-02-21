@@ -1,0 +1,110 @@
+/**
+ * PageShell — 通用页面外壳样式
+ *
+ * 规范值（来源：Cool Steel Design Tokens）：
+ *   白卡圆角    --radius-3xl  20px
+ *   白卡阴影    --shadow-card  0 2px 20px rgba(0,0,0,0.05), 0 0 0 1px rgba(0,0,0,0.03)
+ *   内边距      --space-8     32px
+ *   标题字号    --text-xl     22px  weight 700
+ *   副标题字号  --text-sm     13px  color --text-tertiary
+ *   标题区下边距 --space-6    24px
+ *
+ * @module components/PageShell
+ */
+
+/* ============================================================
+   容器
+   ============================================================ */
+
+/**
+ * 白卡容器
+ * - flex: 1 + min-height: 0 使其在 flex 父容器中正确撑满并可滚动
+ * - overflow-y: auto 由页面自己控制滚动，父层 .content-area 为 overflow: hidden
+ * - position: relative 支持内部 absolute 定位子元素（如加载遮罩）
+ */
+.page-shell {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  position: relative;
+  background: var(--bg-base, #fff);
+  border-radius: var(--radius-3xl, 20px);
+  box-shadow: var(--shadow-card, 0 2px 20px rgba(0, 0, 0, 0.05), 0 0 0 1px rgba(0, 0, 0, 0.03));
+  padding: var(--space-8, 32px);
+}
+
+/* 滚动条 */
+.page-shell::-webkit-scrollbar { width: 6px; }
+.page-shell::-webkit-scrollbar-track { background: transparent; }
+.page-shell::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 3px; }
+
+/* ============================================================
+   无内边距变体
+   适用于需要内部自行控制间距的布局（MCP 表格页、双栏页等）
+   - 容器改为 flex column，使内部 flex: 1 子元素能撑满高度
+   - 标题区单独补回 padding，内容区贴边撑满
+   ============================================================ */
+
+.page-shell--no-padding {
+  padding: 0;
+  overflow-y: auto; /* 页面整体可滚动 */
+  display: flex;
+  flex-direction: column;
+}
+
+.page-shell--no-padding > .page-shell__header {
+  padding: var(--space-8, 32px) var(--space-8, 32px) var(--space-6, 24px);
+  margin-bottom: 0;
+  flex-shrink: 0;
+}
+
+/* ============================================================
+   页面标题区
+   ============================================================ */
+
+/**
+ * 标题区：flex 布局支持右侧 actions 插槽
+ * -webkit-app-region: drag 使标题区可拖动窗口（Electron）
+ */
+.page-shell__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-bottom: var(--space-6, 24px);
+  -webkit-app-region: drag;
+}
+
+/* 标题 + 副标题纵向排列 */
+.page-shell__header-main {
+  flex: 1;
+}
+
+/* 右侧操作区（如按钮），禁用拖动避免点击失效 */
+.page-shell__actions {
+  flex-shrink: 0;
+  margin-left: var(--space-4, 16px);
+  -webkit-app-region: no-drag;
+}
+
+/* 分隔线修饰符（divider prop 为 true 时添加） */
+.page-shell__header--divider {
+  border-bottom: 1px solid var(--border-light, #f0f1f4);
+  padding-bottom: var(--space-6, 24px);
+  margin-bottom: 0;
+}
+
+.page-shell__title {
+  font-size: var(--text-xl, 22px);
+  font-weight: 700;
+  color: var(--text-primary, #1a1d23);
+  letter-spacing: -0.5px;
+  margin: 0;
+  line-height: 1.3;
+  -webkit-app-region: no-drag; /* 标题文字本身禁用拖动，避免影响文字选中 */
+}
+
+.page-shell__subtitle {
+  font-size: var(--text-sm, 13px);
+  color: var(--text-tertiary, #8b919a);
+  margin: var(--space-1, 4px) 0 0;
+}

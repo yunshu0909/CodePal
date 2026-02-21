@@ -1,0 +1,1585 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>API 配置 - Session 维度 v0.11 Demo</title>
+<style>
+  /* ============================================================
+     Design Tokens — Cool Steel (from v0.7)
+     ============================================================ */
+  :root {
+    --color-primary:        #2563eb;
+    --color-primary-hover:   #1d4ed8;
+    --color-primary-light:   #eff6ff;
+    --text-primary:    #1a1d23;
+    --text-secondary:  #5a6070;
+    --text-tertiary:   #8b919a;
+    --text-placeholder: #aab0ba;
+    --bg-base:   #fff;
+    --bg-subtle: #f8f9fb;
+    --bg-muted:  #eef0f4;
+    --border-light:   #f0f1f4;
+    --border-default: #e2e5ea;
+    --border-strong:  #cbd0d8;
+    --color-success:    #16a34a;
+    --color-success-bg: #f0fdf4;
+    --color-danger:     #dc2626;
+    --color-danger-bg:  #fef2f2;
+    --font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', sans-serif;
+    --font-mono:   'SF Mono', 'Menlo', 'Monaco', 'Consolas', monospace;
+    --text-xl:  22px;
+    --text-lg:  18px;
+    --text-md:  15px;
+    --text-base: 14px;
+    --text-sm:  13px;
+    --text-xs:  12px;
+    --text-2xs: 11px;
+    --space-1: 4px;
+    --space-2: 8px;
+    --space-3: 12px;
+    --space-4: 16px;
+    --space-5: 20px;
+    --space-6: 24px;
+    --space-7: 28px;
+    --space-8: 32px;
+    --radius-sm:   6px;
+    --radius-md:   8px;
+    --radius-lg:   10px;
+    --radius-xl:   12px;
+    --radius-2xl:  14px;
+    --radius-3xl:  20px;
+    --radius-full: 9999px;
+    --shadow-card:  0 2px 20px rgba(0,0,0,0.05), 0 0 0 1px rgba(0,0,0,0.03);
+    --shadow-modal: 0 10px 40px rgba(0,0,0,0.12);
+    --transition-fast: 150ms ease;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: var(--font-family);
+    background: var(--bg-muted);
+    min-height: 100vh;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    padding: var(--space-5);
+    color: var(--text-primary);
+  }
+
+  /* ============================================================
+     Mac Window Frame (from v0.7)
+     ============================================================ */
+  .mac-window {
+    width: 1000px;
+    height: 720px;
+    background: var(--bg-base);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-card);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .title-bar {
+    height: 38px;
+    background: var(--bg-subtle);
+    border-bottom: 1px solid var(--border-default);
+    display: flex;
+    align-items: center;
+    padding: 0 var(--space-4);
+    -webkit-app-region: drag;
+  }
+
+  .traffic-lights {
+    display: flex;
+    gap: var(--space-2);
+    -webkit-app-region: no-drag;
+  }
+
+  .traffic-light {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    box-shadow: inset 0 0 0 0.5px rgba(0, 0, 0, 0.1);
+  }
+
+  .traffic-light.close { background: #ff5f57; }
+  .traffic-light.minimize { background: #febc2e; }
+  .traffic-light.maximize { background: #28c840; }
+
+  .title-text {
+    flex: 1;
+    text-align: center;
+    font-size: var(--text-sm);
+    font-weight: 600;
+    color: var(--text-secondary);
+  }
+
+  /* ============================================================
+     Layout
+     ============================================================ */
+  .main-container {
+    flex: 1;
+    display: flex;
+    overflow: hidden;
+  }
+
+  .sidebar {
+    width: 180px;
+    background: var(--bg-subtle);
+    border-right: 1px solid var(--border-default);
+    display: flex;
+    flex-direction: column;
+    padding: var(--space-3);
+  }
+
+  .sidebar-title {
+    font-size: var(--text-2xs);
+    font-weight: 600;
+    color: var(--text-tertiary);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    padding: 0 var(--space-2) var(--space-2);
+  }
+
+  .nav-item {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: 8px 12px;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    border: none;
+    width: 100%;
+    text-align: left;
+    font-size: var(--text-sm);
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: all var(--transition-fast);
+    font-family: var(--font-family);
+  }
+
+  .nav-item:hover { background: var(--bg-muted); }
+  .nav-item.is-active {
+    background: var(--bg-muted);
+    color: var(--text-primary);
+    font-weight: 600;
+  }
+
+  .nav-item__icon {
+    width: 18px;
+    height: 18px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+  }
+
+  .content {
+    flex: 1;
+    background: var(--bg-muted);
+    overflow: auto;
+    padding: var(--space-5);
+  }
+
+  /* ============================================================
+     Dimension Switcher
+     ============================================================ */
+  .dimension-switcher {
+    display: flex;
+    gap: var(--space-1);
+    margin-bottom: var(--space-5);
+    padding: var(--space-1);
+    background: var(--bg-base);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-card);
+    width: fit-content;
+  }
+
+  .dimension-btn {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: 8px 16px;
+    font-size: var(--text-sm);
+    font-weight: 500;
+    color: var(--text-secondary);
+    background: transparent;
+    border: none;
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    transition: all var(--transition-fast);
+    font-family: var(--font-family);
+  }
+
+  .dimension-btn:hover { color: var(--text-primary); }
+  .dimension-btn.is-active {
+    background: var(--bg-subtle);
+    color: var(--color-primary);
+    font-weight: 600;
+  }
+
+  /* ============================================================
+     [v0.7 Style] Global Config View - 白框布局
+     ============================================================ */
+  .global-view {
+    background: var(--bg-base);
+    border-radius: var(--radius-3xl);
+    box-shadow: var(--shadow-card);
+    min-height: 100%;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .global-view-content {
+    max-width: 640px;
+    margin: 0 auto;
+    padding: var(--space-8);
+    width: 100%;
+  }
+
+  .page-header {
+    margin-bottom: var(--space-6);
+  }
+
+  .page-header h1 {
+    font-size: var(--text-xl);
+    font-weight: 700;
+    letter-spacing: -0.5px;
+    color: var(--text-primary);
+  }
+
+  .page-header p {
+    font-size: var(--text-sm);
+    color: var(--text-tertiary);
+    margin-top: var(--space-1);
+  }
+
+  .card {
+    background: var(--bg-base);
+    border-radius: var(--radius-2xl);
+    border: 1.5px solid var(--border-default);
+    overflow: hidden;
+  }
+
+  .status-card {
+    padding: var(--space-4) var(--space-5);
+    margin-bottom: var(--space-6);
+    background: var(--bg-subtle);
+    border-color: var(--border-light);
+    border-radius: var(--radius-xl);
+  }
+
+  .status-label {
+    font-size: var(--text-xs);
+    color: var(--text-tertiary);
+    font-weight: 500;
+  }
+
+  .status-value {
+    font-size: var(--text-lg);
+    font-weight: 700;
+    color: var(--text-primary);
+    margin-top: var(--space-1);
+  }
+
+  .provider-section {
+    margin-bottom: var(--space-5);
+  }
+
+  .section-title {
+    font-size: var(--text-base);
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: var(--space-3);
+  }
+
+  .provider-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+  }
+
+  .provider-item {
+    display: flex;
+    align-items: center;
+    padding: var(--space-3) var(--space-4);
+    border-radius: var(--radius-xl);
+    border: 1.5px solid transparent;
+    background: var(--bg-subtle);
+    transition: all var(--transition-fast);
+    cursor: pointer;
+    gap: var(--space-3);
+  }
+
+  .provider-item:hover {
+    border-color: var(--border-default);
+  }
+
+  .provider-item.is-selected {
+    background: var(--color-primary-light);
+    border-color: #bfdbfe;
+  }
+
+  .provider-icon {
+    width: 40px;
+    height: 40px;
+    border-radius: var(--radius-lg);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: var(--text-base);
+    font-weight: 600;
+    flex-shrink: 0;
+    color: #fff;
+  }
+
+  .provider-info {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .provider-name {
+    font-size: var(--text-base);
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+
+  .provider-url {
+    font-size: var(--text-2xs);
+    color: var(--text-tertiary);
+    font-family: var(--font-mono);
+    margin-top: 2px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .tag {
+    display: inline-flex;
+    align-items: center;
+    padding: 3px 10px;
+    border-radius: var(--radius-full);
+    font-size: var(--text-xs);
+    font-weight: 500;
+    transition: all var(--transition-fast);
+    cursor: default;
+    flex-shrink: 0;
+  }
+
+  .tag--success { color: var(--color-success); background: var(--color-success-bg); }
+  .tag--neutral { color: var(--text-tertiary); background: var(--bg-muted); }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-2);
+    padding: 8px 16px;
+    font-size: var(--text-sm);
+    font-weight: 500;
+    font-family: var(--font-family);
+    border-radius: var(--radius-lg);
+    border: 1.5px solid transparent;
+    cursor: pointer;
+    transition: all var(--transition-fast);
+    white-space: nowrap;
+    line-height: 1.4;
+  }
+
+  .btn:active { transform: scale(0.98); }
+  .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  .btn--primary {
+    background: var(--color-primary);
+    color: #fff;
+    border-color: var(--color-primary);
+  }
+  .btn--primary:hover {
+    background: var(--color-primary-hover);
+    border-color: var(--color-primary-hover);
+  }
+
+  .btn--secondary {
+    background: var(--bg-base);
+    color: var(--text-secondary);
+    border-color: var(--border-strong);
+  }
+  .btn--secondary:hover {
+    background: var(--bg-subtle);
+    border-color: var(--text-tertiary);
+  }
+
+  .btn--sm { padding: 6px 12px; font-size: var(--text-xs); }
+
+  .token-panel {
+    margin-top: var(--space-2);
+    border-radius: var(--radius-xl);
+    background: var(--bg-subtle);
+    border: 1.5px solid var(--border-light);
+    padding: var(--space-4);
+    display: none;
+  }
+
+  .token-panel.is-open { display: block; }
+
+  .field label {
+    display: block;
+    font-size: var(--text-2xs);
+    color: var(--text-tertiary);
+    font-weight: 600;
+    letter-spacing: 0.3px;
+    margin-bottom: var(--space-1);
+    text-transform: uppercase;
+  }
+
+  .field input {
+    width: 100%;
+    padding: 9px 14px;
+    font-size: var(--text-sm);
+    font-family: var(--font-mono);
+    color: var(--text-primary);
+    background: var(--bg-base);
+    border: 1.5px solid var(--border-default);
+    border-radius: var(--radius-xl);
+    outline: none;
+    transition: all var(--transition-fast);
+  }
+
+  .field input:hover { border-color: var(--border-strong); }
+  .field input:focus { border-color: var(--color-primary); background: var(--bg-base); }
+  .field input::placeholder { color: var(--text-placeholder); }
+
+  .field-note {
+    margin-top: var(--space-2);
+    font-size: var(--text-xs);
+    color: var(--text-tertiary);
+  }
+
+  .actions {
+    display: flex;
+    gap: var(--space-2);
+    margin-top: var(--space-3);
+    justify-content: flex-end;
+  }
+
+  /* ============================================================
+     [v1.1] Session Config View - 统一卡片布局
+     ============================================================ */
+  .session-view {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+    background: var(--bg-base);
+    border-radius: var(--radius-3xl);
+    box-shadow: var(--shadow-card);
+    overflow: hidden;
+  }
+
+  /* Top section: Project List + Session Content */
+  .session-top-section {
+    display: flex;
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  /* Left: Project List */
+  .projects-panel {
+    width: 200px;
+    display: flex;
+    flex-direction: column;
+    border-right: 1px solid var(--border-light);
+    flex-shrink: 0;
+  }
+
+  .projects-header {
+    padding: var(--space-4);
+    border-bottom: 1px solid var(--border-light);
+  }
+
+  .projects-title {
+    font-size: var(--text-sm);
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+
+  .projects-subtitle {
+    font-size: var(--text-2xs);
+    color: var(--text-tertiary);
+    margin-top: 2px;
+  }
+
+  .projects-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: var(--space-2);
+  }
+
+  .project-item {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    padding: 10px 12px;
+    border-radius: var(--radius-lg);
+    cursor: pointer;
+    transition: all var(--transition-fast);
+  }
+
+  .project-item:hover { background: var(--bg-subtle); }
+  .project-item.is-active {
+    background: var(--color-primary-light);
+    outline: 1.5px solid #bfdbfe;
+  }
+  .project-item.is-active .project-name {
+    color: var(--color-primary);
+    font-weight: 600;
+  }
+
+  .project-icon {
+    width: 28px;
+    height: 28px;
+    border-radius: var(--radius-md);
+    background: var(--bg-muted);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+  }
+
+  .project-item.is-active .project-icon {
+    background: var(--color-primary);
+    color: #fff;
+  }
+
+  .project-group {
+    margin-bottom: var(--space-3);
+  }
+
+  .project-group-title {
+    font-size: var(--text-2xs);
+    font-weight: 600;
+    color: var(--text-tertiary);
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+    padding: var(--space-2) var(--space-3);
+    margin-bottom: var(--space-1);
+  }
+
+  .project-group .project-item {
+    margin-bottom: 2px;
+  }
+
+  .project-info { flex: 1; min-width: 0; }
+
+  /* Selector Bar - Session dropdown */
+  .selector-group {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+  }
+
+  .selector-label {
+    font-size: var(--text-xs);
+    font-weight: 500;
+    color: var(--text-secondary);
+    white-space: nowrap;
+  }
+
+  .selector-select {
+    flex: 1;
+    padding: 8px 12px;
+    font-size: var(--text-sm);
+    font-family: var(--font-family);
+    color: var(--text-primary);
+    background: var(--bg-subtle);
+    border: 1.5px solid var(--border-default);
+    border-radius: var(--radius-lg);
+    outline: none;
+    cursor: pointer;
+    transition: all var(--transition-fast);
+  }
+
+  .selector-select:hover { border-color: var(--border-strong); }
+  .selector-select:focus { border-color: var(--color-primary); }
+
+  .project-name {
+    font-size: var(--text-sm);
+    color: var(--text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .project-meta {
+    font-size: var(--text-2xs);
+    color: var(--text-tertiary);
+    margin-top: 1px;
+  }
+
+  /* Right: Content Area */
+  .session-right-panel {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  /* Session Header - Top section of unified card */
+  .session-header {
+    padding: var(--space-4) var(--space-5);
+    border-bottom: 1px solid var(--border-light);
+    background: var(--bg-base);
+  }
+
+  .session-title {
+    font-size: var(--text-base);
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+
+  .session-meta {
+    font-size: var(--text-xs);
+    color: var(--text-tertiary);
+    margin-top: 2px;
+  }
+
+  /* Session Preview Card - Middle section of unified card */
+  .session-preview-card {
+    flex: 1;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  }
+
+  /* Config Section - Bottom (spans full width), fixed height */
+  .config-section {
+    padding: var(--space-4) var(--space-5);
+    background: var(--bg-base);
+    border-top: 1px solid var(--border-light);
+    flex-shrink: 0;
+  }
+
+  .session-preview-header {
+    padding: var(--space-4) var(--space-5);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .session-preview-title {
+    font-size: var(--text-base);
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+
+  .session-preview-meta {
+    font-size: var(--text-xs);
+    color: var(--text-tertiary);
+  }
+
+  .session-preview-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 0 var(--space-5) var(--space-5);
+  }
+
+  .conversation-preview {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
+  }
+
+  .message-bubble {
+    display: flex;
+    gap: var(--space-3);
+    align-items: flex-start;
+  }
+
+  .message-bubble.assistant {
+    flex-direction: row-reverse;
+  }
+
+  .message-avatar {
+    width: 32px;
+    height: 32px;
+    border-radius: var(--radius-lg);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    flex-shrink: 0;
+  }
+
+  .message-avatar.user {
+    background: var(--bg-muted);
+  }
+
+  .message-avatar.assistant {
+    background: var(--color-primary);
+    color: #fff;
+  }
+
+  .message-content {
+    flex: 1;
+    max-width: 80%;
+  }
+
+  .message-text {
+    font-size: var(--text-sm);
+    color: var(--text-primary);
+    line-height: 1.6;
+    background: var(--bg-subtle);
+    padding: var(--space-3) var(--space-4);
+    border-radius: var(--radius-xl);
+    border-top-left-radius: var(--radius-sm);
+  }
+
+  .message-bubble.assistant .message-text {
+    background: var(--color-primary-light);
+    border-top-left-radius: var(--radius-xl);
+    border-top-right-radius: var(--radius-sm);
+  }
+
+  .message-time {
+    font-size: var(--text-2xs);
+    color: var(--text-tertiary);
+    margin-top: var(--space-1);
+  }
+
+  .message-code {
+    background: rgba(0,0,0,0.04);
+    border-radius: var(--radius-md);
+    padding: var(--space-3);
+    margin: var(--space-2) 0;
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+    overflow-x: auto;
+    line-height: 1.5;
+  }
+
+  .message-inline-code {
+    background: rgba(0,0,0,0.06);
+    padding: 2px 6px;
+    border-radius: var(--radius-sm);
+    font-family: var(--font-mono);
+    font-size: 0.9em;
+  }
+
+  /* Config Section - Bottom section of unified card */
+  .config-section {
+    padding: var(--space-4) var(--space-5);
+    background: var(--bg-base);
+  }
+
+  .config-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: var(--space-3);
+  }
+
+  .config-title {
+    font-size: var(--text-sm);
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+
+  .config-current {
+    font-size: var(--text-xs);
+    color: var(--text-secondary);
+  }
+
+  .config-current strong {
+    color: var(--color-primary);
+  }
+
+  .provider-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(90px, 1fr));
+    gap: var(--space-2);
+    max-height: 220px;
+    overflow-y: auto;
+  }
+
+  .provider-card {
+    padding: var(--space-2);
+    border: 1.5px solid var(--border-default);
+    border-radius: var(--radius-xl);
+    background: var(--bg-base);
+    cursor: pointer;
+    transition: all var(--transition-fast);
+    text-align: center;
+    aspect-ratio: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .provider-card:hover {
+    border-color: var(--border-strong);
+    background: var(--bg-subtle);
+  }
+
+  .provider-card.is-selected {
+    border-color: var(--color-primary);
+    background: var(--color-primary-light);
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+  }
+
+  .provider-card__icon {
+    width: 36px;
+    height: 36px;
+    border-radius: var(--radius-xl);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 0 auto var(--space-2);
+    font-size: 16px;
+  }
+
+  .provider-card.is-selected .provider-card__icon {
+    background: var(--color-primary);
+    color: #fff;
+  }
+
+  .provider-card__name {
+    font-size: var(--text-xs);
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+
+  /* ============================================================
+     Empty States
+     ============================================================ */
+  .empty-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: var(--space-8);
+    text-align: center;
+    height: 100%;
+  }
+
+  .empty-state__icon {
+    width: 64px;
+    height: 64px;
+    border-radius: var(--radius-xl);
+    background: var(--bg-muted);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 32px;
+    margin-bottom: var(--space-4);
+  }
+
+  .empty-state__title {
+    font-size: var(--text-sm);
+    font-weight: 600;
+    color: var(--text-secondary);
+  }
+
+  .empty-state__desc {
+    font-size: var(--text-xs);
+    color: var(--text-tertiary);
+    margin-top: var(--space-1);
+  }
+
+  /* ============================================================
+     Hidden Helper
+     ============================================================ */
+  .hidden { display: none !important; }
+
+  /* ============================================================
+     Toast Container
+     ============================================================ */
+  .toast-container {
+    position: fixed;
+    bottom: 24px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 1000;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    pointer-events: none;
+  }
+
+  .toast {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 12px 20px;
+    border-radius: var(--radius-xl);
+    font-size: var(--text-sm);
+    font-weight: 500;
+    white-space: nowrap;
+    animation: toast-in 300ms ease;
+    pointer-events: auto;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.15);
+  }
+
+  .toast--success { background: var(--color-success); color: #fff; }
+  .toast--error { background: var(--color-danger); color: #fff; }
+  .toast--info { background: var(--color-primary); color: #fff; }
+
+  @keyframes toast-in {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+</style>
+</head>
+<body>
+
+<div class="mac-window">
+  <div class="title-bar">
+    <div class="traffic-lights">
+      <div class="traffic-light close"></div>
+      <div class="traffic-light minimize"></div>
+      <div class="traffic-light maximize"></div>
+    </div>
+    <div class="title-text">API 配置 - Session 维度 v0.11 Demo</div>
+  </div>
+
+  <div class="main-container">
+    <aside class="sidebar">
+      <div class="sidebar-title">工作空间</div>
+      <button class="nav-item is-active" type="button">
+        <span class="nav-item__icon">🔌</span>
+        API 配置
+      </button>
+      <div style="flex:1"></div>
+    </aside>
+
+    <main class="content">
+      <!-- Dimension Switcher -->
+      <div class="dimension-switcher">
+        <button class="dimension-btn is-active" id="btn-global" onclick="switchDimension('global')">
+          <span>🌍</span> 全局配置
+        </button>
+        <button class="dimension-btn" id="btn-session" onclick="switchDimension('session')">
+          <span>📁</span> Session 配置
+        </button>
+      </div>
+
+      <!-- [v0.7 Style] Global Config View -->
+      <div id="globalView" class="global-view">
+        <div class="global-view-content">
+          <section class="page-header">
+            <h1>API 配置</h1>
+            <p>切换 Claude Code 的 API 接入点</p>
+          </section>
+
+          <section class="card status-card">
+            <div class="status-label">当前使用</div>
+            <div class="status-value" id="globalCurrentName">Kimi For Coding</div>
+          </section>
+
+          <section class="provider-section">
+            <h2 class="section-title">选择 API 接入点</h2>
+            <div class="provider-list" id="globalProviderList">
+              <!-- Provider items rendered by JS -->
+            </div>
+          </section>
+        </div>
+      </div>
+
+      <!-- [v1.1 Style] Session Config View -->
+      <div id="sessionView" class="session-view hidden">
+        <!-- Top Section: Project List + Session Content -->
+        <div class="session-top-section">
+          <!-- Left: Project List -->
+          <div class="projects-panel">
+            <div class="projects-header">
+              <div class="projects-title">项目列表</div>
+              <div class="projects-subtitle" id="projectsCount">8 个项目</div>
+            </div>
+            <div class="projects-list" id="projectsList">
+              <!-- Projects rendered by JS -->
+            </div>
+          </div>
+
+          <!-- Right: Session Content -->
+          <div class="session-right-panel">
+            <!-- Session Selector -->
+            <div class="session-header">
+              <div class="selector-group" style="width: 100%;">
+                <span class="selector-label">Session</span>
+                <select class="selector-select" id="sessionSelect" onchange="selectSession(this.value)" disabled>
+                  <option value="">选择 Session...</option>
+                </select>
+              </div>
+            </div>
+
+            <!-- Session Preview Card -->
+            <div class="session-preview-card" id="previewCard">
+              <div class="empty-state">
+                <div class="empty-state__icon">📂</div>
+                <div class="empty-state__title">选择一个 Session</div>
+                <div class="empty-state__desc">在左侧选择项目，然后选择 Session 查看详情</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Bottom Section: Config Provider (spans full width) -->
+        <div class="config-section">
+          <div class="config-header">
+            <span class="config-title">配置 Provider</span>
+            <span class="config-current">当前: <strong id="currentProviderName">未配置</strong></span>
+          </div>
+          <div class="provider-grid" id="sessionProviderGrid">
+            <!-- Provider cards rendered by JS -->
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+</div>
+
+<div class="toast-container" id="toastContainer"></div>
+
+<script>
+  // Mock Data with lastModified (for time-based grouping)
+  const projects = [
+    { id: 'proj-1', name: 'skills', icon: '⚛️', path: '/Users/wuhaoyang/skills', lastModified: '2026-02-19T10:30:00' },
+    { id: 'proj-2', name: 'todo-app', icon: '✅', path: '/Users/wuhaoyang/todo', lastModified: '2026-02-19T09:00:00' },
+    { id: 'proj-3', name: 'data-analysis', icon: '📊', path: '/Users/wuhaoyang/data', lastModified: '2026-02-18T15:20:00' },
+    { id: 'proj-4', name: 'docs-site', icon: '📚', path: '/Users/wuhaoyang/docs', lastModified: '2026-02-17T14:00:00' },
+    { id: 'proj-5', name: 'ai-chatbot', icon: '🤖', path: '/Users/wuhaoyang/chatbot', lastModified: '2026-02-15T11:00:00' },
+    { id: 'proj-6', name: 'e-commerce', icon: '🛒', path: '/Users/wuhaoyang/ecom', lastModified: '2026-02-10T09:30:00' },
+    { id: 'proj-7', name: 'blog-system', icon: '📝', path: '/Users/wuhaoyang/blog', lastModified: '2026-01-25T16:00:00' },
+    { id: 'proj-8', name: 'weather-app', icon: '🌤️', path: '/Users/wuhaoyang/weather', lastModified: '2026-01-10T10:00:00' },
+  ];
+
+  // Parse Claude Code session data - content is array for assistant messages
+  function parseClaudeSession(lines) {
+    const messages = [];
+    for (const line of lines.split('\n')) {
+      if (!line.trim()) continue;
+      try {
+        const data = JSON.parse(line);
+        if (data.type === 'user' && data.message?.content) {
+          const content = data.message.content;
+          if (content && !content.includes('<local-command') && !content.includes('<command')) {
+            messages.push({
+              role: 'user',
+              content: content.substring(0, 150) + (content.length > 150 ? '...' : ''),
+              time: data.timestamp?.substring(5, 16).replace('T', ' ') || ''
+            });
+          }
+        } else if (data.type === 'assistant' && data.message?.content) {
+          // Assistant content is an array of blocks
+          const contentArr = data.message.content;
+          if (Array.isArray(contentArr)) {
+            // Extract text from text blocks, skip thinking and tool_use
+            const textParts = contentArr
+              .filter(block => block.type === 'text' && block.text)
+              .map(block => block.text);
+            if (textParts.length > 0) {
+              const content = textParts.join('\n').substring(0, 200) + (textParts.join('\n').length > 200 ? '...' : '');
+              messages.push({
+                role: 'assistant',
+                content: content,
+                time: data.timestamp?.substring(5, 16).replace('T', ' ') || ''
+              });
+            }
+          }
+        }
+        if (messages.length >= 8) break;
+      } catch (e) {
+        continue;
+      }
+    }
+    return messages;
+  }
+
+  // Real session data from Claude Code
+  const sessionsData = {
+    'proj-1': [
+      {
+        id: 's1', name: 'v0.8 用量监测设计', messageCount: 8, created: '02-16 03:31', modified: '02-16 03:59', providerId: null,
+        messages: [
+          { role: 'user', content: 'b吧 然后你单独开一个v0.8的文件 复制出来一份用量监测 然后在上边加这个设计 我先看看设计', time: '02-16 03:31' },
+          { role: 'assistant', content: '根据 CLAUDE.md 的规则，这是一个 UI 设计任务，我先读取设计规范文件，然后帮你翻译需求。', time: '02-16 03:31' },
+          { role: 'user', content: '都用哪个白底呗 会有什么问题吗?', time: '02-16 03:39' },
+          { role: 'assistant', content: '我来读取设计规范文件，看看具体的设计要求。', time: '02-16 03:39' },
+          { role: 'user', content: '有什么区别 我没懂', time: '02-16 03:40' },
+          { role: 'assistant', content: '主要区别在于背景色的使用。白色背景适合内容区域，可以突出内容本身。灰色背景适合作为画布，让白色卡片有层次感。', time: '02-16 03:40' },
+          { role: 'user', content: '你没看到整个页面布局都出问题了吗....你先说一下现在的问题是什么', time: '02-16 03:46' },
+          { role: 'assistant', content: '现在的主要问题是卡片之间的间距不一致，导致视觉上的混乱。我会重新调整布局，确保统一的间距和边距。', time: '02-16 03:46' },
+        ]
+      },
+      {
+        id: 's2', name: 'PRD 文档更新', messageCount: 6, created: '02-18 11:29', modified: '02-18 11:43', providerId: null,
+        messages: [
+          { role: 'user', content: '"/Users/wuhaoyang/Documents/trae_projects/skills/设计/v0.9-新建项目/弹窗展示-成功失败.html"你看看这个文件的内容 里边有什么?', time: '02-18 11:29' },
+          { role: 'assistant', content: '这个文件包含弹窗组件的设计规范，包括成功、失败、警告三种状态的样式定义。', time: '02-18 11:30' },
+          { role: 'user', content: '"skill-manager"你看一下 PRD 文档', time: '02-18 11:30' },
+          { role: 'assistant', content: 'PRD 文档包含新建项目一键初始化的详细需求。主要功能包括：项目结构生成、Git 初始化、模板文件创建等。', time: '02-18 11:31' },
+          { role: 'user', content: '刚才的修改梳理一下吧 我们在prd更新一下... 你看看要更新多少内容 我们确定了更新一下', time: '02-18 11:43' },
+          { role: 'assistant', content: '需要更新的内容主要包括：\n1. 添加弹窗交互设计说明\n2. 更新项目初始化流程\n3. 补充 Git 模式选择的详细逻辑', time: '02-18 11:43' },
+        ]
+      },
+      {
+        id: 's3', name: '模型占比统计', messageCount: 6, created: '02-15 13:51', modified: '02-15 14:01', providerId: 'kimi',
+        messages: [
+          { role: 'user', content: 'codex 51% kimi 26% sonnet 18% opus 6% 其他 (1个模型) 0% 我感觉模型占比这个数据统计和展示文案不是一套罗家...这是我觉得的问题', time: '02-15 13:51' },
+          { role: 'assistant', content: '你说得对，数据统计和展示逻辑确实需要统一。建议调整如下：\n1. 只有使用超过 5 个模型时才显示"其他"分类\n2. 百分比计算基于实际请求次数\n3. 展示文案统一为"X 个模型"', time: '02-15 13:52' },
+          { role: 'user', content: '就是只有5个旧都展示 大于5个再走这个逻辑吧 现在的逻辑很乱 我看不懂', time: '02-15 13:55' },
+          { role: 'assistant', content: '明白了，新逻辑：\n- ≤5 个模型：全部单独展示\n- >5 个模型：展示前 4 个 + "其他 (N 个模型)"', time: '02-15 13:55' },
+          { role: 'user', content: '可以', time: '02-15 13:56' },
+          { role: 'user', content: '你确定是 今天和近七天 近30天都是一个逻辑???', time: '02-15 13:58' },
+        ]
+      },
+    ],
+    'proj-2': [
+      {
+        id: 's4', name: '用量监测设计讨论', messageCount: 4, created: '02-14 10:00', modified: '02-14 10:30', providerId: null,
+        messages: [
+          { role: 'user', content: '用量监测页面的设计我觉得需要调整一下', time: '02-14 10:00' },
+          { role: 'assistant', content: '好的，你想调整哪部分？是布局、颜色还是交互？', time: '02-14 10:05' },
+          { role: 'user', content: '主要是布局，我觉得卡片太多了，应该整合一下', time: '02-14 10:15' },
+          { role: 'assistant', content: '建议把相关指标整合到同一个卡片里，比如把 Token 使用量、请求次数、模型占比都放在一个"使用概览"卡片中。这样信息更集中，页面也更简洁。', time: '02-14 10:30' }
+        ]
+      },
+    ],
+    'proj-3': [
+      {
+        id: 's5', name: 'API Key 配置', messageCount: 5, created: '02-13 09:00', modified: '02-13 10:00', providerId: 'aicodemirror',
+        messages: [
+          { role: 'user', content: '怎么配置自定义 API Key？', time: '02-13 09:00' },
+          { role: 'assistant', content: '在设置页面点击 "编辑 API Key" 按钮，输入你的 API Key 后保存即可。配置保存后会自动生效，不需要重启应用。', time: '02-13 09:05' },
+          { role: 'user', content: '配置完了怎么验证是否生效？', time: '02-13 09:30' },
+          { role: 'assistant', content: '发送一条消息，看响应时间和模型名称就能判断。自定义 API 通常响应更快，模型名称会显示为你配置的供应商名称。', time: '02-13 09:31' },
+          { role: 'user', content: '好的明白了', time: '02-13 10:00' }
+        ]
+      },
+    ],
+    'proj-4': [
+      {
+        id: 's6', name: '技能导入流程', messageCount: 6, created: '02-12 14:00', modified: '02-12 15:30', providerId: null,
+        messages: [
+          { role: 'user', content: '技能导入的具体流程是什么？', time: '02-12 14:00' },
+          { role: 'assistant', content: '技能导入流程：\n1. 扫描本地 skills 目录\n2. 显示可导入的技能列表\n3. 选择要导入的技能\n4. 复制到中央仓库\n5. 更新配置文件', time: '02-12 14:10' },
+          { role: 'user', content: '能批量导入吗？', time: '02-12 14:30' },
+          { role: 'assistant', content: '可以，选择多个技能后一键导入。支持全选、反选等操作。', time: '02-12 15:00' },
+          { role: 'user', content: '导入后怎么验证成功了？', time: '02-12 15:10' },
+          { role: 'assistant', content: '导入成功后会显示 Toast 提示，同时技能列表会更新。可以在目标工具的 skills 目录下看到对应的文件夹。', time: '02-12 15:30' }
+        ]
+      },
+    ],
+    'proj-5': [
+      {
+        id: 's7', name: 'ChatBot 架构设计', messageCount: 4, created: '02-15 10:00', modified: '02-15 11:00', providerId: null,
+        messages: [
+          { role: 'user', content: '设计一个 AI ChatBot 的架构', time: '02-15 10:00' },
+          { role: 'assistant', content: '建议架构：前端 React + 后端 Node.js + OpenAI API。需要支持流式输出和上下文记忆。', time: '02-15 10:15' },
+          { role: 'user', content: '上下文怎么存储？', time: '02-15 10:30' },
+          { role: 'assistant', content: '可以用 Redis 存储短期上下文，数据库存储历史记录。每个用户一个 session id。', time: '02-15 11:00' }
+        ]
+      },
+    ],
+    'proj-6': [
+      {
+        id: 's8', name: '电商订单系统', messageCount: 3, created: '02-10 09:00', modified: '02-10 10:00', providerId: null,
+        messages: [
+          { role: 'user', content: '设计订单状态机', time: '02-10 09:00' },
+          { role: 'assistant', content: '订单状态：待支付 → 已支付 → 待发货 → 已发货 → 已完成。异常分支：取消、退款。', time: '02-10 09:20' },
+          { role: 'user', content: '退款流程怎么做？', time: '02-10 09:30' }
+        ]
+      },
+    ],
+    'proj-7': [
+      {
+        id: 's9', name: '博客 SEO 优化', messageCount: 5, created: '01-25 14:00', modified: '01-25 16:00', providerId: null,
+        messages: [
+          { role: 'user', content: '怎么优化博客的 SEO？', time: '01-25 14:00' },
+          { role: 'assistant', content: 'SEO 优化要点：\n1. 语义化 HTML\n2. 合理的标题层级\n3. meta 标签\n4. 图片 alt 属性\n5. 网站地图', time: '01-25 14:15' },
+          { role: 'user', content: '需要 SSR 吗？', time: '01-25 15:00' },
+          { role: 'assistant', content: '是的，SSR 对 SEO 很重要。搜索引擎更容易抓取渲染后的内容。推荐 Next.js。', time: '01-25 15:30' },
+          { role: 'user', content: '好的', time: '01-25 16:00' }
+        ]
+      },
+    ],
+    'proj-8': [
+      {
+        id: 's10', name: '天气 API 接入', messageCount: 3, created: '01-10 09:00', modified: '01-10 10:00', providerId: null,
+        messages: [
+          { role: 'user', content: '接入天气 API', time: '01-10 09:00' },
+          { role: 'assistant', content: '推荐 OpenWeatherMap 或和风天气。需要申请 API Key。', time: '01-10 09:10' },
+          { role: 'user', content: '有免费的吗？', time: '01-10 09:30' }
+        ]
+      },
+    ],
+  };
+
+  const providers = [
+    { id: 'official', name: 'Claude Official', url: 'https://www.anthropic.com/claude-code', icon: 'A', color: '#6b5ce7', token: '' },
+    { id: 'kimi', name: 'Kimi For Coding', url: 'https://api.kimi.com/coding/', icon: 'K', color: '#4f46e5', token: 'sk-kimi-***' },
+    { id: 'aicodemirror', name: 'AICodeMirror', url: 'https://api.aicodemirror.com/api/claudecode', icon: 'X', color: '#d97706', token: 'sk-ant-***' },
+    { id: 'gemini', name: 'Gemini Pro', url: 'https://gemini.google.com', icon: 'G', color: '#10b981', token: '' },
+    { id: 'openrouter', name: 'OpenRouter', url: 'https://openrouter.ai', icon: 'O', color: '#f59e0b', token: '' },
+    { id: 'deepseek', name: 'DeepSeek', url: 'https://deepseek.com', icon: 'D', color: '#3b82f6', token: '' },
+    { id: 'qwen', name: 'Qwen Max', url: 'https://qwen.aliyun.com', icon: 'Q', color: '#8b5cf6', token: '' },
+    { id: 'mistral', name: 'Mistral Large', url: 'https://mistral.ai', icon: 'M', color: '#06b6d4', token: '' },
+  ];
+
+  // State
+  let currentDimension = 'global';
+  let globalProvider = 'kimi';
+  let currentProjectId = null;
+  let currentSessionId = null;
+  let editingProvider = null;
+
+  // Group projects by last modified time
+  function groupProjectsByTime(projects) {
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
+    const weekAgo = new Date(today);
+    weekAgo.setDate(weekAgo.getDate() - 7);
+    const monthAgo = new Date(today);
+    monthAgo.setDate(monthAgo.getDate() - 30);
+
+    const groups = {
+      '今天': [],
+      '昨天': [],
+      '本周': [],
+      '本月': [],
+      '更早': []
+    };
+
+    projects.forEach(p => {
+      const modified = new Date(p.lastModified);
+      if (modified >= today) {
+        groups['今天'].push(p);
+      } else if (modified >= yesterday) {
+        groups['昨天'].push(p);
+      } else if (modified >= weekAgo) {
+        groups['本周'].push(p);
+      } else if (modified >= monthAgo) {
+        groups['本月'].push(p);
+      } else {
+        groups['更早'].push(p);
+      }
+    });
+
+    return groups;
+  }
+
+  // Init
+  function init() {
+    initProjectsList();
+    renderGlobalView();
+
+    // Session view: auto select first project and first session
+    if (projects.length > 0) {
+      selectProject(projects[0].id);
+    }
+  }
+
+  // Initialize projects list (left panel) with time-based grouping
+  function initProjectsList() {
+    const list = document.getElementById('projectsList');
+    const groups = groupProjectsByTime(projects);
+
+    let html = '';
+    for (const [groupName, groupProjects] of Object.entries(groups)) {
+      if (groupProjects.length === 0) continue;
+
+      html += `
+        <div class="project-group">
+          <div class="project-group-title">${groupName} (${groupProjects.length})</div>
+          ${groupProjects.map(p => `
+            <div class="project-item ${p.id === currentProjectId ? 'is-active' : ''}" data-id="${p.id}" onclick="selectProject('${p.id}')">
+              <div class="project-icon">${p.icon}</div>
+              <div class="project-info">
+                <div class="project-name">${p.name}</div>
+                <div class="project-meta">${sessionsData[p.id]?.length || 0} sessions</div>
+              </div>
+            </div>
+          `).join('')}
+        </div>
+      `;
+    }
+
+    list.innerHTML = html;
+  }
+
+
+  // Switch dimension
+  function switchDimension(dim) {
+    currentDimension = dim;
+    document.getElementById('btn-global').classList.toggle('is-active', dim === 'global');
+    document.getElementById('btn-session').classList.toggle('is-active', dim === 'session');
+    document.getElementById('globalView').classList.toggle('hidden', dim !== 'global');
+    document.getElementById('sessionView').classList.toggle('hidden', dim !== 'session');
+
+    if (dim === 'global') {
+      renderGlobalView();
+    }
+  }
+
+  // ==================== Global View Functions ====================
+
+  function renderGlobalView() {
+    const list = document.getElementById('globalProviderList');
+    list.innerHTML = '';
+
+    providers.forEach(provider => {
+      const isSelected = provider.id === globalProvider;
+      const isEditing = provider.id === editingProvider;
+
+      const item = document.createElement('div');
+      item.className = `provider-item ${isSelected ? 'is-selected' : ''}`;
+      item.innerHTML = `
+        <div class="provider-icon" style="background: ${provider.color};">${provider.icon}</div>
+        <div class="provider-info">
+          <div class="provider-name">${provider.name}</div>
+          <div class="provider-url">${provider.url}</div>
+        </div>
+        ${isSelected
+          ? `<span class="tag tag--success">当前使用</span>
+             ${provider.id !== 'official' ? `<button class="btn btn--secondary btn--sm edit-btn" data-id="${provider.id}">编辑 API Key</button>` : ''}`
+          : `<button class="btn btn--primary btn--sm switch-btn" data-id="${provider.id}">启用</button>`
+        }
+      `;
+
+      item.addEventListener('click', (e) => {
+        if (!e.target.closest('.btn')) {
+          globalProvider = provider.id;
+          editingProvider = null;
+          renderGlobalView();
+          showToast(`全局默认已切换到 ${provider.name}`, 'success');
+        }
+      });
+
+      list.appendChild(item);
+
+      if (isEditing) {
+        const panel = document.createElement('div');
+        panel.className = 'token-panel is-open';
+        panel.innerHTML = `
+          <div class="field">
+            <label>API Key</label>
+            <input type="password" id="input-token-${provider.id}" value="${provider.token}" placeholder="输入 API Key..." />
+          </div>
+          <p class="field-note">配置保存至 ~/.claude/settings.json</p>
+          <div class="actions">
+            <button class="btn btn--secondary btn--sm cancel-btn" data-id="${provider.id}">取消</button>
+            <button class="btn btn--primary btn--sm save-btn" data-id="${provider.id}">保存</button>
+          </div>
+        `;
+        list.appendChild(panel);
+      }
+    });
+
+    document.getElementById('globalCurrentName').textContent = providers.find(p => p.id === globalProvider)?.name || '';
+
+    // Bind events
+    document.querySelectorAll('.switch-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        globalProvider = btn.dataset.id;
+        editingProvider = null;
+        renderGlobalView();
+        showToast(`全局默认已切换到 ${providers.find(p => p.id === btn.dataset.id)?.name}`, 'success');
+      });
+    });
+
+    document.querySelectorAll('.edit-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        editingProvider = editingProvider === btn.dataset.id ? null : btn.dataset.id;
+        renderGlobalView();
+      });
+    });
+
+    document.querySelectorAll('.cancel-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        editingProvider = null;
+        renderGlobalView();
+      });
+    });
+
+    document.querySelectorAll('.save-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const id = btn.dataset.id;
+        const tokenInput = document.getElementById(`input-token-${id}`);
+        const provider = providers.find(p => p.id === id);
+        if (provider && tokenInput) {
+          provider.token = tokenInput.value;
+        }
+        editingProvider = null;
+        renderGlobalView();
+        showToast('API Key 已保存', 'success');
+      });
+    });
+  }
+
+  // ==================== Session View Functions ====================
+
+  function selectProject(projectId) {
+    currentProjectId = projectId;
+
+    // Update left panel highlight
+    document.querySelectorAll('.project-item').forEach(item => {
+      item.classList.toggle('is-active', item.dataset.id === projectId);
+    });
+
+    // Update session select dropdown
+    const sessionSelect = document.getElementById('sessionSelect');
+    sessionSelect.innerHTML = '<option value="">选择 Session...</option>';
+    sessionSelect.disabled = !projectId;
+
+    // Populate sessions for this project
+    if (projectId && sessionsData[projectId]) {
+      sessionsData[projectId].forEach(s => {
+        const option = document.createElement('option');
+        option.value = s.id;
+        option.textContent = s.name;
+        sessionSelect.appendChild(option);
+      });
+
+      // Auto select first session
+      if (sessionsData[projectId].length > 0) {
+        const firstSessionId = sessionsData[projectId][0].id;
+        sessionSelect.value = firstSessionId;
+        selectSession(firstSessionId);
+      }
+    } else {
+      currentSessionId = null;
+      renderPreview(null);
+      renderSessionProviders(null);
+    }
+  }
+
+  function selectSession(sessionId) {
+    currentSessionId = sessionId;
+
+    const session = findSession(sessionId);
+    renderPreview(session);
+    renderSessionProviders(session);
+  }
+
+  function findSession(sessionId) {
+    for (const projSessions of Object.values(sessionsData)) {
+      const s = projSessions.find(sess => sess.id === sessionId);
+      if (s) return s;
+    }
+    return null;
+  }
+
+  function renderPreview(session) {
+    const card = document.getElementById('previewCard');
+
+    if (!session) {
+      card.innerHTML = `
+        <div class="empty-state">
+          <div class="empty-state__icon">📂</div>
+          <div class="empty-state__title">选择一个 Session</div>
+          <div class="empty-state__desc">在上方选择 Session 查看详情</div>
+        </div>
+      `;
+      return;
+    }
+
+    // Build messages HTML
+    const messagesHtml = session.messages.map(msg => `
+      <div class="message-bubble ${msg.role}">
+        <div class="message-avatar ${msg.role}">${msg.role === 'user' ? '👤' : '🤖'}</div>
+        <div class="message-content">
+          <div class="message-text">${formatMessageContent(msg.content)}</div>
+          <div class="message-time" style="${msg.role === 'assistant' ? 'text-align: right;' : ''}">${msg.time}</div>
+        </div>
+      </div>
+    `).join('');
+
+    card.innerHTML = `
+      <div class="conversation-preview">
+        ${messagesHtml}
+      </div>
+    `;
+  }
+
+  // Format message content: preserve line breaks and code blocks
+  function formatMessageContent(content) {
+    // Escape HTML
+    let html = content
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+
+    // Highlight code blocks
+    html = html.replace(/```(\w*)\n([\s\S]*?)```/g, '<pre class="message-code"><code>$2</code></pre>');
+
+    // Handle inline code
+    html = html.replace(/`([^`]+)`/g, '<code class="message-inline-code">$1</code>');
+
+    // Preserve line breaks
+    html = html.replace(/\n/g, '<br>');
+
+    return html;
+  }
+
+  function renderSessionProviders(session) {
+    const grid = document.getElementById('sessionProviderGrid');
+    const currentId = session?.providerId || globalProvider;
+
+    document.getElementById('currentProviderName').textContent = session
+      ? (session.providerId ? providers.find(p => p.id === session.providerId)?.name + ' (自定义)' : `跟随全局 (${providers.find(p => p.id === globalProvider)?.name})`)
+      : '未配置';
+
+    grid.innerHTML = providers.map(p => `
+      <div class="provider-card ${p.id === currentId ? 'is-selected' : ''}" onclick="${session ? `setSessionProvider('${p.id}')` : ''}">
+        <div class="provider-card__icon" style="${p.id === currentId ? '' : `background: ${p.color}20; color: ${p.color};`}">${p.icon}</div>
+        <div class="provider-card__name">${p.name}</div>
+      </div>
+    `).join('');
+  }
+
+  function setSessionProvider(providerId) {
+    if (!currentSessionId) return;
+
+    for (const projSessions of Object.values(sessionsData)) {
+      const session = projSessions.find(s => s.id === currentSessionId);
+      if (session) {
+        session.providerId = providerId;
+        break;
+      }
+    }
+
+    const session = findSession(currentSessionId);
+    renderSessionProviders(session);
+    showToast(`已为当前 Session 设置 ${providers.find(p => p.id === providerId)?.name}`, 'success');
+  }
+
+  // ==================== Common Functions ====================
+
+  function showToast(msg, type = 'info') {
+    const container = document.getElementById('toastContainer');
+    const toast = document.createElement('div');
+    toast.className = `toast toast--${type}`;
+    const icons = { success: '✓', error: '✕', info: 'ℹ' };
+    toast.innerHTML = `<span>${icons[type]}</span><span>${msg}</span>`;
+    container.appendChild(toast);
+    setTimeout(() => toast.remove(), 3000);
+  }
+
+  // Init
+  init();
+</script>
+
+</body>
+</html>

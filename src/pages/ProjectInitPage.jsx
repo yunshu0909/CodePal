@@ -15,6 +15,8 @@ import PathPickerField from '../components/PathPickerField'
 import ProjectInitSuccessModal, { ProjectInitErrorModal } from '../components/ProjectInitSuccessModal'
 import Toast from '../components/Toast'
 import '../styles/project-init.css'
+import PageShell from '../components/PageShell'
+import Button from '../components/Button/Button'
 
 const DEFAULT_TARGET_PATH = '~/Documents/projects/'
 const PROJECT_NAME_INVALID_CHARS = /[\\/:*?"<>|]/
@@ -334,13 +336,9 @@ export default function ProjectInitPage() {
 
 
   return (
-    <div className="project-init-page" data-testid="project-init-page">
+    <PageShell title="新建项目" subtitle="一键初始化项目结构" className="page-shell--no-padding" divider data-testid="project-init-page">
       <div className="pi-two-column" data-testid="project-init-two-column">
         <section className="pi-form-panel" data-testid="project-init-form-panel">
-          <header className="pi-page-header">
-            <h1 className="pi-page-title" data-testid="project-init-title">新建项目</h1>
-            <p className="pi-page-subtitle">一键初始化项目结构</p>
-          </header>
 
           <div className="pi-form-section">
             <div className="pi-section-title">📁 基本信息</div>
@@ -486,16 +484,16 @@ export default function ProjectInitPage() {
         </section>
 
         <div className="pi-card-footer" data-testid="project-init-footer">
-          <button
-            type="button"
-            className="pi-btn pi-btn-primary"
-            onClick={handleCreateProject}
+          <Button
+            variant="primary"
+            loading={isSubmitting}
             disabled={!canCreate}
+            onClick={handleCreateProject}
             title={isProjectNameEmpty ? '请填写项目名称' : projectNameError ? projectNameError : ''}
             data-testid="create-project-button"
           >
-            {isSubmitting ? '创建中...' : '创建项目'}
-          </button>
+            创建项目
+          </Button>
         </div>
       </div>
 
@@ -517,6 +515,6 @@ export default function ProjectInitPage() {
       />
 
       {toastMessage && <Toast message={toastMessage} onClose={() => setToastMessage(null)} />}
-    </div>
+    </PageShell>
   )
 }

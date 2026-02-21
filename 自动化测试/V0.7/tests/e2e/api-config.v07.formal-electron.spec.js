@@ -11,22 +11,49 @@
 
 const { test, expect } = require('@playwright/test')
 const { _electron: electron } = require('playwright')
+const fsSync = require('node:fs')
 const fs = require('node:fs/promises')
 const path = require('node:path')
 const os = require('node:os')
+const dotenv = require('dotenv')
 
-// 注意：这些是测试用的假 API Key，仅用于验证配置写入逻辑
-// 真实 API Key 应在 .env 文件中配置
-const PROVIDER_FIXTURES = {
-  kimi: {
-    token: 'sk-kimi-test-key-for-e2e-testing-only',
-    baseUrl: 'https://api.kimi.com/coding/',
-  },
-  aicodemirror: {
-    token: 'sk-ant-test-key-for-e2e-testing-only',
-    baseUrl: 'https://api.aicodemirror.com/api/claudecode',
-  },
+/**
+ * 读取项目 .env 里的供应商参数（缺失时回退到测试默认值）
+ * @returns {{kimi: {token: string, baseUrl: string}, aicodemirror: {token: string, baseUrl: string}}}
+ */
+function loadProviderFixturesFromProjectEnv() {
+  const defaults = {
+    kimi: {
+      token: 'sk-kimi-test-key-for-e2e-testing-only',
+      baseUrl: 'https://api.kimi.com/coding/',
+    },
+    aicodemirror: {
+      token: 'sk-ant-test-key-for-e2e-testing-only',
+      baseUrl: 'https://api.aicodemirror.com/api/claudecode',
+    },
+  }
+
+  try {
+    const envPath = path.resolve(__dirname, '../../../../.env')
+    if (!fsSync.existsSync(envPath)) return defaults
+
+    const env = dotenv.parse(fsSync.readFileSync(envPath, 'utf-8'))
+    return {
+      kimi: {
+        token: env.KIMI_API_KEY || defaults.kimi.token,
+        baseUrl: env.KIMI_BASE_URL || defaults.kimi.baseUrl,
+      },
+      aicodemirror: {
+        token: env.AICODEMIRROR_API_KEY || defaults.aicodemirror.token,
+        baseUrl: env.AICODEMIRROR_BASE_URL || defaults.aicodemirror.baseUrl,
+      },
+    }
+  } catch {
+    return defaults
+  }
 }
+
+const PROVIDER_FIXTURES = loadProviderFixturesFromProjectEnv()
 
 /**
  * 构建 settings.json 夹具
@@ -48,7 +75,7 @@ function buildSettings(profile) {
   }
 
   if (profile !== 'official') {
-    settings.env.ANTHROPIC_AUTH_TOKEN = PROVIDER_FIXTURES[profile].token
+    settings.env.ANTHROPIC_API_KEY = PROVIDER_FIXTURES[profile].token
     settings.env.ANTHROPIC_BASE_URL = PROVIDER_FIXTURES[profile].baseUrl
   }
 
@@ -161,8 +188,10 @@ test.describe('V0.7 API Config Formal E2E (Electron)', () => {
     await expect(page.locator('.status-value')).toHaveText('AICodeMirror')
 
     const settings = await readClaudeSettings(settingsPath)
-    expect(settings.env.ANTHROPIC_AUTH_TOKEN).toBe(PROVIDER_FIXTURES.aicodemirror.token)
+    expect(settings.env.ANTHROPIC_API_KEY).toBe(PROVIDER_FIXTURES.aicodemirror.token)
+    expect(settings.env.ANTHROPIC_AUTH_TOKEN).toBeUndefined()
     expect(settings.env.ANTHROPIC_BASE_URL).toBe(PROVIDER_FIXTURES.aicodemirror.baseUrl)
+    expect(settings.apiKeyHelper).toBe(path.join(tempHome, '.claude', 'skill-manager-api-key-helper.sh'))
     expect(settings.model).toBe('opus')
     expect(settings.env.FOO).toBe('BAR')
     expect(settings.extra).toEqual({ x: 1 })
@@ -181,8 +210,10 @@ test.describe('V0.7 API Config Formal E2E (Electron)', () => {
     await expect(page.locator('.status-value')).toHaveText('Claude Official')
 
     const settings = await readClaudeSettings(settingsPath)
+    expect(settings.env.ANTHROPIC_API_KEY).toBeUndefined()
     expect(settings.env.ANTHROPIC_AUTH_TOKEN).toBeUndefined()
     expect(settings.env.ANTHROPIC_BASE_URL).toBeUndefined()
+    expect(settings.apiKeyHelper).toBeUndefined()
     expect(settings.model).toBe('opus')
     expect(settings.env.FOO).toBe('BAR')
     expect(settings.permissions).toEqual({ allow: ['mcp__pencil'] })

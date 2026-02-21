@@ -17,6 +17,8 @@ import SkillManagerModule from './components/SkillManagerModule'
 import UsageMonitorModule from './components/UsageMonitorModule'
 import ApiConfigPage from './pages/ApiConfigPage'
 import ProjectInitPage from './pages/ProjectInitPage'
+import PermissionModePage from './pages/PermissionModePage'
+import McpPage from './pages/McpPage'
 import Toast from './components/Toast'
 import { dataStore } from './store/data'
 
@@ -25,10 +27,12 @@ const AUTO_INCREMENTAL_REFRESH_INTERVAL_MS = 5 * 60 * 1000
 export default function App() {
   // SkillManager 初始子页面：null=加载中, 'manage'=管理页, 'import'=导入页
   const [initialSkillManagerPage, setInitialSkillManagerPage] = useState(null)
-  // Toast 提示消息
+  // Toast 提示消息 { message, type }
   const [toast, setToast] = useState(null)
-  // 活跃模块：'skills' | 'project-init' | 'usage' | 'api'
+  // 活跃模块：'skills' | 'mcp' | 'project-init' | 'usage' | 'api' | 'permission'
   const [activeModule, setActiveModule] = useState('skills')
+  // MCP 页面是否已访问（已访问后保持挂载，支持切回时静默刷新）
+  const [hasVisitedMcp, setHasVisitedMcp] = useState(false)
   // 技能模块刷新信号（自动增量导入新增 skill 后触发）
   const [skillsRefreshSignal, setSkillsRefreshSignal] = useState(0)
 
@@ -107,8 +111,8 @@ export default function App() {
       // 4. 重置标记
       await dataStore.setFirstEntryAfterImport(false)
 
-      // 5. 显示提示
-      setToast('已根据导入选择初始化推送目标')
+      // 5. 显示成功提示
+      setToast({ message: '已根据导入选择初始化推送目标', type: 'success' })
     } catch (error) {
       console.error('Error initializing push targets:', error)
     }
@@ -130,6 +134,12 @@ export default function App() {
     setActiveModule(moduleId)
   }
 
+  useEffect(() => {
+    if (activeModule === 'mcp') {
+      setHasVisitedMcp(true)
+    }
+  }, [activeModule])
+
   // 始终渲染 WorkbenchLayout；加载中时内容区显示 loading
   return (
     <div className="app">
@@ -143,13 +153,19 @@ export default function App() {
                 refreshSignal={skillsRefreshSignal}
               />
         )}
+        {(activeModule === 'mcp' || hasVisitedMcp) && (
+          <div style={{ display: activeModule === 'mcp' ? 'block' : 'none', height: '100%' }}>
+            <McpPage isActive={activeModule === 'mcp'} />
+          </div>
+        )}
         {activeModule === 'usage' && <UsageMonitorModule />}
         {activeModule === 'api' && <ApiConfigPage />}
         {activeModule === 'project-init' && <ProjectInitPage />}
+        {activeModule === 'permission' && <PermissionModePage />}
       </WorkbenchLayout>
 
       {/* Toast */}
-      {toast && <Toast message={toast} onClose={() => setToast(null)} />}
+      {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
     </div>
   )
 }

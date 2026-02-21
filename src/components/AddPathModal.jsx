@@ -12,6 +12,8 @@
 import React, { useRef, useState } from 'react'
 import { dataStore } from '../store/data'
 import { selectFolder } from '../store/fs'
+import Modal from './Modal/Modal'
+import Button from './Button/Button'
 
 /**
  * 添加自定义路径弹窗
@@ -147,71 +149,59 @@ export default function AddPathModal({ isOpen, onClose, onConfirm, existingPaths
   const canConfirm =
     selectedPath && scanResult && Object.keys(scanResult).length > 0 && !error && !isSubmitting
 
-  if (!isOpen) return null
-
   return (
-    <div className="modal-overlay show">
-      <div className="modal">
-        <div className="modal-header">
-          <div className="modal-title">添加自定义路径</div>
-          <button className="btn-close" onClick={handleClose} disabled={isSubmitting}>
-            ×
-          </button>
-        </div>
-
-        <div className="modal-body">
-          <div className="form-group">
-            <label className="form-label">选择文件夹</label>
-            <div className="path-selector">
-              <div className={`path-display ${!selectedPath ? 'empty' : ''}`}>
-                {selectedPath || '点击浏览选择文件夹...'}
-              </div>
-              <button className="btn-browse" onClick={handleBrowse} disabled={isSubmitting}>
-                浏览...
-              </button>
-            </div>
+    <Modal
+      open={isOpen}
+      onClose={handleClose}
+      title="添加自定义路径"
+      footer={
+        <>
+          <Button variant="secondary" disabled={isSubmitting} onClick={handleClose}>取消</Button>
+          <Button variant="primary" loading={isSubmitting} disabled={!canConfirm} onClick={handleConfirm}>确认添加</Button>
+        </>
+      }
+    >
+      <div className="form-group">
+        <label className="form-label">选择文件夹</label>
+        <div className="path-selector">
+          <div className={`path-display ${!selectedPath ? 'empty' : ''}`}>
+            {selectedPath || '点击浏览选择文件夹...'}
           </div>
-
-          {error && (
-            <div className="scan-result error">
-              <div className="scan-result-title">❌ {error}</div>
-            </div>
-          )}
-
-          {scanResult && !error && (
-            <div className={`scan-result ${Object.keys(scanResult).length === 0 ? 'error' : ''}`}>
-              {Object.keys(scanResult).length > 0 ? (
-                <>
-                  <div className="scan-result-title">
-                    ✅ 发现 {getTotalSkills()} 个 skill
-                  </div>
-                  {Object.entries(scanResult).map(([tool, count]) => (
-                    <div key={tool} className="scan-item">
-                      • {tool}: {count} 个 skill
-                    </div>
-                  ))}
-                </>
-              ) : (
-                <>
-                  <div className="scan-result-title">❌ 未找到 skills 目录</div>
-                  <div className="scan-item">
-                    该目录下未发现 .claude/skills/、.codex/skills/ 等
-                  </div>
-                </>
-              )}
-            </div>
-          )}
-        </div>
-
-        <div className="modal-footer">
-          <button className="btn-cancel" onClick={handleClose} disabled={isSubmitting}>
-            取消
-          </button>
-          <button className="btn-confirm" onClick={handleConfirm} disabled={!canConfirm}>
-            {isSubmitting ? '添加中...' : '确认添加'}
+          <button className="btn-browse" onClick={handleBrowse} disabled={isSubmitting}>
+            浏览...
           </button>
         </div>
       </div>
-    </div>
+
+      {error && (
+        <div className="scan-result error">
+          <div className="scan-result-title">❌ {error}</div>
+        </div>
+      )}
+
+      {scanResult && !error && (
+        <div className={`scan-result ${Object.keys(scanResult).length === 0 ? 'error' : ''}`}>
+          {Object.keys(scanResult).length > 0 ? (
+            <>
+              <div className="scan-result-title">
+                ✅ 发现 {getTotalSkills()} 个 skill
+              </div>
+              {Object.entries(scanResult).map(([tool, count]) => (
+                <div key={tool} className="scan-item">
+                  • {tool}: {count} 个 skill
+                </div>
+              ))}
+            </>
+          ) : (
+            <>
+              <div className="scan-result-title">❌ 未找到 skills 目录</div>
+              <div className="scan-item">
+                该目录下未发现 .claude/skills/、.codex/skills/ 等
+              </div>
+            </>
+          )}
+        </div>
+      )}
+    </Modal>
   )
 }

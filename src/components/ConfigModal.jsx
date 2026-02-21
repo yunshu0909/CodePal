@@ -13,6 +13,9 @@
 import React, { useState, useEffect, useCallback } from 'react'
 import { dataStore, toolDefinitions } from '../store/data'
 import AddPathModal from './AddPathModal'
+import Modal from './Modal/Modal'
+import Button from './Button/Button'
+import StateView from './StateView/StateView'
 
 // 勾选图标
 const checkSvg = (
@@ -262,183 +265,118 @@ export default function ConfigModal({ isOpen, onClose, onSave }) {
     return `共 ${total} 个 skill · ${details}`
   }
 
-  if (!isOpen) return null
-
   return (
     <>
-      {/* 配置弹窗 */}
-      <div className="config-modal show" style={styles.modal}>
-        <div className="config-content" style={styles.content}>
-          {/* 头部 */}
-          <div className="config-header" style={styles.header}>
-            <h2 style={styles.headerTitle}>配置</h2>
-            <button className="config-close" style={styles.closeBtn} onClick={handleClose}>
-              ×
-            </button>
-          </div>
-
-          {/* 内容区 */}
-          <div className="config-body" style={styles.body}>
-            {isLoading ? (
-              <div style={styles.loading}>加载中...</div>
-            ) : (
-              <>
-                {/* 导入来源区 */}
-                <div className="config-section" style={styles.section}>
-                  <div className="config-section-title" style={styles.sectionTitle}>
-                    导入来源（扫描这些路径的技能）
+      <Modal
+        open={isOpen}
+        onClose={handleClose}
+        title="配置"
+        footer={
+          <>
+            <Button variant="secondary" onClick={handleClose}>取消</Button>
+            <Button variant="primary" onClick={handleSave}>保存</Button>
+          </>
+        }
+      >
+        <StateView loading={isLoading}>
+          <>
+            {/* 导入来源区 */}
+            <div className="config-section">
+              <div className="config-section-title">
+                导入来源（扫描这些路径的技能）
+              </div>
+              <div className="config-path-list">
+                {/* 预设工具 */}
+                {toolDefinitions.map((tool) => (
+                  <div
+                    key={tool.id}
+                    className={`config-path-item ${selectedImportSources.has(tool.id) ? 'selected' : ''}`}
+                    onClick={() => toggleImportSource(tool.id)}
+                  >
+                    <div className={`config-path-checkbox ${selectedImportSources.has(tool.id) ? 'checked' : ''}`}>
+                      {selectedImportSources.has(tool.id) ? checkSvg : null}
+                    </div>
+                    <div className="config-path-icon">
+                      {tool.icon}
+                    </div>
+                    <div className="config-path-info">
+                      <div className="config-path-name">{tool.name}</div>
+                      <div className="config-path-meta">{tool.path}</div>
+                    </div>
                   </div>
-                  <div className="config-path-list" style={styles.pathList}>
-                    {/* 预设工具 */}
-                    {toolDefinitions.map((tool) => (
-                      <div
-                        key={tool.id}
-                        className={`config-path-item ${selectedImportSources.has(tool.id) ? 'selected' : ''}`}
-                        style={{
-                          ...styles.pathItem,
-                          ...(selectedImportSources.has(tool.id) ? styles.pathItemSelected : {}),
-                        }}
-                        onClick={() => toggleImportSource(tool.id)}
-                      >
-                        <div
-                          className={`config-path-checkbox ${selectedImportSources.has(tool.id) ? 'checked' : ''}`}
-                          style={{
-                            ...styles.checkbox,
-                            ...(selectedImportSources.has(tool.id) ? styles.checkboxChecked : {}),
-                          }}
-                        >
-                          {selectedImportSources.has(tool.id) ? checkSvg : null}
-                        </div>
-                        <div className="config-path-icon" style={styles.pathIcon}>
-                          {tool.icon}
-                        </div>
-                        <div className="config-path-info" style={styles.pathInfo}>
-                          <div className="config-path-name" style={styles.pathName}>
-                            {tool.name}
-                          </div>
-                          <div className="config-path-meta" style={styles.pathMeta}>
-                            {tool.path}
-                          </div>
-                        </div>
-                      </div>
-                    ))}
+                ))}
 
-                    {/* 自定义路径 */}
-                    {customPaths.map((path) => (
-                      <div
-                        key={path.id}
-                        className={`config-path-item ${selectedImportSources.has(path.id) ? 'selected' : ''}`}
-                        style={{
-                          ...styles.pathItem,
-                          ...(selectedImportSources.has(path.id) ? styles.pathItemSelected : {}),
-                        }}
-                        onClick={() => toggleImportSource(path.id)}
-                      >
-                        <div
-                          className={`config-path-checkbox ${selectedImportSources.has(path.id) ? 'checked' : ''}`}
-                          style={{
-                            ...styles.checkbox,
-                            ...(selectedImportSources.has(path.id) ? styles.checkboxChecked : {}),
-                          }}
-                        >
-                          {selectedImportSources.has(path.id) ? checkSvg : null}
-                        </div>
-                        <div className="config-path-icon" style={styles.pathIcon}>
-                          📁
-                        </div>
-                        <div className="config-path-info" style={styles.pathInfo}>
-                          <div className="config-path-name" style={styles.pathName}>
-                            {getFolderName(path.path)}
-                          </div>
-                          <div className="config-path-meta" style={styles.pathMeta}>
-                            {formatSkillStats(path.skills)}
-                          </div>
-                        </div>
-                        <button
-                          className="config-path-delete"
-                          onClick={(e) => handleDeleteCustomPath(path.id, e)}
-                        >
-                          删除
-                        </button>
-                      </div>
-                    ))}
-
-                    {customPaths.length === 0 && toolDefinitions.length === 0 && (
-                      <div style={styles.empty}>暂无导入路径</div>
-                    )}
-                  </div>
-
-                  {/* 添加自定义路径按钮 */}
-                  <div className="config-add-btn-row" style={styles.addBtnRow}>
+                {/* 自定义路径 */}
+                {customPaths.map((path) => (
+                  <div
+                    key={path.id}
+                    className={`config-path-item ${selectedImportSources.has(path.id) ? 'selected' : ''}`}
+                    onClick={() => toggleImportSource(path.id)}
+                  >
+                    <div className={`config-path-checkbox ${selectedImportSources.has(path.id) ? 'checked' : ''}`}>
+                      {selectedImportSources.has(path.id) ? checkSvg : null}
+                    </div>
+                    <div className="config-path-icon">📁</div>
+                    <div className="config-path-info">
+                      <div className="config-path-name">{getFolderName(path.path)}</div>
+                      <div className="config-path-meta">{formatSkillStats(path.skills)}</div>
+                    </div>
                     <button
-                      className="btn-add-path"
-                      style={styles.addPathBtn}
-                      onClick={() => setShowAddPathModal(true)}
+                      className="config-path-delete"
+                      onClick={(e) => handleDeleteCustomPath(path.id, e)}
                     >
-                      + 添加自定义路径
+                      删除
                     </button>
                   </div>
-                </div>
+                ))}
 
-                {/* 推送目标区 */}
-                <div className="config-section" style={styles.section}>
-                  <div className="config-section-title" style={styles.sectionTitle}>
-                    推送目标（勾选要推送的工具）
-                  </div>
-                  <div className="config-tool-list" style={styles.toolList}>
-                    {toolDefinitions.map((tool) => (
-                      <div
-                        key={tool.id}
-                        className="config-tool-item"
-                        style={{
-                          ...styles.toolItem,
-                          ...(selectedPushTargets.has(tool.id) ? {} : styles.toolItemUnchecked),
-                        }}
-                        onClick={() => togglePushTarget(tool.id)}
-                      >
-                        <div
-                          className={`config-tool-checkbox ${selectedPushTargets.has(tool.id) ? 'checked' : ''}`}
-                          style={{
-                            ...styles.toolCheckbox,
-                            ...(selectedPushTargets.has(tool.id) ? styles.toolCheckboxChecked : {}),
-                          }}
-                        >
-                          {selectedPushTargets.has(tool.id) ? '✓' : ''}
-                        </div>
-                        <div className="config-tool-info" style={styles.toolInfo}>
-                          <div className="config-tool-name" style={styles.toolName}>
-                            {tool.name}
-                          </div>
-                          <div className="config-tool-path" style={styles.toolPath}>
-                            {tool.path}
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                {/* 错误提示 */}
-                {error && (
-                  <div style={styles.error}>
-                    {error}
-                  </div>
+                {customPaths.length === 0 && toolDefinitions.length === 0 && (
+                  <div className="config-empty">暂无导入路径</div>
                 )}
-              </>
-            )}
-          </div>
+              </div>
 
-          {/* 底部按钮 */}
-          <div className="config-footer" style={styles.footer}>
-            <button className="config-btn" style={styles.btn} onClick={handleClose}>
-              取消
-            </button>
-            <button className="config-btn primary" style={{ ...styles.btn, ...styles.btnPrimary }} onClick={handleSave}>
-              保存
-            </button>
-          </div>
-        </div>
-      </div>
+              {/* 添加自定义路径按钮 */}
+              <div className="config-add-btn-row">
+                <button className="btn-add-path" onClick={() => setShowAddPathModal(true)}>
+                  + 添加自定义路径
+                </button>
+              </div>
+            </div>
+
+            {/* 推送目标区 */}
+            <div className="config-section">
+              <div className="config-section-title">
+                推送目标（勾选要推送的工具）
+              </div>
+              <div className="config-tool-list">
+                {toolDefinitions.map((tool) => (
+                  <div
+                    key={tool.id}
+                    className="config-tool-item"
+                    style={selectedPushTargets.has(tool.id) ? undefined : { opacity: 0.7 }}
+                    onClick={() => togglePushTarget(tool.id)}
+                  >
+                    <div className={`config-tool-checkbox ${selectedPushTargets.has(tool.id) ? 'checked' : ''}`}>
+                      {selectedPushTargets.has(tool.id) ? '✓' : ''}
+                    </div>
+                    <div className="config-tool-info">
+                      <div className="config-tool-name">{tool.name}</div>
+                      <div className="config-tool-path">{tool.path}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* 错误提示 */}
+            {error && (
+              <div style={{ color: '#c45a5a', fontSize: '13px', textAlign: 'center', padding: '10px', background: '#fdf2f2', borderRadius: '8px', marginTop: '10px' }}>
+                {error}
+              </div>
+            )}
+          </>
+        </StateView>
+      </Modal>
 
       {/* 添加路径弹窗 */}
       <AddPathModal
@@ -450,247 +388,3 @@ export default function ConfigModal({ isOpen, onClose, onSave }) {
     </>
   )
 }
-
-// 样式定义（严格遵循 demo 样式）
-const styles = {
-  modal: {
-    position: 'fixed',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    background: 'rgba(0,0,0,0.4)',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    zIndex: 300,
-  },
-  content: {
-    width: '480px',
-    background: '#fff',
-    borderRadius: '16px',
-    boxShadow: '0 8px 40px rgba(0,0,0,0.15)',
-    overflow: 'hidden',
-  },
-  header: {
-    padding: '20px 24px',
-    borderBottom: '1px solid #f0eeeb',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  headerTitle: {
-    fontSize: '16px',
-    fontWeight: 600,
-    color: '#2d2d2d',
-    margin: 0,
-  },
-  closeBtn: {
-    width: '28px',
-    height: '28px',
-    borderRadius: '8px',
-    border: 'none',
-    background: 'transparent',
-    cursor: 'pointer',
-    color: '#999',
-    fontSize: '18px',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  body: {
-    padding: '20px 24px',
-    maxHeight: '400px',
-    overflowY: 'auto',
-  },
-  loading: {
-    textAlign: 'center',
-    padding: '40px',
-    color: '#999',
-    fontSize: '14px',
-  },
-  section: {
-    marginBottom: '24px',
-  },
-  sectionTitle: {
-    fontSize: '13px',
-    fontWeight: 600,
-    color: '#555',
-    marginBottom: '12px',
-  },
-  pathList: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '8px',
-  },
-  pathItem: {
-    display: 'flex',
-    alignItems: 'center',
-    padding: '14px 16px',
-    borderRadius: '14px',
-    border: '1.5px solid #e8e6e3',
-    cursor: 'pointer',
-    transition: 'all 0.15s ease',
-    position: 'relative',
-  },
-  pathItemSelected: {
-    background: '#f7f5f2',
-    borderColor: '#d0cdc8',
-  },
-  checkbox: {
-    width: '20px',
-    height: '20px',
-    borderRadius: '6px',
-    border: '1.5px solid #d4d0cb',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    transition: 'all 0.15s ease',
-    background: '#fff',
-    flexShrink: 0,
-    marginRight: '12px',
-  },
-  checkboxChecked: {
-    background: '#3d3d3d',
-    borderColor: '#3d3d3d',
-  },
-  pathIcon: {
-    width: '36px',
-    height: '36px',
-    borderRadius: '10px',
-    marginRight: '10px',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    fontSize: '14px',
-    flexShrink: 0,
-    background: '#f5f3f0',
-    color: '#888',
-  },
-  pathInfo: {
-    flex: 1,
-    minWidth: 0,
-  },
-  pathName: {
-    fontSize: '14px',
-    fontWeight: 600,
-    color: '#2d2d2d',
-  },
-  pathMeta: {
-    fontSize: '11px',
-    color: '#999',
-    marginTop: '4px',
-  },
-  deleteBtn: {
-    padding: '6px 12px',
-    borderRadius: '8px',
-    border: 'none',
-    background: 'transparent',
-    color: '#c45a5a',
-    fontSize: '12px',
-    cursor: 'pointer',
-    opacity: 0,
-    transition: 'all 0.15s ease',
-  },
-  addBtnRow: {
-    marginTop: '12px',
-  },
-  addPathBtn: {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: '12px',
-    borderRadius: '10px',
-    border: '1.5px dashed #d4d0cb',
-    background: 'transparent',
-    color: '#888',
-    fontSize: '13px',
-    cursor: 'pointer',
-    transition: 'all 0.15s ease',
-    width: '100%',
-  },
-  toolList: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '8px',
-  },
-  toolItem: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '10px',
-    padding: '10px 12px',
-    cursor: 'pointer',
-    borderRadius: '8px',
-    transition: 'background 0.15s',
-  },
-  toolItemUnchecked: {
-    opacity: 0.7,
-  },
-  toolCheckbox: {
-    width: '16px',
-    height: '16px',
-    borderRadius: '4px',
-    border: '1.5px solid #d4d0cb',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    flexShrink: 0,
-    fontSize: '10px',
-    color: '#fff',
-  },
-  toolCheckboxChecked: {
-    background: '#3d3d3d',
-    borderColor: '#3d3d3d',
-  },
-  toolInfo: {
-    flex: 1,
-  },
-  toolName: {
-    fontSize: '13px',
-    color: '#2d2d2d',
-  },
-  toolPath: {
-    fontSize: '11px',
-    color: '#999',
-    marginTop: '2px',
-  },
-  empty: {
-    textAlign: 'center',
-    padding: '20px',
-    color: '#999',
-    fontSize: '13px',
-  },
-  error: {
-    color: '#c45a5a',
-    fontSize: '13px',
-    textAlign: 'center',
-    padding: '10px',
-    background: '#fdf2f2',
-    borderRadius: '8px',
-    marginTop: '10px',
-  },
-  footer: {
-    padding: '16px 24px',
-    borderTop: '1px solid #f0eeeb',
-    display: 'flex',
-    justifyContent: 'flex-end',
-    gap: '10px',
-  },
-  btn: {
-    padding: '8px 18px',
-    borderRadius: '8px',
-    fontSize: '13px',
-    cursor: 'pointer',
-    border: '1px solid #d4d0cb',
-    background: '#fff',
-    color: '#555',
-    transition: 'all 0.15s',
-  },
-  btnPrimary: {
-    background: '#3d3d3d',
-    color: '#fff',
-    borderColor: '#3d3d3d',
-  },
-}
-
-// 样式已移至 src/styles/index.css

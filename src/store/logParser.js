@@ -13,7 +13,7 @@
  * 解析 Claude 日志行
  * Claude 日志格式：包含 message.usage 字段
  * @param {string} line - JSONL 行
- * @returns {object|null} 解析后的记录 {timestamp, model, input, output, cacheRead, cacheCreate}
+ * @returns {object|null} 解析后的记录 {timestamp, model, messageId, input, output, cacheRead, cacheCreate}
  */
 export function parseClaudeLog(line) {
   try {
@@ -32,10 +32,12 @@ export function parseClaudeLog(line) {
 
     // 标准化模型名称（移除版本号后缀，统一为系列名称）
     model = normalizeModelName(model);
+    const messageId = typeof data.message.id === 'string' ? data.message.id : null;
 
     return {
       timestamp: timestamp ? new Date(timestamp) : null,
       model,
+      messageId,
       input: usage.input_tokens || 0,
       output: usage.output_tokens || 0,
       cacheRead: usage.cache_read_input_tokens || usage.cache_read_tokens || 0,

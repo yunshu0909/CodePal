@@ -15,6 +15,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { aggregateUsage } from '../store/usageAggregator';
 import { PieChart, Legend, DetailTable } from './usage/components/UsageDisplayComponents';
 import './usage.css';
+import PageShell from '../components/PageShell';
 
 const PERIODS = ['today', 'week', 'month', 'custom'];
 const TODAY_REFRESH_INTERVAL_MS = 5 * 60 * 1000;
@@ -726,15 +727,9 @@ export default function UsageMonitorPage() {
   };
 
   return (
-    <div className="usage-content">
-      {/* 页面标题 */}
-      <div className="usage-header">
-        <h1>用量监测</h1>
-        <p>追踪各模型的 Token 消耗</p>
-      </div>
-
+    <PageShell title="用量监测" subtitle="追踪各模型的 Token 消耗">
       {/* 工具栏 - 分段控制器 */}
-      <div className="toolbar" ref={dropdownRef}>
+      <div className="usage-toolbar" ref={dropdownRef}>
         <div className="segment-control">
           <button
             className={`segment-item ${currentPeriod === 'today' ? 'active' : ''}`}
@@ -898,6 +893,6 @@ export default function UsageMonitorPage() {
           <DetailTable models={displayData.models} />
         </div>
       </div>
-    </div>
+    </PageShell>
   );
 }

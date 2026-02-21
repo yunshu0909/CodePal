@@ -1,0 +1,66 @@
+/**
+ * SearchInput 组件样式
+ *
+ * 结构：.search-input-wrap > icon + input
+ * 状态：hover / focus / disabled
+ */
+
+/* ── 容器 ───────────────────────────────────────────────── */
+
+.search-input-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 100%;
+}
+
+/* ── 图标 ───────────────────────────────────────────────── */
+
+.search-input-wrap__icon {
+  position: absolute;
+  left: 11px;
+  color: var(--text-placeholder);
+  pointer-events: none;
+  flex-shrink: 0;
+  transition: color var(--transition-fast);
+}
+
+/* focus 时图标变深 */
+.search-input-wrap:focus-within .search-input-wrap__icon {
+  color: var(--text-tertiary);
+}
+
+/* ── Input ──────────────────────────────────────────────── */
+
+.search-input-wrap__input {
+  width: 100%;
+  padding: 8px 12px 8px 32px;
+  font-size: var(--text-sm);
+  font-family: var(--font-family);
+  color: var(--text-primary);
+  background: var(--bg-subtle);
+  border: 1.5px solid var(--border-default);
+  border-radius: var(--radius-xl);
+  outline: none;
+  transition: border-color var(--transition-fast), background var(--transition-fast);
+}
+
+.search-input-wrap__input::placeholder {
+  color: var(--text-placeholder);
+}
+
+.search-input-wrap__input:hover:not(:disabled) {
+  border-color: var(--border-strong);
+}
+
+.search-input-wrap__input:focus {
+  border-color: var(--color-primary);
+  background: var(--bg-base);
+}
+
+/* ── disabled 状态 ──────────────────────────────────────── */
+
+.search-input-wrap--disabled .search-input-wrap__input {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

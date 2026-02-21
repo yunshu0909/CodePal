@@ -12,6 +12,15 @@ const fs = require('fs/promises')
 const path = require('path')
 const os = require('os')
 const dotenv = require('dotenv')
+const {
+  BUILTIN_PROVIDER_DEFINITIONS,
+  PROVIDER_REGISTRY_FILE_NAME,
+  buildProviderCards,
+  validateProviderManifest,
+  createProviderDefinitionFromManifest,
+  loadCustomProviderDefinitions,
+  saveCustomProviderDefinitions,
+} = require('../services/providerRegistryService')
 
 /**
  * 注册供应商相关 IPC handlers
@@ -19,55 +28,42 @@ const dotenv = require('dotenv')
  * @param {import('electron').IpcMain} deps.ipcMain - Electron ipcMain
  * @param {(filepath: string) => Promise<boolean>} deps.pathExists - 路径存在检查
  * @param {string} [deps.envFilePath] - .env 文件路径
+ * @param {string} [deps.providerRegistryFilePath] - 渠道注册表文件路径
  */
-function registerProviderHandlers({ ipcMain, pathExists, envFilePath }) {
+function registerProviderHandlers({ ipcMain, pathExists, envFilePath, providerRegistryFilePath }) {
   const ENV_FILE_PATH = envFilePath || path.resolve(__dirname, '..', '..', '.env')
+  const PROVIDER_REGISTRY_FILE_PATH = providerRegistryFilePath || path.resolve(__dirname, '..', '..', PROVIDER_REGISTRY_FILE_NAME)
   dotenv.config({ path: ENV_FILE_PATH })
 
 // ==================== V0.7 供应商切换 ====================
 
-const PROVIDER_DEFINITIONS = {
-  official: {
-    name: 'Claude Official',
-    model: 'opus',
-    tokenEnvKey: null,
-    baseUrlEnvKey: null,
-    defaultBaseUrl: null,
-    settingsEnv: {},
-  },
-  qwen: {
-    name: 'Qwen3 Coder Plus',
-    model: 'opus',
-    tokenEnvKey: 'QWEN_API_KEY',
-    baseUrlEnvKey: 'QWEN_BASE_URL',
-    defaultBaseUrl: 'https://dashscope.aliyuncs.com/apps/anthropic',
-    settingsEnv: {
-      ANTHROPIC_MODEL: 'qwen3-coder-plus',
-      ANTHROPIC_DEFAULT_OPUS_MODEL: 'qwen3-coder-plus',
-      ANTHROPIC_DEFAULT_SONNET_MODEL: 'qwen3-coder-plus',
-      ANTHROPIC_DEFAULT_HAIKU_MODEL: 'qwen3-coder-plus',
-    },
-  },
-  kimi: {
-    name: 'Kimi For Coding',
-    model: 'opus',
-    tokenEnvKey: 'KIMI_API_KEY',
-    baseUrlEnvKey: 'KIMI_BASE_URL',
-    defaultBaseUrl: 'https://api.kimi.com/coding/',
-    settingsEnv: {},
-  },
-  aicodemirror: {
-    name: 'AICodeMirror',
-    model: 'opus',
-    tokenEnvKey: 'AICODEMIRROR_API_KEY',
-    baseUrlEnvKey: 'AICODEMIRROR_BASE_URL',
-    defaultBaseUrl: 'https://api.aicodemirror.com/api/claudecode',
-    settingsEnv: {},
-  },
-}
+const PROVIDER_DEFINITIONS = { ...BUILTIN_PROVIDER_DEFINITIONS }
+let providerDefinitionsLoadError = null
 const ACTIVE_PROVIDER_ENV_KEY = 'CLAUDE_CODE_PROVIDER'
 const CLAUDE_SETTINGS_FILE_PATH = path.join(os.homedir(), '.claude', 'settings.json')
 const CLAUDE_SETTINGS_BACKUP_DIR = path.join(os.homedir(), '.claude', 'backups')
+const CLAUDE_API_KEY_HELPER_FILE_NAME = 'skill-manager-api-key-helper.sh'
+const CLAUDE_API_KEY_HELPER_PATH = path.join(path.dirname(CLAUDE_SETTINGS_FILE_PATH), CLAUDE_API_KEY_HELPER_FILE_NAME)
+const CLAUDE_API_KEY_HELPER_CONTENT = `#!/usr/bin/env bash
+set -euo pipefail
+SCRIPT_DIR="$(cd "$(dirname "\${BASH_SOURCE[0]}")" && pwd)"
+SETTINGS_FILE="$SCRIPT_DIR/settings.json"
+if [ ! -f "$SETTINGS_FILE" ]; then
+  exit 1
+fi
+node -e '
+const fs=require("fs")
+const settingsPath=process.argv[1]
+const settings=JSON.parse(fs.readFileSync(settingsPath,"utf8"))
+const env=settings&&typeof settings==="object"&&settings.env&&typeof settings.env==="object"
+  ? settings.env
+  : {}
+const token=(env.ANTHROPIC_API_KEY||env.ANTHROPIC_AUTH_TOKEN||"").trim()
+if (token) {
+  process.stdout.write(token + "\\n")
+}
+' "$SETTINGS_FILE"
+`
 const CLAUDE_RUNTIME_ENV_KEYS = [
   'ANTHROPIC_AUTH_TOKEN',
   'ANTHROPIC_API_KEY',
@@ -82,6 +78,53 @@ const MANAGED_CLAUDE_ENV_KEYS = [
   'OPENAI_API_KEY',
   'OPENROUTER_API_KEY',
 ]
+
+/**
+ * 延迟加载自定义渠道定义
+ * @returns {Promise<void>}
+ */
+async function ensureProviderDefinitionsLoaded() {
+  // 每次读取前都从磁盘刷新，确保外部 MCP 写入可即时生效。
+  resetProviderDefinitionsToBuiltin()
+  providerDefinitionsLoadError = null
+
+  const loadResult = await loadCustomProviderDefinitions({
+    registryFilePath: PROVIDER_REGISTRY_FILE_PATH,
+    pathExists,
+  })
+  if (!loadResult.success) {
+    providerDefinitionsLoadError = loadResult.error || '读取渠道注册表失败'
+    return
+  }
+
+  for (const [providerKey, definition] of Object.entries(loadResult.definitions)) {
+    PROVIDER_DEFINITIONS[providerKey] = definition
+  }
+}
+
+/**
+ * 重置内存中的渠道定义为内置渠道
+ * @returns {void}
+ */
+function resetProviderDefinitionsToBuiltin() {
+  for (const providerKey of Object.keys(PROVIDER_DEFINITIONS)) {
+    delete PROVIDER_DEFINITIONS[providerKey]
+  }
+  for (const [providerKey, definition] of Object.entries(BUILTIN_PROVIDER_DEFINITIONS)) {
+    PROVIDER_DEFINITIONS[providerKey] = definition
+  }
+}
+
+/**
+ * 保存自定义渠道定义到注册表
+ * @returns {Promise<{success: boolean, errorCode: string|null, error: string|null}>}
+ */
+async function persistCustomProviderDefinitions() {
+  return saveCustomProviderDefinitions({
+    registryFilePath: PROVIDER_REGISTRY_FILE_PATH,
+    providerDefinitions: PROVIDER_DEFINITIONS,
+  })
+}
 
 /**
  * 规范化环境变量值
@@ -148,6 +191,50 @@ async function backupClaudeSettingsRaw(rawContent, suffix = 'snapshot') {
       backupPath: null,
       errorCode: 'WRITE_FAILED',
       error: `写入 Claude settings 备份失败: ${error.message}`,
+    }
+  }
+}
+
+/**
+ * 确保 Claude apiKeyHelper 脚本存在
+ * @returns {Promise<{success: boolean, helperPath: string|null, errorCode: string|null, error: string|null}>}
+ */
+async function ensureClaudeApiKeyHelperScript() {
+  try {
+    await fs.mkdir(path.dirname(CLAUDE_API_KEY_HELPER_PATH), { recursive: true })
+    await fs.writeFile(CLAUDE_API_KEY_HELPER_PATH, CLAUDE_API_KEY_HELPER_CONTENT, {
+      encoding: 'utf-8',
+      mode: 0o700,
+    })
+    await fs.chmod(CLAUDE_API_KEY_HELPER_PATH, 0o700)
+    return {
+      success: true,
+      helperPath: CLAUDE_API_KEY_HELPER_PATH,
+      errorCode: null,
+      error: null,
+    }
+  } catch (error) {
+    if (error.code === 'EACCES' || error.code === 'EPERM') {
+      return {
+        success: false,
+        helperPath: null,
+        errorCode: 'PERMISSION_DENIED',
+        error: '无法写入 Claude apiKeyHelper 脚本，请检查权限',
+      }
+    }
+    if (error.code === 'ENOSPC') {
+      return {
+        success: false,
+        helperPath: null,
+        errorCode: 'DISK_FULL',
+        error: '磁盘空间不足，无法写入 Claude apiKeyHelper 脚本',
+      }
+    }
+    return {
+      success: false,
+      helperPath: null,
+      errorCode: 'WRITE_FAILED',
+      error: `写入 Claude apiKeyHelper 脚本失败: ${error.message}`,
     }
   }
 }
@@ -271,6 +358,22 @@ function getProviderProfiles(envSource = {}) {
 }
 
 /**
+ * 构造前端可用的 token 映射
+ * @param {Record<string, {token: string|null}>} providerProfiles - 供应商配置档
+ * @returns {Record<string, {token: string}>}
+ */
+function buildProviderTokenMap(providerProfiles) {
+  const providers = {}
+
+  for (const [providerKey, definition] of Object.entries(PROVIDER_DEFINITIONS)) {
+    if (!definition.tokenEnvKey) continue
+    providers[providerKey] = { token: providerProfiles[providerKey]?.token || '' }
+  }
+
+  return providers
+}
+
+/**
  * 获取供应商对应的 API Key 环境变量名
  * @param {string} providerKey - 供应商 key
  * @returns {string|null}
@@ -334,10 +437,12 @@ async function loadMergedProviderEnv() {
     if (definition.baseUrlEnvKey) managedKeys.push(definition.baseUrlEnvKey)
   }
 
-  // 允许通过进程环境变量临时覆盖（如 CI/E2E），不影响 .env 持久化策略。
+  // 进程环境变量仅用于补齐 .env 缺失值，避免启动时旧 process.env 覆盖用户刚写入的 .env。
+  // 这样能保证“保存 API Key -> 读取 API Key”的一致性。
   for (const key of managedKeys) {
     const runtimeValue = normalizeEnvValue(process.env[key])
-    if (runtimeValue) {
+    const fileValue = normalizeEnvValue(envSource[key])
+    if (runtimeValue && !fileValue) {
       envSource[key] = runtimeValue
     }
   }
@@ -456,10 +561,12 @@ async function saveProviderTokenToEnv(providerKey, token) {
     }
   }
 
+  // 清理镜像字段时排除当前供应商实际使用的 token key，避免“先写后删”导致保存看似成功但值丢失。
+  const runtimeCleanupKeys = CLAUDE_RUNTIME_ENV_KEYS.filter((key) => key !== tokenEnvKey)
   const envUpdates = {
     [tokenEnvKey]: normalizedToken,
     // 单一来源：保存供应商专属 key 时顺手清理旧的运行时镜像字段。
-    ...Object.fromEntries(CLAUDE_RUNTIME_ENV_KEYS.map((key) => [key, null])),
+    ...Object.fromEntries(runtimeCleanupKeys.map((key) => [key, null])),
   }
 
   const updatedContent = applyEnvVariableUpdates(envReadResult.content, envUpdates)
@@ -479,7 +586,7 @@ async function saveProviderTokenToEnv(providerKey, token) {
 /**
  * 从环境变量识别当前供应商
  * @param {Record<string, string|undefined>} envSource - 环境变量来源
- * @returns {string} official | qwen | kimi | aicodemirror | custom
+ * @returns {string} providerId | custom
  */
 function detectProviderFromEnv(envSource) {
   const explicitProvider = normalizeEnvValue(envSource[ACTIVE_PROVIDER_ENV_KEY])
@@ -494,19 +601,24 @@ function detectProviderFromEnv(envSource) {
  * 从 Claude settings 识别当前供应商
  * @param {Record<string, any>} settingsData - settings.json 数据
  * @param {Record<string, {token: string|null, baseUrl: string|null}>} providerProfiles - 供应商配置档
- * @returns {string} official | qwen | kimi | aicodemirror | custom
+ * @returns {string} providerId | custom
  */
 function detectProviderFromSettings(settingsData, providerProfiles) {
   if (!isPlainObject(settingsData)) return 'official'
 
+  const managedApiKeyHelper = normalizeEnvValue(settingsData.apiKeyHelper)
   const envObject = isPlainObject(settingsData.env) ? settingsData.env : null
-  if (!envObject) return 'official'
+  if (!envObject) return managedApiKeyHelper ? 'custom' : 'official'
 
-  const token = normalizeEnvValue(envObject.ANTHROPIC_AUTH_TOKEN)
+  // 兼容双通道：历史版本写入 AUTH_TOKEN，新版本优先支持 API_KEY。
+  const token = normalizeEnvValue(envObject.ANTHROPIC_API_KEY) ||
+    normalizeEnvValue(envObject.ANTHROPIC_AUTH_TOKEN)
   const baseUrl = normalizeEnvValue(envObject.ANTHROPIC_BASE_URL)
 
   if (!token && !baseUrl) {
-    return 'official'
+    // settings 上仅残留 apiKeyHelper 时，CLI 仍会走 API helper 链路。
+    // 该状态不能判定为 official，否则 UI 会把“需要清理的异常态”误显示为官方态。
+    return managedApiKeyHelper ? 'custom' : 'official'
   }
 
   for (const [providerKey, profile] of Object.entries(providerProfiles)) {
@@ -523,9 +635,10 @@ function detectProviderFromSettings(settingsData, providerProfiles) {
  * 将供应商档应用到 Claude settings 数据
  * @param {Record<string, any>} settingsData - 原始 settings 数据
  * @param {{token: string|null, baseUrl: string|null, model: string, settingsEnv?: Record<string, string>}} profile - 目标供应商档
+ * @param {string} managedApiKeyHelperPath - Skill Manager 托管 helper 路径
  * @returns {Record<string, any>}
  */
-function applyProviderProfileToSettings(settingsData, profile) {
+function applyProviderProfileToSettings(settingsData, profile, managedApiKeyHelperPath) {
   const source = isPlainObject(settingsData) ? settingsData : {}
   const updated = JSON.parse(JSON.stringify(source))
   const envObject = isPlainObject(updated.env) ? updated.env : {}
@@ -535,7 +648,9 @@ function applyProviderProfileToSettings(settingsData, profile) {
   }
 
   if (profile.token) {
-    envObject.ANTHROPIC_AUTH_TOKEN = profile.token
+    // 仅写 API_KEY：避免将第三方 sk-* 误当作 OAuth token 走账号登录链路。
+    // 兼容读取层仍保留 AUTH_TOKEN 兜底，用于识别历史配置。
+    envObject.ANTHROPIC_API_KEY = profile.token
   }
   if (profile.baseUrl) {
     envObject.ANTHROPIC_BASE_URL = profile.baseUrl
@@ -550,6 +665,13 @@ function applyProviderProfileToSettings(settingsData, profile) {
   }
 
   updated.env = envObject
+  if (profile.token) {
+    // Claude CLI 登录判断优先读取 apiKeyHelper，写入后可避免无谓账号登录弹窗。
+    updated.apiKeyHelper = managedApiKeyHelperPath
+  } else {
+    // Official 严格登录模式：无条件清理 apiKeyHelper，避免继续走 API 鉴权。
+    delete updated.apiKeyHelper
+  }
   updated.model = profile.model
   return updated
 }
@@ -585,10 +707,22 @@ async function switchProviderInEnv(profileKey, providerProfiles) {
     }
   }
 
+  // 清理镜像字段时跳过“已被渠道定义占用”的运行时 key，避免切换时误删用户真实 token/baseUrl。
+  const providerBoundRuntimeKeys = new Set()
+  for (const definition of Object.values(PROVIDER_DEFINITIONS)) {
+    if (definition.tokenEnvKey && CLAUDE_RUNTIME_ENV_KEYS.includes(definition.tokenEnvKey)) {
+      providerBoundRuntimeKeys.add(definition.tokenEnvKey)
+    }
+    if (definition.baseUrlEnvKey && CLAUDE_RUNTIME_ENV_KEYS.includes(definition.baseUrlEnvKey)) {
+      providerBoundRuntimeKeys.add(definition.baseUrlEnvKey)
+    }
+  }
+  const runtimeCleanupKeys = CLAUDE_RUNTIME_ENV_KEYS.filter((key) => !providerBoundRuntimeKeys.has(key))
+
   const envUpdates = {
     [ACTIVE_PROVIDER_ENV_KEY]: profileKey,
     // 单一来源：切换时删除历史镜像字段，避免双轨状态并存。
-    ...Object.fromEntries(CLAUDE_RUNTIME_ENV_KEYS.map((key) => [key, null])),
+    ...Object.fromEntries(runtimeCleanupKeys.map((key) => [key, null])),
   }
 
   const updatedContent = applyEnvVariableUpdates(envReadResult.content, envUpdates)
@@ -658,7 +792,24 @@ async function switchProviderInClaudeSettings(profileKey, providerProfiles) {
     backupPath = backupResult.backupPath
   }
 
-  const updatedSettings = applyProviderProfileToSettings(settingsReadResult.data, profile)
+  if (profile.token) {
+    const helperResult = await ensureClaudeApiKeyHelperScript()
+    if (!helperResult.success) {
+      return {
+        success: false,
+        settingsPath: CLAUDE_SETTINGS_FILE_PATH,
+        backupPath,
+        error: helperResult.error || '写入 Claude apiKeyHelper 脚本失败',
+        errorCode: helperResult.errorCode || 'WRITE_FAILED',
+      }
+    }
+  }
+
+  const updatedSettings = applyProviderProfileToSettings(
+    settingsReadResult.data,
+    profile,
+    CLAUDE_API_KEY_HELPER_PATH
+  )
   const updatedSettingsText = `${JSON.stringify(updatedSettings, null, 2)}\n`
   const writeResult = await atomicWriteText(CLAUDE_SETTINGS_FILE_PATH, updatedSettingsText)
   if (!writeResult.success) {
@@ -773,6 +924,7 @@ async function atomicWriteText(filePath, content) {
  */
 ipcMain.handle('get-claude-provider', async () => {
   try {
+    await ensureProviderDefinitionsLoaded()
     const { envSource, envExists, errorCode, error } = await loadMergedProviderEnv()
     const providerProfiles = getProviderProfiles(envSource)
 
@@ -844,19 +996,132 @@ ipcMain.handle('get-claude-provider', async () => {
 })
 
 /**
+ * IPC: 获取当前可用供应商定义（含内置与注册表自定义）
+ * MCP Tool 对应：list_providers
+ * 设计约束：返回内容仅用于“展示 + 选择”，不暴露 token。
+ *
+ * 示例返回（成功）：
+ * {
+ *   success: true,
+ *   providers: [
+ *     { id: 'official', name: 'Claude Official', source: 'builtin' },
+ *     { id: 'neo-proxy', name: 'NeoProxy Gateway', source: 'custom' }
+ *   ],
+ *   registryPath: '/path/to/.provider-manifests.json',
+ *   error: null,
+ *   errorCode: null
+ * }
+ *
+ * @returns {Promise<{success: boolean, providers: Array, registryPath: string, error: string|null, errorCode: string|null}>}
+ */
+ipcMain.handle('list-provider-definitions', async () => {
+  try {
+    await ensureProviderDefinitionsLoaded()
+    return {
+      success: true,
+      providers: buildProviderCards(PROVIDER_DEFINITIONS),
+      registryPath: PROVIDER_REGISTRY_FILE_PATH,
+      error: providerDefinitionsLoadError,
+      errorCode: providerDefinitionsLoadError ? 'REGISTRY_LOAD_FAILED' : null,
+    }
+  } catch (error) {
+    console.error('Error listing provider definitions:', error)
+    return {
+      success: false,
+      providers: buildProviderCards(BUILTIN_PROVIDER_DEFINITIONS),
+      registryPath: PROVIDER_REGISTRY_FILE_PATH,
+      error: `读取渠道定义失败: ${error.message}`,
+      errorCode: 'UNKNOWN_ERROR',
+    }
+  }
+})
+
+/**
+ * IPC: 注册自定义供应商 manifest（MCP 形状，本地入口）
+ * MCP Tool 对应：register_provider
+ * 设计约束：只接受“渠道定义”，不在此接口处理 token 保存与供应商切换。
+ *
+ * 示例请求：
+ * {
+ *   id: 'neo-proxy',
+ *   name: 'NeoProxy Gateway',
+ *   baseUrl: 'https://api.neoproxy.dev/anthropic',
+ *   tokenEnvKey: 'NEO_PROXY_API_KEY',
+ *   model: 'opus',
+ *   settingsEnv: { ANTHROPIC_MODEL: 'neoproxy-opus' }
+ * }
+ *
+ * 示例错误：
+ * {
+ *   success: false,
+ *   errorCode: 'UNSAFE_SETTINGS_ENV_KEY',
+ *   error: 'settingsEnv key 不在白名单内: OPENAI_API_KEY'
+ * }
+ *
+ * @param {Electron.IpcMainInvokeEvent} event - IPC 事件
+ * @param {Object} manifest - 供应商 manifest
+ * @returns {Promise<{success: boolean, provider: Object|null, registryPath: string, error: string|null, errorCode: string|null}>}
+ */
+ipcMain.handle('register-provider-manifest', async (event, manifest) => {
+  try {
+    await ensureProviderDefinitionsLoaded()
+
+    const validation = validateProviderManifest(manifest, PROVIDER_DEFINITIONS)
+    if (!validation.success || !validation.normalized) {
+      return {
+        success: false,
+        provider: null,
+        registryPath: PROVIDER_REGISTRY_FILE_PATH,
+        error: validation.error || '渠道 manifest 非法',
+        errorCode: validation.errorCode || 'INVALID_MANIFEST',
+      }
+    }
+
+    const { id, definition } = createProviderDefinitionFromManifest(validation.normalized)
+    PROVIDER_DEFINITIONS[id] = definition
+
+    const saveResult = await persistCustomProviderDefinitions()
+    if (!saveResult.success) {
+      // 持久化失败时回滚内存态，避免 UI 看到不可持久化的幻象渠道。
+      delete PROVIDER_DEFINITIONS[id]
+      return {
+        success: false,
+        provider: null,
+        registryPath: PROVIDER_REGISTRY_FILE_PATH,
+        error: saveResult.error || '写入渠道注册表失败',
+        errorCode: saveResult.errorCode || 'REGISTRY_WRITE_FAILED',
+      }
+    }
+
+    return {
+      success: true,
+      provider: buildProviderCards({ [id]: definition })[0] || null,
+      registryPath: PROVIDER_REGISTRY_FILE_PATH,
+      error: null,
+      errorCode: null,
+    }
+  } catch (error) {
+    console.error('Error registering provider manifest:', error)
+    return {
+      success: false,
+      provider: null,
+      registryPath: PROVIDER_REGISTRY_FILE_PATH,
+      error: `注册渠道失败: ${error.message}`,
+      errorCode: 'UNKNOWN_ERROR',
+    }
+  }
+})
+
+/**
  * IPC: 读取供应商 API Key 环境变量配置
  * @returns {Promise<{success: boolean, providers: Record<string, {token: string}>, envPath: string, error: string|null, errorCode: string|null}>}
  */
 ipcMain.handle('get-provider-env-config', async () => {
   try {
+    await ensureProviderDefinitionsLoaded()
     const { envSource, envPath, errorCode, error } = await loadMergedProviderEnv()
     const providerProfiles = getProviderProfiles(envSource)
-
-    const providers = {
-      qwen: { token: providerProfiles.qwen.token || '' },
-      kimi: { token: providerProfiles.kimi.token || '' },
-      aicodemirror: { token: providerProfiles.aicodemirror.token || '' },
-    }
+    const providers = buildProviderTokenMap(providerProfiles)
 
     return {
       success: !errorCode,
@@ -869,11 +1134,7 @@ ipcMain.handle('get-provider-env-config', async () => {
     console.error('Error getting provider env config:', error)
     return {
       success: false,
-      providers: {
-        qwen: { token: '' },
-        kimi: { token: '' },
-        aicodemirror: { token: '' },
-      },
+      providers: buildProviderTokenMap({}),
       envPath: ENV_FILE_PATH,
       error: `读取环境变量失败: ${error.message}`,
       errorCode: 'UNKNOWN_ERROR',
@@ -898,7 +1159,17 @@ ipcMain.handle('save-provider-token', async (event, providerKey, token) => {
     }
   }
 
-  return saveProviderTokenToEnv(providerKey, token)
+  try {
+    await ensureProviderDefinitionsLoaded()
+    return saveProviderTokenToEnv(providerKey, token)
+  } catch (error) {
+    return {
+      success: false,
+      envPath: ENV_FILE_PATH,
+      error: `读取渠道定义失败: ${error.message}`,
+      errorCode: 'REGISTRY_LOAD_FAILED',
+    }
+  }
 })
 
 /**
@@ -908,12 +1179,13 @@ ipcMain.handle('save-provider-token', async (event, providerKey, token) => {
  * @returns {Promise<{success: boolean, backupPath: string|null, error: string|null, errorCode: string|null}>}
  */
 ipcMain.handle('switch-claude-provider', async (event, profileKey) => {
-  // IPC 参数类型校验
-  if (typeof profileKey !== 'string' || !PROVIDER_DEFINITIONS[profileKey]) {
-    return { success: false, backupPath: null, error: '无效的供应商档位', errorCode: 'INVALID_PROFILE_KEY' }
-  }
-
   try {
+    await ensureProviderDefinitionsLoaded()
+    // IPC 参数类型校验
+    if (typeof profileKey !== 'string' || !PROVIDER_DEFINITIONS[profileKey]) {
+      return { success: false, backupPath: null, error: '无效的供应商档位', errorCode: 'INVALID_PROFILE_KEY' }
+    }
+
     const { envSource, errorCode, error } = await loadMergedProviderEnv()
     if (errorCode) {
       return {

@@ -245,7 +245,7 @@ export default function ConfigPage({ onBack }) {
       }
 
       // 显示成功提示并返回管理页
-      setToast('配置已保存')
+      setToast({ message: '配置已保存', type: 'success' })
 
       // 延迟返回，让用户看到提示
       setTimeout(() => {
@@ -471,7 +471,7 @@ export default function ConfigPage({ onBack }) {
       />
 
       {/* Toast */}
-      {toast && <Toast message={toast} onClose={() => setToast(null)} />}
+      {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
     </div>
   )
 }
@@ -563,8 +563,8 @@ const styles = {
     position: 'relative',
   },
   pathItemSelected: {
-    background: '#f7f5f2',
-    borderColor: '#d0cdc8',
+    background: '#eff6ff',
+    borderColor: '#bfdbfe',
   },
   checkbox: {
     width: '20px',
@@ -580,8 +580,8 @@ const styles = {
     marginRight: '12px',
   },
   checkboxChecked: {
-    background: '#3d3d3d',
-    borderColor: '#3d3d3d',
+    background: '#2563eb',
+    borderColor: '#2563eb',
   },
   pathIcon: {
     width: '36px',
@@ -668,8 +668,8 @@ const styles = {
     color: '#fff',
   },
   toolCheckboxChecked: {
-    background: '#3d3d3d',
-    borderColor: '#3d3d3d',
+    background: '#2563eb',
+    borderColor: '#2563eb',
   },
   toolInfo: {
     flex: 1,
@@ -717,8 +717,8 @@ const styles = {
     transition: 'all 0.15s',
   },
   btnPrimary: {
-    background: '#3d3d3d',
+    background: '#2563eb',
     color: '#fff',
-    borderColor: '#3d3d3d',
+    borderColor: '#2563eb',
   },
 }

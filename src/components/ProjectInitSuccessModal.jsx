@@ -11,6 +11,8 @@
  */
 
 import React from 'react'
+import Modal from './Modal/Modal'
+import Button from './Button/Button'
 
 /**
  * 项目初始化成功弹窗
@@ -31,13 +33,25 @@ export function ProjectInitSuccessModal({
   onConfirm,
   onOpenDirectory,
 }) {
-  if (!visible) {
-    return null
-  }
-
   return (
-    <div className="pi-modal-overlay" data-testid="project-init-success-modal-overlay">
-      <div className="pi-result-modal" data-testid="project-init-success-modal">
+    <Modal
+      open={visible}
+      onClose={onConfirm}
+      showCloseButton={false}
+      size="sm"
+      footer={
+        onOpenDirectory ? (
+          <>
+            <Button variant="secondary" onClick={onConfirm} data-testid="project-init-success-close-button">关闭</Button>
+            <Button variant="primary" onClick={onOpenDirectory} data-testid="project-init-success-open-dir-button">打开目录</Button>
+          </>
+        ) : (
+          <Button variant="primary" onClick={onConfirm} data-testid="project-init-success-confirm-button">确认</Button>
+        )
+      }
+      data-testid="project-init-success-modal-overlay"
+    >
+      <div style={{ textAlign: 'center' }} data-testid="project-init-success-modal">
         {/* 成功图标 */}
         <div className="pi-result-modal__icon pi-result-modal__icon--success" aria-hidden="true">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
@@ -63,41 +77,8 @@ export function ProjectInitSuccessModal({
             <span className="pi-result-modal__info-value" data-testid="project-init-success-config-status">{configStatus}</span>
           </div>
         </div>
-
-        {/* 按钮区 */}
-        <div className="pi-result-modal__actions pi-result-modal__actions--single">
-          {onOpenDirectory ? (
-            <>
-              <button
-                type="button"
-                className="pi-result-modal__btn pi-result-modal__btn--secondary"
-                onClick={onConfirm}
-                data-testid="project-init-success-close-button"
-              >
-                关闭
-              </button>
-              <button
-                type="button"
-                className="pi-result-modal__btn pi-result-modal__btn--primary"
-                onClick={onOpenDirectory}
-                data-testid="project-init-success-open-dir-button"
-              >
-                打开目录
-              </button>
-            </>
-          ) : (
-            <button
-              type="button"
-              className="pi-result-modal__btn pi-result-modal__btn--primary"
-              onClick={onConfirm}
-              data-testid="project-init-success-confirm-button"
-            >
-              确认
-            </button>
-          )}
-        </div>
       </div>
-    </div>
+    </Modal>
   )
 }
 
@@ -120,13 +101,23 @@ export function ProjectInitErrorModal({
   onClose,
   onRetry,
 }) {
-  if (!visible) {
-    return null
-  }
-
   return (
-    <div className="pi-modal-overlay" data-testid="project-init-error-modal-overlay">
-      <div className="pi-result-modal" data-testid="project-init-error-modal">
+    <Modal
+      open={visible}
+      onClose={onClose}
+      showCloseButton={false}
+      size="sm"
+      footer={
+        <>
+          <Button variant="secondary" onClick={onClose} data-testid="project-init-error-close-button">关闭</Button>
+          {onRetry && (
+            <Button variant="danger" onClick={onRetry} data-testid="project-init-error-retry-button">重试</Button>
+          )}
+        </>
+      }
+      data-testid="project-init-error-modal-overlay"
+    >
+      <div style={{ textAlign: 'center' }} data-testid="project-init-error-modal">
         {/* 失败图标 */}
         <div className="pi-result-modal__icon pi-result-modal__icon--error" aria-hidden="true">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
@@ -145,30 +136,8 @@ export function ProjectInitErrorModal({
             <div className="pi-result-modal__error-hint">提示：{errorHint}</div>
           )}
         </div>
-
-        {/* 按钮区 */}
-        <div className="pi-result-modal__actions">
-          <button
-            type="button"
-            className="pi-result-modal__btn pi-result-modal__btn--secondary"
-            onClick={onClose}
-            data-testid="project-init-error-close-button"
-          >
-            关闭
-          </button>
-          {onRetry && (
-            <button
-              type="button"
-              className="pi-result-modal__btn pi-result-modal__btn--danger"
-              onClick={onRetry}
-              data-testid="project-init-error-retry-button"
-            >
-              重试
-            </button>
-          )}
-        </div>
       </div>
-    </div>
+    </Modal>
   )
 }
 

@@ -230,9 +230,70 @@ contextBridge.exposeInMainWorld('electronAPI', {
   /**
    * 获取当前 Claude 供应商配置
    * @returns {Promise<{success: boolean, current: string, profile: Object|null, error: string|null}>}
-   * current: 'official' | 'qwen' | 'kimi' | 'aicodemirror' | 'custom'
+   * current: providerId | 'custom'
    */
   getClaudeProvider: () => ipcRenderer.invoke('get-claude-provider'),
+
+  /**
+   * 获取可用供应商列表（内置 + 自定义）
+   * 示例调用：
+   * const result = await window.electronAPI.listProviderDefinitions()
+   *
+   * 示例返回（成功）：
+   * {
+   *   success: true,
+   *   providers: [
+   *     {
+   *       id: 'official',
+   *       name: 'Claude Official',
+   *       url: 'https://www.anthropic.com/claude-code',
+   *       uiUrl: 'https://www.anthropic.com/claude-code',
+   *       baseUrl: '',
+   *       tokenEnvKey: null,
+   *       baseUrlEnvKey: null,
+   *       model: 'opus',
+   *       settingsEnv: {},
+   *       icon: 'A',
+   *       color: '#6b5ce7',
+   *       supportsToken: false,
+   *       source: 'builtin'
+   *     }
+   *   ],
+   *   registryPath: '/path/to/.provider-manifests.json',
+   *   error: null,
+   *   errorCode: null
+   * }
+   *
+   * @returns {Promise<{success: boolean, providers: Array<{id: string, name: string, url: string, uiUrl: string, baseUrl: string, tokenEnvKey: string|null, baseUrlEnvKey: string|null, model: string, settingsEnv: Record<string, string>, icon: string, color: string, supportsToken: boolean, source: string}>, registryPath: string, error: string|null, errorCode: string|null}>}
+   */
+  listProviderDefinitions: () => ipcRenderer.invoke('list-provider-definitions'),
+
+  /**
+   * 注册供应商 manifest（MCP 形状，本地入口）
+   * 示例调用：
+   * await window.electronAPI.registerProviderManifest({
+   *   id: 'neo-proxy',
+   *   name: 'NeoProxy Gateway',
+   *   baseUrl: 'https://api.neoproxy.dev/anthropic',
+   *   tokenEnvKey: 'NEO_PROXY_API_KEY',
+   *   model: 'opus',
+   *   settingsEnv: { ANTHROPIC_MODEL: 'neoproxy-opus' },
+   *   icon: 'N',
+   *   color: '#2563eb'
+   * })
+   *
+   * 示例返回（失败）：
+   * {
+   *   success: false,
+   *   provider: null,
+   *   error: 'settingsEnv key 不在白名单内: OPENAI_API_KEY',
+   *   errorCode: 'UNSAFE_SETTINGS_ENV_KEY'
+   * }
+   *
+   * @param {{id: string, name: string, baseUrl: string, tokenEnvKey: string, baseUrlEnvKey?: string, model?: string, settingsEnv?: Record<string, string>, icon?: string, color?: string, uiUrl?: string}} manifest - 渠道定义
+   * @returns {Promise<{success: boolean, provider: Object|null, registryPath: string, error: string|null, errorCode: string|null}>}
+   */
+  registerProviderManifest: (manifest) => ipcRenderer.invoke('register-provider-manifest', manifest),
 
   /**
    * 读取供应商 API Key 的环境变量配置
@@ -242,7 +303,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   /**
    * 保存供应商 API Key 到 .env
-   * @param {string} providerKey - 供应商 key ('qwen' | 'kimi' | 'aicodemirror')
+   * @param {string} providerKey - 供应商 key（动态 providerId）
    * @param {string} token - API Key
    * @returns {Promise<{success: boolean, envPath: string, error: string|null, errorCode: string|null}>}
    */
@@ -250,7 +311,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   /**
    * 切换 Claude 供应商
-   * @param {string} profileKey - 目标档位 ('official' | 'qwen' | 'kimi' | 'aicodemirror')
+   * @param {string} profileKey - 目标档位（动态 providerId）
    * @returns {Promise<{success: boolean, backupPath: string|null, error: string|null}>}
    */
   switchClaudeProvider: (profileKey) => ipcRenderer.invoke('switch-claude-provider', profileKey),
@@ -275,4 +336,47 @@ contextBridge.exposeInMainWorld('electronAPI', {
    * @returns {Promise<{success: boolean, error: string|null, data: Object}>}
    */
   executeProjectInit: (params) => ipcRenderer.invoke('project-init-execute', params),
+
+  // V0.12 权限模式（启动模式）APIs
+
+  /**
+   * 获取权限模式配置
+   * @returns {Promise<{success: boolean, mode?: string, isConfigured?: boolean, isKnownMode?: boolean, modeName?: string, error?: string, errorCode?: string}>}
+   */
+  getPermissionModeConfig: () => ipcRenderer.invoke('get-permission-mode-config'),
+
+  /**
+   * 设置权限模式
+   * @param {string} mode - 权限模式（plan/default/acceptEdits/bypassPermissions）
+   * @returns {Promise<{success: boolean, backupPath?: string, error?: string, errorCode?: string}>}
+   */
+  setPermissionMode: (mode) => ipcRenderer.invoke('set-permission-mode', mode),
+
+  // V0.11 MCP 管理 APIs
+
+  /**
+   * MCP 管理 API
+   */
+  mcp: {
+    /**
+     * 扫描两个工具的配置文件，返回 MCP 列表和工具安装状态
+     * @returns {Promise<{success: boolean, mcpList: Array, toolsInstalled: Object, error: string|null}>}
+     */
+    scanConfigs: () => ipcRenderer.invoke('mcp:scanConfigs'),
+
+    /**
+     * 启用/停用指定 MCP 到指定工具
+     * @param {string} mcpId - MCP 标识符（名称）
+     * @param {string} tool - 目标工具（claude/codex）
+     * @param {boolean} enable - 是否启用
+     * @returns {Promise<{success: boolean, error: string|null}>}
+     */
+    toggleMcp: (mcpId, tool, enable) => ipcRenderer.invoke('mcp:toggleMcp', mcpId, tool, enable),
+
+    /**
+     * 检查 Claude Code 和 Codex 是否安装
+     * @returns {Promise<{success: boolean, toolsInstalled: Object, error: string|null}>}
+     */
+    checkToolsInstalled: () => ipcRenderer.invoke('mcp:checkToolsInstalled')
+  }
 })

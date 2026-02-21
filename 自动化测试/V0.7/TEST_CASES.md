@@ -11,7 +11,9 @@
 - UI 基线：页面结构、组件文案、交互入口以 v0.7 设计稿为准。
 - 切换范围：仅支持 `official`、`kimi`、`aicodemirror` 三档。
 - 配置文件：统一落地 `~/.claude/settings.json`。
-- Official 语义：切回 official 时清空 `ANTHROPIC_AUTH_TOKEN` 与 `ANTHROPIC_BASE_URL`。
+- Official 语义：切回 official 时清空 `ANTHROPIC_API_KEY`、`ANTHROPIC_AUTH_TOKEN`、`ANTHROPIC_BASE_URL`，并清理 `apiKeyHelper`。
+- 第三方语义：切到 Kimi/AICodeMirror 时写入 `ANTHROPIC_API_KEY` + `ANTHROPIC_BASE_URL`，并维护托管 `apiKeyHelper`。
+- custom 语义：页面显示 `自定义配置 (Custom)` 时，允许直接切换到目标供应商，不再二次确认。
 - 保存范围：V0.7 仅编辑第三方 API Key（`API Key` 单字段）；base_url 在 v0.7 不允许前端编辑。
 - 写入保障：写入前备份 + 原子替换；失败时保持旧配置可用。
 - 生效提示：成功后提示“重启 Claude Code 会话后生效”。
@@ -29,10 +31,10 @@
 - `S1`：带无关字段配置（用于“不可误改”）
   - `{"env": {"FOO":"BAR"}, "model":"opus", "permissions":{"allow":["mcp__pencil"]}, "extra":{"x":1}}`
 - `S2`：Kimi 已生效配置
-  - `env.ANTHROPIC_AUTH_TOKEN = sk-kimi-...`
+  - `env.ANTHROPIC_API_KEY = sk-kimi-...`
   - `env.ANTHROPIC_BASE_URL = https://api.kimi.com/coding/`
 - `S3`：AICodeMirror 已生效配置
-  - `env.ANTHROPIC_AUTH_TOKEN = sk-ant-api03-...`
+  - `env.ANTHROPIC_API_KEY = sk-ant-api03-...`
   - `env.ANTHROPIC_BASE_URL = https://api.aicodemirror.com/api/claudecode`
 
 ### 4.2 失败注入夹具
@@ -80,12 +82,13 @@
 ### TC-S1-FE-03（P0）编辑入口可见性规则
 - 类型：前端 Unit（A）
 - 覆盖 PRD：US-02 入口规则
-- 目标：仅“当前使用且非 official”显示“编辑 API Key”。
-- 输入：当前供应商分别设为 official、kimi、aicodemirror。
+- 目标：Official 不显示编辑入口；支持 token 的供应商在“当前使用”或“未配置 token”时可进入编辑。
+- 输入：当前供应商分别设为 official、kimi、aicodemirror，并覆盖“未配置 token”场景。
 - 前端断言：
   - current=official：无“编辑 API Key”按钮。
-  - current=kimi：仅 Kimi 有“编辑 API Key”。
-  - current=aicodemirror：仅 AICodeMirror 有“编辑 API Key”。
+  - current=kimi：Kimi 有“编辑 API Key”。
+  - current=aicodemirror：AICodeMirror 有“编辑 API Key”。
+  - 非当前但 token 为空的第三方卡片显示“编辑 API Key”（引导先配置后启用）。
 - 后端断言：N/A。
 
 ---
@@ -151,17 +154,17 @@
   - 返回 success。
   - 随后二次读取返回新 token（脱敏后展示）。
 
-### TC-S2-IT-04（P0）保存 API Key 失败
+### TC-S2-IT-04（P0）custom 状态直接切换
 - 类型：前后端 Integration（A）
-- 覆盖 PRD：US-02 异常处理
-- 目标：失败时不覆盖旧配置。
-- 前置条件：保存接口返回失败。
-- 步骤：输入新 token 点击保存。
+- 覆盖 PRD：US-01 custom 语义
+- 目标：custom 状态允许直接切换，不弹确认。
+- 前置条件：`getClaudeProvider.current = custom`，目标供应商 token 已配置。
+- 步骤：点击 Kimi“启用”。
 - 前端断言：
-  - 错误提示可见。
-  - 编辑输入内容仍保留（可重试）。
+  - 不出现确认拦截。
+  - currentName 变更为 Kimi。
 - 后端断言：
-  - 旧 token 未被替换。
+  - 触发 `switch-claude-provider(kimi)`。
 
 ### TC-S2-FE-02（P1）防重复提交
 - 类型：前端 Unit（A）
@@ -215,8 +218,10 @@
 - 输入：`S2` 或 `S3`。
 - 步骤：执行 `switch(official)`。
 - 后端断言：
-  - `env.ANTHROPIC_AUTH_TOKEN` 被清空/移除。
+  - `env.ANTHROPIC_API_KEY` 被清空/移除。
+  - `env.ANTHROPIC_AUTH_TOKEN` 被清空/移除（兼容历史字段）。
   - `env.ANTHROPIC_BASE_URL` 被清空/移除。
+  - 顶层 `apiKeyHelper` 被清理（Official 严格登录）。
   - `model` 按约定保持 `opus`。
 
 ### TC-S3-BE-05（P0）无关字段不被误改

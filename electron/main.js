@@ -27,6 +27,13 @@ const { handleAggregateUsageRange } = require('./aggregateUsageRangeHandler')
 const { registerSkillHandlers } = require('./handlers/registerSkillHandlers')
 const { registerProviderHandlers } = require('./handlers/registerProviderHandlers')
 const { registerProjectInitHandlers } = require('./handlers/registerProjectInitHandlers')
+const { registerPermissionModeHandlers } = require('./handlers/permissionModeHandlers')
+const { registerMcpHandlers } = require('./handlers/registerMcpHandlers')
+const { resolveProviderRegistryFilePath } = require('./services/providerRegistryPathService')
+const { ensureBuiltinProviderRegistryInstalled } = require('./services/builtinMcpInstallerService')
+
+const PROVIDER_REGISTRY_FILE_PATH = resolveProviderRegistryFilePath()
+const PROVIDER_REGISTRY_MCP_SCRIPT_PATH = path.resolve(__dirname, '..', 'mcp', 'provider_registry_mcp.js')
 
 const store = new Store()
 
@@ -100,7 +107,24 @@ function createWindow() {
   }
 }
 
-app.whenReady().then(createWindow)
+app.whenReady().then(async () => {
+  // 启动时自动 ensure 内置 provider_registry，避免用户先手动安装
+  try {
+    const ensureResult = await ensureBuiltinProviderRegistryInstalled({
+      providerRegistryScriptPath: PROVIDER_REGISTRY_MCP_SCRIPT_PATH,
+      providerRegistryFilePath: PROVIDER_REGISTRY_FILE_PATH,
+      logger: console
+    })
+
+    if (!ensureResult.success) {
+      console.warn('[builtin-mcp] ensure skipped:', ensureResult.error)
+    }
+  } catch (error) {
+    console.warn('[builtin-mcp] ensure unexpected failure:', error?.message || error)
+  }
+
+  createWindow()
+})
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
@@ -947,4 +971,21 @@ registerProviderHandlers({
   ipcMain,
   pathExists,
   envFilePath: ENV_FILE_PATH,
+  providerRegistryFilePath: PROVIDER_REGISTRY_FILE_PATH,
+})
+
+/**
+ * 注册权限模式（启动模式）相关 IPC handlers
+ */
+registerPermissionModeHandlers({
+  ipcMain,
+  pathExists,
+  expandHome,
+})
+
+/**
+ * 注册 MCP 管理相关 IPC handlers
+ */
+registerMcpHandlers({
+  ipcMain,
 })

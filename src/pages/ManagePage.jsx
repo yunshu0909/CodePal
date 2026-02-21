@@ -15,6 +15,10 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react'
 import { dataStore, toolDefinitions } from '../store/data'
 import Toast from '../components/Toast'
+import PageShell from '../components/PageShell'
+import SearchInput from '../components/SearchInput/SearchInput'
+import Button from '../components/Button/Button'
+import StateView from '../components/StateView/StateView'
 
 // 勾选图标
 const checkSvg = (
@@ -41,12 +45,8 @@ function BatchActionBar({ selectedCount, onPush, onDeactivate, isVisible }) {
         已选 <strong className="batch-count">{selectedCount}</strong> 个 skill
       </span>
       <div className="batch-actions">
-        <button className="batch-btn" onClick={onDeactivate}>
-          停用
-        </button>
-        <button className="batch-btn primary" onClick={onPush}>
-          推送
-        </button>
+        <Button variant="secondary" size="sm" onClick={onDeactivate}>停用</Button>
+        <Button variant="primary" size="sm" onClick={onPush}>推送</Button>
       </div>
     </div>
   )
@@ -440,28 +440,20 @@ export default function ManagePage({ onReimport, onNavigateToConfig, refreshSign
   const hasSelected = selected.size > 0
 
   return (
-    <div className="page active manage-container">
-      {/* Header */}
-      <div className="manage-header">
-        <div className="manage-header-left">
-          <h1 className="manage-header-title">Skill Manager</h1>
-          <p className="manage-header-subtitle">管理和推送你的 Skills 到各个工具</p>
-        </div>
-        <button
-          className="btn-config"
-          onClick={onNavigateToConfig}
-        >
-          配置
-        </button>
-      </div>
-
+    <PageShell
+      title="Skills 管理"
+      subtitle="管理和推送你的 Skills 到各个工具"
+      className="page-shell--no-padding"
+      actions={
+        <Button variant="secondary" size="sm" onClick={onNavigateToConfig}>配置</Button>
+      }
+    >
       {/* Search */}
       <div className="manage-search">
-        <input
-          type="text"
-          placeholder="搜索 skill..."
+        <SearchInput
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
+          placeholder="搜索 skill..."
           disabled={isLoading}
         />
       </div>
@@ -476,69 +468,67 @@ export default function ManagePage({ onReimport, onNavigateToConfig, refreshSign
 
       {/* Skill List */}
       <div className="manage-skill-list">
-        {/* Table Header */}
-        {!isLoading && filteredSkills.length > 0 && (
-          <div className="skill-header">
-            <div className="header-skill-info">
-              <div
-                className={`header-select-all ${selectAllState !== 'unchecked' ? 'checked' : ''}`}
-                onClick={handleSelectAll}
-                title="全选/取消全选"
-              >
-                {selectAllState === 'checked' ? checkSvg : selectAllState === 'indeterminate' ? (
-                  <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-                    <path d="M2.5 6H9.5" stroke="white" strokeWidth="1.5" strokeLinecap="round"/>
-                  </svg>
-                ) : null}
+        <StateView
+          loading={isLoading}
+          empty={filteredSkills.length === 0}
+          emptyMessage={searchQuery ? '没有找到匹配的 skill' : '中央仓库为空，请先导入 skills'}
+        >
+          <>
+            {/* Table Header */}
+            <div className="skill-header">
+              <div className="header-skill-info">
+                <div
+                  className={`header-select-all ${selectAllState !== 'unchecked' ? 'checked' : ''}`}
+                  onClick={handleSelectAll}
+                  title="全选/取消全选"
+                >
+                  {selectAllState === 'checked' ? checkSvg : selectAllState === 'indeterminate' ? (
+                    <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                      <path d="M2.5 6H9.5" stroke="white" strokeWidth="1.5" strokeLinecap="round"/>
+                    </svg>
+                  ) : null}
+                </div>
+                <span className="header-text">Skill ({filteredSkills.length})</span>
               </div>
-              <span className="header-text">Skill ({filteredSkills.length})</span>
+              <div className="header-status">
+                <span className="header-status-text">状态</span>
+              </div>
             </div>
-            <div className="header-status">
-              <span className="header-status-text">状态</span>
-            </div>
-          </div>
-        )}
 
-        {/* Skill Rows */}
-        {isLoading ? (
-          <div className="manage-loading">加载中...</div>
-        ) : filteredSkills.length === 0 ? (
-          <div className="manage-empty">
-            {searchQuery ? '没有找到匹配的 skill' : '中央仓库为空，请先导入 skills'}
-          </div>
-        ) : (
-          filteredSkills.map((skill) => {
-            const isSelected = selected.has(skill.id)
-            return (
-              <div
-                key={skill.id}
-                className={`skill-card-v4 ${isSelected ? 'selected' : ''}`}
-                onClick={() => toggleSelection(skill.id)}
-              >
+            {/* Skill Rows */}
+            {filteredSkills.map((skill) => {
+              const isSelected = selected.has(skill.id)
+              return (
                 <div
-                  className={`skill-check-v4 ${isSelected ? 'checked' : ''}`}
-                  onClick={(e) => toggleSelection(skill.id, e)}
+                  key={skill.id}
+                  className={`skill-card-v4 ${isSelected ? 'selected' : ''}`}
+                  onClick={() => toggleSelection(skill.id)}
                 >
-                  {isSelected ? checkSvg : null}
-                </div>
-                <div className="skill-info">
-                  <div className="skill-name">
-                    {skill.displayName || skill.name}
+                  <div
+                    className={`skill-check-v4 ${isSelected ? 'checked' : ''}`}
+                    onClick={(e) => toggleSelection(skill.id, e)}
+                  >
+                    {isSelected ? checkSvg : null}
                   </div>
-                  <div className="skill-desc">{skill.desc}</div>
+                  <div className="skill-info">
+                    <div className="skill-name">
+                      {skill.displayName || skill.name}
+                    </div>
+                    <div className="skill-desc">{skill.desc}</div>
+                  </div>
+                  <div
+                    className="skill-status-container"
+                    onClick={(e) => toggleSkillStatus(skill, e)}
+                  >
+                    <span className={`status-tag ${skill.pushed ? 'pushed' : 'not-pushed'}`}>
+                      {skill.pushed ? '已推送' : '未推送'}
+                    </span>
+                  </div>
                 </div>
-                <div
-                  className="skill-status-container"
-                  onClick={(e) => toggleSkillStatus(skill, e)}
-                >
-                  <span className={`status-tag ${skill.pushed ? 'pushed' : 'not-pushed'}`}>
-                    {skill.pushed ? '已推送' : '未推送'}
-                  </span>
-                </div>
-              </div>
-            )
-          })
-        )}
+              )
+            })}
+          </>
+        </StateView>
       </div>
 
       {/* Footer */}
@@ -550,6 +540,6 @@ export default function ManagePage({ onReimport, onNavigateToConfig, refreshSign
 
       {/* Toast */}
       {toast && <Toast message={toast} onClose={() => setToast(null)} />}
-    </div>
+    </PageShell>
   )
 }

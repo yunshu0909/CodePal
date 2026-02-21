@@ -109,12 +109,13 @@ function getBeijingTimeWindow(period) {
  * @returns {Promise<Array>} 解析后的记录列表
  */
 async function scanClaudeLogs(start, end) {
-  const records = [];
+  const latestByMessage = new Map();
+  let streamOrder = 0;
 
   try {
     // 通过 IPC 调用主进程扫描文件
     if (!window.electronAPI?.scanLogFiles) {
-      return records;
+      return [];
     }
 
     const result = await window.electronAPI.scanLogFiles({
@@ -125,7 +126,7 @@ async function scanClaudeLogs(start, end) {
     });
 
     if (!result.success || !result.files) {
-      return records;
+      return [];
     }
     if (result.truncated) {
       // 告警而不阻断：提醒当前统计可能因超大日志目录被截断
@@ -137,11 +138,23 @@ async function scanClaudeLogs(start, end) {
 
     // 解析每个文件
     for (const file of result.files) {
-      for (const line of file.lines) {
+      for (let index = 0; index < file.lines.length; index += 1) {
+        const line = file.lines[index];
         const record = parseClaudeLog(line);
         // 半开区间 [start, end)，避免边界重复计数
         if (record && record.timestamp >= start && record.timestamp < end) {
-          records.push(record);
+          streamOrder += 1;
+          // Claude 同一 message.id 可能写入中间态与最终态，按“最新快照”保留才能避免重复累计。
+          const messageId = record.messageId || `${file.path || 'unknown-file'}:${index}`;
+          const incoming = {
+            record,
+            order: streamOrder
+          };
+          const current = latestByMessage.get(messageId);
+          const picked = pickLatestClaudeRecord(current, incoming);
+          if (picked !== current) {
+            latestByMessage.set(messageId, picked);
+          }
         }
       }
     }
@@ -149,7 +162,7 @@ async function scanClaudeLogs(start, end) {
     console.error('Error scanning Claude logs:', error);
   }
 
-  return records;
+  return Array.from(latestByMessage.values(), item => item.record);
 }
 
 /**
@@ -287,6 +300,35 @@ function pickCodexMaxSnapshot(current, incoming) {
 
   // 同总量时取更新时间更晚的快照，规避日志写入顺序抖动
   if (incoming.totalTokens === current.totalTokens && incoming.timestamp > current.timestamp) {
+    return incoming;
+  }
+
+  return current;
+}
+
+/**
+ * 选择时间更晚的 Claude message 快照
+ * @param {{record: object, order: number}|undefined} current - 当前保留快照
+ * @param {{record: object, order: number}} incoming - 新快照
+ * @returns {{record: object, order: number}} 需要保留的快照
+ */
+function pickLatestClaudeRecord(current, incoming) {
+  if (!current) {
+    return incoming;
+  }
+
+  const currentTs = current.record.timestamp?.getTime?.() ?? 0;
+  const incomingTs = incoming.record.timestamp?.getTime?.() ?? 0;
+
+  if (incomingTs > currentTs) {
+    return incoming;
+  }
+  if (incomingTs < currentTs) {
+    return current;
+  }
+
+  // 同时间戳时取后写入项，规避同一瞬间多条日志的顺序抖动。
+  if (incoming.order > current.order) {
     return incoming;
   }
 

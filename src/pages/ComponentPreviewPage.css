@@ -1,0 +1,77 @@
+/**
+ * 组件库预览页样式
+ */
+
+/* ── 区块 ───────────────────────────────────────────────── */
+
+.cp-section {
+  margin-bottom: var(--space-8);
+}
+
+.cp-section:last-child {
+  margin-bottom: 0;
+}
+
+.cp-section__title {
+  font-size: var(--text-base);
+  font-weight: 600;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin: 0 0 var(--space-4);
+  padding-bottom: var(--space-3);
+  border-bottom: 1px solid var(--border-light);
+}
+
+/* ── 行 ─────────────────────────────────────────────────── */
+
+.cp-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-bottom: var(--space-3);
+  min-height: 36px;
+}
+
+.cp-row:last-child {
+  margin-bottom: 0;
+}
+
+.cp-row__label {
+  font-size: var(--text-xs);
+  color: var(--text-placeholder);
+  width: 48px;
+  flex-shrink: 0;
+}
+
+.cp-row__content {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+/* ── 辅助文字 ───────────────────────────────────────────── */
+
+.cp-hint {
+  font-size: var(--text-xs);
+  color: var(--text-placeholder);
+}
+
+.cp-desc {
+  font-size: var(--text-xs);
+  color: var(--text-placeholder);
+  margin: var(--space-2) 0 0;
+}
+
+/* ── StateView 演示区 ───────────────────────────────────── */
+
+.cp-state-demo {
+  margin-top: var(--space-3);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-lg);
+  background: var(--bg-subtle);
+  min-height: 160px;
+  display: flex;
+  align-items: stretch;
+}

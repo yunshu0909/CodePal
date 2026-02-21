@@ -17,6 +17,11 @@ const { scanLogFilesInRange } = require('./logScanner')
 
 const CODEX_SESSION_ID_REGEX = /([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i
 
+// 日汇总缓存 schema 版本号：
+// - v1：旧口径（Claude 未按 message.id 最终态去重）
+// - v2：新口径（Claude 按 message.id 最终态去重）
+const DAILY_SUMMARY_SCHEMA_VERSION = 2
+
 // 模型颜色映射表（沿用前端聚合口径，确保图例颜色稳定）
 const MODEL_COLORS = {
   opus: '#f59e0b',
@@ -186,7 +191,7 @@ function normalizeModelName(model) {
 /**
  * 解析 Claude 日志行
  * @param {string} line - JSONL 行
- * @returns {{timestamp: Date|null, model: string, input: number, output: number, cacheRead: number, cacheCreate: number}|null}
+ * @returns {{timestamp: Date|null, model: string, messageId: string|null, input: number, output: number, cacheRead: number, cacheCreate: number}|null}
  */
 function parseClaudeLog(line) {
   try {
@@ -199,10 +204,12 @@ function parseClaudeLog(line) {
     const usage = data.message.usage
     const timestamp = data.timestamp || data.message.timestamp
     const model = normalizeModelName(data.message.model || 'unknown')
+    const messageId = typeof data.message.id === 'string' ? data.message.id : null
 
     return {
       timestamp: timestamp ? new Date(timestamp) : null,
       model,
+      messageId,
       input: toSafeInt(usage.input_tokens),
       output: toSafeInt(usage.output_tokens),
       cacheRead: toSafeInt(usage.cache_read_input_tokens || usage.cache_read_tokens),
@@ -282,6 +289,27 @@ function pickCodexMaxSnapshot(current, incoming) {
 }
 
 /**
+ * 选择时间更晚的 Claude message 快照
+ * @param {{record: object, order: number}|null} current - 当前保留快照
+ * @param {{record: object, order: number}} incoming - 新快照
+ * @returns {{record: object, order: number}} 需要保留的快照
+ */
+function pickLatestClaudeRecord(current, incoming) {
+  if (!current) return incoming
+
+  const currentTs = current.record.timestamp?.getTime?.() || 0
+  const incomingTs = incoming.record.timestamp?.getTime?.() || 0
+
+  if (incomingTs > currentTs) return incoming
+  if (incomingTs < currentTs) return current
+
+  // 同时间戳时取后写入项，规避同一瞬间多条日志的顺序抖动
+  if (incoming.order > current.order) return incoming
+
+  return current
+}
+
+/**
  * 扫描 Claude 日志并提取窗口记录
  * @param {Date} start - 窗口开始（含）
  * @param {Date} end - 窗口结束（不含）
@@ -301,18 +329,28 @@ async function scanClaudeLogs(start, end, deps = {}) {
   }
 
   const scanResult = await scanLogFilesInRangeFn(claudeBasePath, start, end)
-  const records = []
+  const latestByMessage = new Map()
+  let streamOrder = 0
 
   for (const file of scanResult.files || []) {
-    for (const line of file.lines || []) {
+    for (let index = 0; index < (file.lines || []).length; index += 1) {
+      const line = file.lines[index]
       const record = parseClaudeLog(line)
       if (record?.timestamp && record.timestamp >= start && record.timestamp < end) {
-        records.push(record)
+        streamOrder += 1
+        // Claude 同一 message.id 可能写入中间态与最终态，按“最新快照”保留才能避免重复累计
+        const messageId = record.messageId || `${file.path || 'unknown-file'}:${index}`
+        const incoming = { record, order: streamOrder }
+        const current = latestByMessage.get(messageId)
+        const picked = pickLatestClaudeRecord(current, incoming)
+        if (picked !== current) {
+          latestByMessage.set(messageId, picked)
+        }
       }
     }
   }
 
-  return records
+  return Array.from(latestByMessage.values(), (item) => item.record)
 }
 
 /**
@@ -634,6 +672,11 @@ function normalizeDailySummary(raw, expectedDateKey) {
     return null
   }
 
+  // 版本不匹配时强制补算，避免继续读取旧口径的日汇总缓存。
+  if (toSafeInt(raw.version) !== DAILY_SUMMARY_SCHEMA_VERSION) {
+    return null
+  }
+
   const date = typeof raw.date === 'string' ? raw.date : expectedDateKey
   if (!isValidDateKey(date)) {
     return null
@@ -647,6 +690,7 @@ function normalizeDailySummary(raw, expectedDateKey) {
   const cache = Object.values(models).reduce((sum, model) => sum + model.cacheRead + model.cacheCreate, 0)
 
   return {
+    version: DAILY_SUMMARY_SCHEMA_VERSION,
     date,
     generatedAt: typeof raw.generatedAt === 'string' ? raw.generatedAt : new Date().toISOString(),
     models,
@@ -733,6 +777,7 @@ function buildDailySummary(dateKey, aggregated, generatedAt = new Date()) {
   }
 
   return {
+    version: DAILY_SUMMARY_SCHEMA_VERSION,
     date: dateKey,
     generatedAt: generatedAt.toISOString(),
     models,

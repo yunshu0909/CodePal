@@ -1,0 +1,152 @@
+/**
+ * Button 组件样式
+ *
+ * 变体：primary / secondary / danger / ghost
+ * 尺寸：sm / md（默认） / lg
+ * 状态：hover / active / disabled / loading
+ */
+
+/* ── 基础结构 ───────────────────────────────────────────── */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 1.5px solid transparent;
+  border-radius: var(--radius-md);
+  font-family: var(--font-family);
+  font-weight: 500;
+  line-height: 1;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background var(--transition-fast),
+              border-color var(--transition-fast),
+              color var(--transition-fast),
+              opacity var(--transition-fast);
+  -webkit-app-region: no-drag;
+}
+
+.btn:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+/* ── 尺寸 ───────────────────────────────────────────────── */
+
+.btn--sm {
+  padding: 5px 10px;
+  font-size: var(--text-xs);
+  border-radius: var(--radius-sm);
+}
+
+.btn--md {
+  padding: 7px 14px;
+  font-size: var(--text-sm);
+}
+
+.btn--lg {
+  padding: 10px 20px;
+  font-size: var(--text-base);
+  border-radius: var(--radius-lg);
+}
+
+/* ── 变体：primary ──────────────────────────────────────── */
+
+.btn--primary {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  color: #fff;
+}
+
+.btn--primary:hover:not(:disabled) {
+  background: var(--color-primary-hover);
+  border-color: var(--color-primary-hover);
+}
+
+.btn--primary:active:not(:disabled) {
+  opacity: 0.9;
+}
+
+/* ── 变体：secondary ────────────────────────────────────── */
+
+.btn--secondary {
+  background: var(--bg-base);
+  border-color: var(--border-default);
+  color: var(--text-primary);
+}
+
+.btn--secondary:hover:not(:disabled) {
+  border-color: var(--border-strong);
+  background: var(--bg-subtle);
+}
+
+.btn--secondary:active:not(:disabled) {
+  background: var(--bg-muted);
+}
+
+/* ── 变体：danger ───────────────────────────────────────── */
+
+.btn--danger {
+  background: var(--color-danger);
+  border-color: var(--color-danger);
+  color: #fff;
+}
+
+.btn--danger:hover:not(:disabled) {
+  opacity: 0.88;
+}
+
+.btn--danger:active:not(:disabled) {
+  opacity: 0.78;
+}
+
+/* ── 变体：ghost ────────────────────────────────────────── */
+
+.btn--ghost {
+  background: transparent;
+  border-color: transparent;
+  color: var(--text-secondary);
+}
+
+.btn--ghost:hover:not(:disabled) {
+  background: var(--bg-subtle);
+  color: var(--text-primary);
+}
+
+.btn--ghost:active:not(:disabled) {
+  background: var(--bg-muted);
+}
+
+/* ── 状态：disabled ─────────────────────────────────────── */
+
+.btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* ── 状态：loading ──────────────────────────────────────── */
+
+.btn--loading {
+  cursor: wait;
+}
+
+.btn__spinner {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border: 1.5px solid currentColor;
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: btn-spin 0.6s linear infinite;
+  flex-shrink: 0;
+}
+
+.btn--lg .btn__spinner {
+  width: 14px;
+  height: 14px;
+}
+
+@keyframes btn-spin {
+  to { transform: rotate(360deg); }
+}

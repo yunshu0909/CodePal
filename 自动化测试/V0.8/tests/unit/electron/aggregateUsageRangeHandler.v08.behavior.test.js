@@ -40,6 +40,27 @@ function createDailySummary(date, models) {
   }
 }
 
+/**
+ * 构造 Claude 日志行
+ * @param {{timestamp: string, messageId?: string, model: string, input?: number, output?: number, cacheRead?: number, cacheCreate?: number}} payload - 日志字段
+ * @returns {string}
+ */
+function buildClaudeLogLine(payload) {
+  return JSON.stringify({
+    timestamp: payload.timestamp,
+    message: {
+      id: payload.messageId,
+      model: payload.model,
+      usage: {
+        input_tokens: payload.input ?? 0,
+        output_tokens: payload.output ?? 0,
+        cache_read_input_tokens: payload.cacheRead ?? 0,
+        cache_creation_input_tokens: payload.cacheCreate ?? 0
+      }
+    }
+  })
+}
+
 describe('aggregateUsageRangeHandler V0.8 Behavior (Node Unit)', () => {
   it('UT-BE-RANGE-01: 非法日期格式应返回 INVALID_DATE_RANGE', async () => {
     const result = await handleAggregateUsageRange({
@@ -146,5 +167,82 @@ describe('aggregateUsageRangeHandler V0.8 Behavior (Node Unit)', () => {
     expect(readDailySummaryFn).toHaveBeenCalledTimes(2)
     expect(recomputeDailySummaryFn).toHaveBeenCalledTimes(1)
     expect(writeDailySummaryFn).toHaveBeenCalledTimes(1)
+  })
+
+  it('UT-BE-RANGE-04: 补算时 Claude 同一 message.id 应只计最终态', async () => {
+    const readDailySummaryFn = vi.fn(async () => null)
+    const writeDailySummaryFn = vi.fn(async () => {})
+    const pathExistsFn = vi.fn(async (targetPath) => targetPath.endsWith('/.claude/projects'))
+    const scanLogFilesInRangeFn = vi.fn(async (basePath) => {
+      if (basePath.endsWith('/.claude/projects')) {
+        return {
+          files: [
+            {
+              path: '/mock-home/.claude/projects/mock-session.jsonl',
+              lines: [
+                buildClaudeLogLine({
+                  timestamp: '2026-02-14T01:00:00+08:00',
+                  messageId: 'msg-1',
+                  model: 'claude-opus-4-6',
+                  input: 100,
+                  output: 0,
+                  cacheRead: 0,
+                  cacheCreate: 0
+                }),
+                buildClaudeLogLine({
+                  timestamp: '2026-02-14T01:00:01+08:00',
+                  messageId: 'msg-1',
+                  model: 'claude-opus-4-6',
+                  input: 20,
+                  output: 5,
+                  cacheRead: 80,
+                  cacheCreate: 0
+                }),
+                buildClaudeLogLine({
+                  timestamp: '2026-02-14T01:00:02+08:00',
+                  messageId: 'msg-2',
+                  model: 'claude-opus-4-6',
+                  input: 10,
+                  output: 2,
+                  cacheRead: 0,
+                  cacheCreate: 3
+                })
+              ]
+            }
+          ]
+        }
+      }
+
+      return { files: [] }
+    })
+
+    const result = await handleAggregateUsageRange(
+      {
+        startDate: '2026-02-14',
+        endDate: '2026-02-14',
+        timezone: 'Asia/Shanghai'
+      },
+      {
+        nowFn: vi.fn(() => new Date('2026-02-16T10:00:00.000Z')),
+        homeDir: '/mock-home',
+        readDailySummaryFn,
+        writeDailySummaryFn,
+        pathExistsFn,
+        scanLogFilesInRangeFn
+      }
+    )
+
+    expect(result.success).toBe(true)
+    expect(result.meta).toEqual({
+      fromDailySummaryDays: 0,
+      recomputedDays: 1,
+      totalDays: 1,
+      failedDays: 0
+    })
+    expect(result.data.models.map(model => model.name)).toEqual(['opus'])
+    expect(result.data.input).toBe(30)
+    expect(result.data.output).toBe(7)
+    expect(result.data.cache).toBe(83)
+    expect(result.data.total).toBe(120)
   })
 })

@@ -9,7 +9,13 @@
  * @module styles/project-init
  */
 
-.project-init-page {
+/**
+ * .pi-two-column 是双栏布局的根容器
+ * 白卡外壳已交由 PageShell 处理，此处只保留网格结构
+ * CSS 变量从原 .project-init-page 迁移至此，保持子组件引用不变
+ */
+.pi-two-column {
+  /* ---- 本页 Design Tokens（作用域保持在组件内）---- */
   --pi-color-primary: #2563eb;
   --pi-color-primary-hover: #1d4ed8;
   --pi-color-primary-light: #eff6ff;
@@ -23,34 +29,20 @@
   --pi-border-default: #e2e5ea;
   --pi-border-strong: #cbd0d8;
   --pi-color-success: #16a34a;
-  --pi-shadow-card: 0 2px 20px rgba(0, 0, 0, 0.05), 0 0 0 1px rgba(0, 0, 0, 0.03);
   --pi-font-mono: 'SF Mono', Menlo, Monaco, Consolas, monospace;
   --pi-radius-sm: 6px;
   --pi-radius-lg: 10px;
   --pi-radius-xl: 12px;
-  --pi-radius-3xl: 20px;
   --pi-radius-full: 999px;
   --pi-transition-fast: 150ms ease;
 
-  width: 100%;
-  height: 100%;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-
-.pi-two-column {
+  /* ---- 双栏网格布局 ---- */
   display: grid;
   grid-template-columns: 1fr 320px;
   grid-template-rows: 1fr auto;
   width: 100%;
-  max-width: 920px;
-  margin: 0 auto;
-  min-height: 620px;
-  background: var(--pi-bg-base);
-  border-radius: var(--pi-radius-3xl);
-  box-shadow: var(--pi-shadow-card);
-  overflow: hidden;
+  flex: 1;
+  min-height: 0;
 }
 
 .pi-form-panel {
@@ -58,24 +50,6 @@
   border-right: 1px solid var(--pi-border-light);
   overflow-y: auto;
   min-height: 0;
-}
-
-.pi-page-header {
-  margin-bottom: 20px;
-  padding-bottom: 16px;
-  border-bottom: 1px solid var(--pi-border-light);
-}
-
-.pi-page-title {
-  font-size: 22px;
-  font-weight: 700;
-  color: var(--pi-text-primary);
-  margin-bottom: 4px;
-}
-
-.pi-page-subtitle {
-  font-size: 13px;
-  color: var(--pi-text-tertiary);
 }
 
 .pi-form-section {
@@ -397,53 +371,6 @@
   justify-content: flex-end;
 }
 
-.pi-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  padding: 10px 20px;
-  font-size: 13px;
-  font-weight: 500;
-  border-radius: var(--pi-radius-lg);
-  border: 1.5px solid transparent;
-  cursor: pointer;
-  transition: all var(--pi-transition-fast);
-  width: 100%;
-}
-
-.pi-btn:disabled {
-  cursor: not-allowed;
-  opacity: 0.6;
-}
-
-.pi-btn-primary {
-  background: var(--pi-color-primary);
-  color: #ffffff;
-  width: auto;
-  min-width: 140px;
-}
-
-.pi-btn-primary:hover:enabled {
-  background: var(--pi-color-primary-hover);
-}
-
-.pi-btn-secondary {
-  background: var(--pi-bg-subtle);
-  color: var(--pi-text-secondary);
-  border-color: var(--pi-border-strong);
-}
-
-.pi-btn-secondary:hover:enabled {
-  background: var(--pi-bg-muted);
-}
-
-.pi-btn-sm {
-  padding: 6px 12px;
-  font-size: 12px;
-  width: auto;
-}
-
 .pi-result {
   max-width: 920px;
   margin: 0 auto;
@@ -477,37 +404,6 @@
 .pi-rollback {
   margin-top: 10px;
   font-weight: 600;
-}
-
-/* ===== Result Modal 样式（来自设计规范 v0.9）===== */
-.pi-modal-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.45);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1200;
-  animation: pi-fade-in 200ms ease;
-  padding: var(--pi-space-6, 24px);
-}
-
-.pi-result-modal {
-  width: 360px;
-  max-width: calc(100vw - 32px);
-  max-height: calc(100vh - 48px);
-  overflow-y: auto;
-  background: var(--pi-bg-base);
-  border-radius: var(--pi-radius-3xl);
-  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.12);
-  padding: 40px 32px 32px;
-  text-align: center;
-  animation: pi-modal-in 300ms ease;
-}
-
-@keyframes pi-modal-in {
-  from { opacity: 0; transform: scale(0.96) translateY(10px); }
-  to { opacity: 1; transform: scale(1) translateY(0); }
 }
 
 /* 图标 */
@@ -597,109 +493,6 @@
   margin-top: 8px;
   padding-top: 8px;
   border-top: 1px dashed var(--pi-border-default);
-}
-
-/* 步骤列表 */
-.pi-result-modal__steps {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  margin-bottom: 20px;
-  text-align: left;
-}
-
-.pi-result-modal__step {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 10px 12px;
-  border-radius: var(--pi-radius-lg);
-  font-size: 13px;
-}
-
-.pi-result-modal__step--error {
-  background: #fef2f2;
-}
-
-.pi-result-modal__step--rollback {
-  background: var(--pi-bg-subtle);
-}
-
-.pi-result-modal__step--rollback.success {
-  color: #16a34a;
-}
-
-.pi-result-modal__step--rollback.partial {
-  color: #d97706;
-}
-
-.pi-result-modal__step-status {
-  font-weight: 600;
-}
-
-.pi-result-modal__step-name {
-  color: var(--pi-text-primary);
-  font-weight: 500;
-}
-
-.pi-result-modal__step-message {
-  color: var(--pi-text-tertiary);
-  font-size: 12px;
-  margin-left: auto;
-}
-
-/* 按钮区 */
-.pi-result-modal__actions {
-  display: flex;
-  gap: 12px;
-}
-
-.pi-result-modal__actions--single {
-  display: flex;
-  justify-content: center;
-}
-
-.pi-result-modal__actions--single .pi-result-modal__btn {
-  width: 100%;
-  max-width: 200px;
-}
-
-.pi-result-modal__btn {
-  flex: 1;
-  padding: 11px 16px;
-  border: none;
-  border-radius: var(--pi-radius-full);
-  font-size: 13px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all var(--pi-transition-fast);
-}
-
-.pi-result-modal__btn--primary {
-  background: var(--pi-color-primary);
-  color: #fff;
-}
-
-.pi-result-modal__btn--primary:hover {
-  background: var(--pi-color-primary-hover);
-}
-
-.pi-result-modal__btn--secondary {
-  background: var(--pi-bg-muted);
-  color: var(--pi-text-secondary);
-}
-
-.pi-result-modal__btn--secondary:hover {
-  background: var(--pi-border-default);
-}
-
-.pi-result-modal__btn--danger {
-  background: #dc2626;
-  color: #fff;
-}
-
-.pi-result-modal__btn--danger:hover {
-  background: #b91c1c;
 }
 
 /* 兼容旧样式 */

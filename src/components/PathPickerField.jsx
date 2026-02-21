@@ -9,6 +9,7 @@
  */
 
 import React from 'react'
+import Button from './Button/Button'
 
 /**
  * 路径选择输入组件
@@ -43,15 +44,15 @@ export default function PathPickerField({
           disabled={disabled}
           data-testid={inputTestId}
         />
-        <button
-          type="button"
-          className="pi-btn pi-btn-secondary pi-btn-sm"
+        <Button
+          variant="secondary"
+          size="sm"
           onClick={onPick}
           disabled={disabled}
           data-testid={pickButtonTestId}
         >
           浏览
-        </button>
+        </Button>
       </div>
     </div>
   )

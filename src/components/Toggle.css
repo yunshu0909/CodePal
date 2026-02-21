@@ -1,0 +1,37 @@
+/* Toggle 开关组件样式 */
+
+.toggle {
+  position: relative;
+  width: 36px;
+  height: 20px;
+  border-radius: 9999px;
+  background: #cbd0d8;
+  cursor: pointer;
+  transition: background 150ms ease;
+  display: inline-block;
+}
+
+.toggle.on {
+  background: #16a34a;
+}
+
+.toggle.disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.toggle-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+  transition: transform 150ms ease;
+}
+
+.toggle.on .toggle-thumb {
+  transform: translateX(16px);
+}

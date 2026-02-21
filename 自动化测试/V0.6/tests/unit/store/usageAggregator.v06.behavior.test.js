@@ -15,13 +15,14 @@ import { aggregateUsage } from '@/store/usageAggregator.js'
 
 /**
  * 构造 Claude 日志行
- * @param {{timestamp: string, model: string, input?: number, output?: number, cacheRead?: number, cacheCreate?: number}} payload - 日志字段
+ * @param {{timestamp: string, model: string, messageId?: string, input?: number, output?: number, cacheRead?: number, cacheCreate?: number}} payload - 日志字段
  * @returns {string}
  */
 function buildClaudeLogLine(payload) {
   return JSON.stringify({
     timestamp: payload.timestamp,
     message: {
+      id: payload.messageId,
       model: payload.model,
       usage: {
         input_tokens: payload.input ?? 0,
@@ -323,5 +324,48 @@ describe('usageAggregator V0.6 Behavior (Unit)', () => {
     expect(result.data.cache).toBe(39)
     expect(result.data.total).toBe(51)
     expect(result.data.models[0].total).toBe(51)
+  })
+
+  it('UT-BE-AGG-08: Claude 同一 message.id 应只统计最终态快照', async () => {
+    const result = await aggregateTodayWithClaudeLines([
+      // 同一消息的中间态（output/cache 还未补全）
+      buildClaudeLogLine({
+        timestamp: '2026-02-15T01:00:00+08:00',
+        messageId: 'msg-1',
+        model: 'claude-sonnet-4-6',
+        input: 100,
+        output: 0,
+        cacheRead: 0,
+        cacheCreate: 0
+      }),
+      // 同一消息最终态（应覆盖中间态）
+      buildClaudeLogLine({
+        timestamp: '2026-02-15T01:00:01+08:00',
+        messageId: 'msg-1',
+        model: 'claude-sonnet-4-6',
+        input: 20,
+        output: 5,
+        cacheRead: 80,
+        cacheCreate: 0
+      }),
+      // 不同消息正常累计
+      buildClaudeLogLine({
+        timestamp: '2026-02-15T01:00:02+08:00',
+        messageId: 'msg-2',
+        model: 'claude-sonnet-4-6',
+        input: 10,
+        output: 2,
+        cacheRead: 0,
+        cacheCreate: 3
+      })
+    ])
+
+    expect(result.success).toBe(true)
+    expect(result.data.recordCount).toBe(2)
+    expect(result.data.input).toBe(30)
+    expect(result.data.output).toBe(7)
+    expect(result.data.cache).toBe(83)
+    expect(result.data.total).toBe(120)
+    expect(result.data.models.map(model => model.name)).toEqual(['sonnet'])
   })
 })

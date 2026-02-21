@@ -1,0 +1,59 @@
+/**
+ * Tag 组件样式
+ *
+ * 变体：success / danger / warning / info / default
+ * 尺寸：sm（默认） / md
+ */
+
+/* ── 基础结构 ───────────────────────────────────────────── */
+
+.tag {
+  display: inline-flex;
+  align-items: center;
+  font-family: var(--font-family);
+  font-weight: 500;
+  border-radius: var(--radius-full);
+  white-space: nowrap;
+  line-height: 1;
+}
+
+/* ── 尺寸 ───────────────────────────────────────────────── */
+
+.tag--sm {
+  padding: 3px 8px;
+  font-size: var(--text-xs);
+}
+
+.tag--md {
+  padding: 4px 10px;
+  font-size: var(--text-sm);
+}
+
+/* ── 变体 ───────────────────────────────────────────────── */
+
+.tag--success {
+  color: var(--color-success);
+  background: var(--color-success-bg);
+}
+
+.tag--danger {
+  color: var(--color-danger);
+  background: var(--color-danger-bg);
+}
+
+.tag--warning {
+  color: var(--color-warning);
+  background: var(--color-warning-bg);
+}
+
+/* info 用主色系 */
+.tag--info {
+  color: var(--color-primary);
+  background: var(--color-primary-light);
+}
+
+/* default 用中性色 */
+.tag--default {
+  color: var(--text-secondary);
+  background: var(--bg-muted);
+}

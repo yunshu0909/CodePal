@@ -35,3 +35,12 @@
     - `npm run test:v06`
     - `npm run test:e2e:v06`
     - `npm run test:v06:all`
+
+- `V0.12`
+  - PRD：`/Users/wuhaoyang/Documents/trae_projects/skills/docs/prd/PRD-Skill-Manager-V0.12-启动模式.md`
+  - 测试目录：`/Users/wuhaoyang/Documents/trae_projects/skills/skill-manager/自动化测试/V0.12`
+  - 执行命令：
+    - `npm run test:v12:backend`
+    - `npm run test:v12:integration`
+    - `npm run test:e2e:v12`
+    - `npm run test:v12:all`

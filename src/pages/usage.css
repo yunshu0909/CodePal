@@ -69,48 +69,15 @@
 }
 
 /* ============================================================
-   Usage Page Layout
+   Toolbar & Segment Control
+   ↑ 容器和标题区已迁移至 PageShell 组件
    ============================================================ */
-
-/* 与 manage-container 保持一致：白色容器撑满内容区 */
-.usage-content {
-  width: 100%;
-  background: #fff;
-  border-radius: 20px;
-  box-shadow: 0 2px 20px rgba(0, 0, 0, 0.06), 0 0 0 1px rgba(0, 0, 0, 0.03);
-  padding: var(--space-8);
-  flex: 1;
-  min-height: 0;
-  overflow: auto;
-}
-
-/* ============================================================
-   Header
-   ============================================================ */
-
-.usage-header {
-  margin-bottom: var(--space-5);
-}
-
-.usage-header h1 {
-  font-size: var(--text-xl);
-  font-weight: 700;
-  color: var(--text-primary);
-  letter-spacing: -0.5px;
-  margin: 0;
-}
-
-.usage-header p {
-  font-size: var(--text-sm);
-  color: var(--text-tertiary);
-  margin: var(--space-1) 0 0 0;
-}
 
 /* ============================================================
    Toolbar & Segment Control
    ============================================================ */
 
-.toolbar {
+.usage-toolbar {
   display: flex;
   align-items: center;
   gap: var(--space-3);
@@ -395,11 +362,11 @@
   align-items: center;
   justify-content: space-between;
   padding: var(--space-3) var(--space-4);
-  background: #fef3c7;
-  border: 1px solid #fbbf24;
+  background: var(--color-warning-bg);
+  border: 1px solid #fcd34d;
   border-radius: var(--radius-md);
   margin-bottom: var(--space-4);
-  color: #92400e;
+  color: var(--color-warning);
   font-size: var(--text-sm);
 }
 
@@ -410,12 +377,12 @@
   border-radius: var(--radius-sm);
   cursor: pointer;
   font-size: var(--text-xs);
-  color: #92400e;
+  color: var(--color-warning);
   font-family: var(--font-family);
 }
 
 .error-banner button:hover {
-  background: #fffbeb;
+  background: var(--color-warning-bg);
 }
 
 /* ============================================================
@@ -423,7 +390,7 @@
    ============================================================ */
 
 /* [v0.8 新增] 日期选择器下拉弹窗
-   - 绝对定位，相对于 .toolbar 定位
+   - 绝对定位，相对于 .usage-toolbar 定位
    - 白底圆角卡片样式，带阴影
    - z-index: 100 确保浮于其他元素之上
 */

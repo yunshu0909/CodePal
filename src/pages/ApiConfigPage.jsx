@@ -2,7 +2,7 @@
  * API 配置页面
  *
  * 负责：
- * - 展示供应商卡片（Claude Official、Qwen3.5 Plus、Kimi For Coding、AICodeMirror）
+ * - 展示供应商卡片（内置 + 自定义注册）
  * - 显示当前使用的供应商
  * - 支持切换供应商（调用 IPC 写入配置）
  * - 支持编辑第三方供应商的 API Key（展开/收起面板）
@@ -10,11 +10,17 @@
  * @module pages/ApiConfigPage
  */
 
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useCallback } from 'react'
 import '../styles/api-config.css'
 import Toast from '../components/Toast'
+import Tag from '../components/Tag/Tag'
+import PageShell from '../components/PageShell'
+import Button from '../components/Button/Button'
+import StateView from '../components/StateView/StateView'
 
-// 供应商基础配置（显示用）
+const PROVIDER_REFRESH_INTERVAL_MS = 3000
+
+// 供应商基础配置（兜底显示用：当后端不支持动态列表时）
 const PROVIDER_BASES = [
   {
     id: 'official',
@@ -22,6 +28,7 @@ const PROVIDER_BASES = [
     url: 'https://www.anthropic.com/claude-code',
     icon: 'A',
     color: '#6b5ce7',
+    supportsToken: false,
   },
   {
     id: 'qwen',
@@ -29,6 +36,7 @@ const PROVIDER_BASES = [
     url: 'https://dashscope.aliyuncs.com/apps/anthropic',
     icon: 'Q',
     color: '#0891b2',
+    supportsToken: true,
   },
   {
     id: 'kimi',
@@ -36,6 +44,7 @@ const PROVIDER_BASES = [
     url: 'https://api.kimi.com/coding/',
     icon: 'K',
     color: '#4f46e5',
+    supportsToken: true,
   },
   {
     id: 'aicodemirror',
@@ -43,8 +52,38 @@ const PROVIDER_BASES = [
     url: 'https://api.aicodemirror.com/api/claudecode',
     icon: 'X',
     color: '#d97706',
+    supportsToken: true,
   },
 ]
+
+/**
+ * 判断供应商是否支持 API Key 编辑
+ * @param {{id: string, supportsToken?: boolean}} provider - 供应商数据
+ * @returns {boolean}
+ */
+function isTokenManagedProvider(provider) {
+  if (typeof provider.supportsToken === 'boolean') {
+    return provider.supportsToken
+  }
+  return provider.id !== 'official'
+}
+
+/**
+ * 合并后端渠道定义与本地 token 状态
+ * @param {Array<Object>} incomingProviders - 后端返回的渠道定义列表
+ * @param {Array<Object>} currentProviders - 当前页面 providers 状态
+ * @returns {Array<Object>}
+ */
+function mergeProvidersWithExistingToken(incomingProviders, currentProviders) {
+  const tokenMap = new Map(
+    currentProviders.map((provider) => [provider.id, provider.token || ''])
+  )
+
+  return incomingProviders.map((provider) => ({
+    ...provider,
+    token: tokenMap.get(provider.id) || '',
+  }))
+}
 
 /**
  * API 配置页面组件
@@ -61,7 +100,7 @@ export default function ApiConfigPage() {
   const [isSwitching, setIsSwitching] = useState(false)
   // 是否正在保存 API Key（防止重复提交）
   const [isSavingToken, setIsSavingToken] = useState(false)
-  // Toast 提示
+  // Toast 提示 { message: string, type: 'info' | 'success' | 'error' | 'warning' }
   const [toast, setToast] = useState(null)
   // 供应商数据（包含自定义 token）
   const [providers, setProviders] = useState(PROVIDER_BASES)
@@ -70,69 +109,125 @@ export default function ApiConfigPage() {
   // 环境变量文件路径提示
   const [envPathHint, setEnvPathHint] = useState('.env')
 
-  // 页面加载时获取当前配置
-  useEffect(() => {
-    const loadCurrentProvider = async () => {
-      try {
+  /**
+   * 同步供应商快照（当前档位 + 渠道列表 + token）
+   * @param {{silent?: boolean, withLoading?: boolean}} options - 同步选项
+   * @returns {Promise<void>}
+   */
+  const syncProviderSnapshot = useCallback(async ({ silent = false, withLoading = false } = {}) => {
+    try {
+      if (withLoading) {
         setIsLoading(true)
-        const envConfigPromise = typeof window.electronAPI.getProviderEnvConfig === 'function'
-          ? window.electronAPI.getProviderEnvConfig()
-          : Promise.resolve({ success: false, errorCode: 'UNSUPPORTED_API' })
+      }
 
-        const [providerResult, envConfigResult] = await Promise.all([
-          window.electronAPI.getClaudeProvider(),
-          envConfigPromise,
-        ])
+      const envConfigPromise = typeof window.electronAPI.getProviderEnvConfig === 'function'
+        ? window.electronAPI.getProviderEnvConfig()
+        : Promise.resolve({ success: false, errorCode: 'UNSUPPORTED_API' })
+      const providerDefsPromise = typeof window.electronAPI.listProviderDefinitions === 'function'
+        ? window.electronAPI.listProviderDefinitions()
+        : Promise.resolve({ success: false, errorCode: 'UNSUPPORTED_API' })
 
-        if (providerResult.success) {
-          // 处理各种状态
-          if (providerResult.current === 'custom') {
-            setIsCustomDetected(true)
-            setCurrentProvider('official') // 显示为 official 但标记为 custom
-          } else {
-            setCurrentProvider(providerResult.current)
-          }
+      const [providerResult, envConfigResult, providerDefsResult] = await Promise.all([
+        window.electronAPI.getClaudeProvider(),
+        envConfigPromise,
+        providerDefsPromise,
+      ])
 
-          // 显示配置损坏警告
-          if (providerResult.errorCode === 'CONFIG_CORRUPTED') {
-            setToast(providerResult.error)
-          }
-
-          // 首次使用提示
-          if (providerResult.isNew) {
-            setToast('首次使用，将自动创建 .env 配置文件')
-          }
+      if (providerResult.success) {
+        if (providerResult.current === 'custom') {
+          setIsCustomDetected(true)
+          setCurrentProvider('official')
         } else {
-          setToast(providerResult.error || '获取当前配置失败')
+          setCurrentProvider(providerResult.current)
+          setIsCustomDetected(false)
         }
 
-        if (envConfigResult?.providers) {
-          setProviders((prev) =>
-            prev.map((provider) => {
-              const token = envConfigResult.providers[provider.id]?.token
-              if (typeof token !== 'string') return provider
-              return { ...provider, token }
-            })
-          )
+        if (!silent && providerResult.errorCode === 'CONFIG_CORRUPTED') {
+          setToast({ message: providerResult.error, type: 'error' })
         }
+        if (!silent && providerResult.isNew) {
+          setToast({ message: '首次使用，将自动创建 .env 配置文件', type: 'info' })
+        }
+      } else if (!silent) {
+        setToast({ message: providerResult.error || '获取当前配置失败', type: 'error' })
+      }
 
-        if (envConfigResult?.envPath) {
-          setEnvPathHint(envConfigResult.envPath)
+      if (
+        providerDefsResult?.success &&
+        Array.isArray(providerDefsResult.providers) &&
+        providerDefsResult.providers.length > 0
+      ) {
+        setProviders((prev) =>
+          mergeProvidersWithExistingToken(providerDefsResult.providers, prev)
+        )
+        // 渠道列表已变化时，清理无效编辑态，避免编辑已删除渠道。
+        if (editingProvider && !providerDefsResult.providers.some((provider) => provider.id === editingProvider)) {
+          setEditingProvider(null)
         }
+      }
 
-        if (envConfigResult?.errorCode && envConfigResult.errorCode !== 'UNSUPPORTED_API') {
-          setToast(envConfigResult.error || '读取环境变量失败')
-        }
-      } catch (error) {
-        console.error('Error loading provider:', error)
-        setToast('获取当前配置失败')
-      } finally {
+      if (envConfigResult?.providers) {
+        setProviders((prev) =>
+          prev.map((provider) => {
+            if (!isTokenManagedProvider(provider)) return provider
+            // 正在编辑时不覆盖本地输入，避免轮询导致输入框闪回。
+            if (editingProvider && provider.id === editingProvider) return provider
+            const token = envConfigResult.providers[provider.id]?.token
+            if (typeof token !== 'string') return provider
+            return { ...provider, token }
+          })
+        )
+      }
+
+      if (envConfigResult?.envPath) {
+        setEnvPathHint(envConfigResult.envPath)
+      }
+
+      if (!silent && envConfigResult?.errorCode && envConfigResult.errorCode !== 'UNSUPPORTED_API') {
+        setToast({ message: envConfigResult.error || '读取环境变量失败', type: 'error' })
+      }
+      if (!silent && providerDefsResult?.errorCode && providerDefsResult.errorCode !== 'UNSUPPORTED_API') {
+        setToast({ message: providerDefsResult.error || '读取渠道列表失败', type: 'error' })
+      }
+    } catch (error) {
+      console.error('Error loading provider:', error)
+      if (!silent) {
+        setToast({ message: '获取当前配置失败', type: 'error' })
+      }
+    } finally {
+      if (withLoading) {
         setIsLoading(false)
       }
     }
+  }, [editingProvider])
 
-    loadCurrentProvider()
-  }, [])
+  // 页面加载时拉取一次，后续通过轮询 + 前台激活保持同步。
+  useEffect(() => {
+    let disposed = false
+    const safeSync = async (options) => {
+      if (disposed) return
+      await syncProviderSnapshot(options)
+    }
+
+    safeSync({ withLoading: true, silent: false })
+
+    const timerId = window.setInterval(() => {
+      safeSync({ silent: true, withLoading: false })
+    }, PROVIDER_REFRESH_INTERVAL_MS)
+
+    const onVisibilityChange = () => {
+      if (!document.hidden) {
+        safeSync({ silent: true, withLoading: false })
+      }
+    }
+    document.addEventListener('visibilitychange', onVisibilityChange)
+
+    return () => {
+      disposed = true
+      window.clearInterval(timerId)
+      document.removeEventListener('visibilitychange', onVisibilityChange)
+    }
+  }, [syncProviderSnapshot])
 
   /**
    * 获取当前供应商名称
@@ -143,7 +238,7 @@ export default function ApiConfigPage() {
       return '自定义配置 (Custom)'
     }
     const provider = providers.find((p) => p.id === currentProvider)
-    return provider?.name || ''
+    return provider?.name || currentProvider || ''
   }
 
   /**
@@ -153,13 +248,9 @@ export default function ApiConfigPage() {
   const handleEnableProvider = async (providerId) => {
     if (isSwitching || providerId === currentProvider) return
 
-    // 从 custom 档切换时提示确认
-    if (isCustomDetected) {
-      const confirmed = window.confirm(
-        '检测到当前使用的是自定义配置，切换后将丢失自定义设置。\n\n是否继续？'
-      )
-      if (!confirmed) return
-    }
+    // 记录当前滚动位置，防止关闭面板后页面跳动
+    const scrollContainer = document.querySelector('.page-shell')
+    const savedScrollTop = scrollContainer?.scrollTop || 0
 
     try {
       setIsSwitching(true)
@@ -169,7 +260,16 @@ export default function ApiConfigPage() {
         setCurrentProvider(providerId)
         setEditingProvider(null)
         setIsCustomDetected(false) // 重置 custom 检测状态
-        setToast(`已切换至 ${PROVIDER_BASES.find(p => p.id === providerId)?.name}`)
+        const providerName = providers.find((provider) => provider.id === providerId)?.name || providerId
+        setToast({ message: `已切换至 ${providerName}`, type: 'success' })
+        await syncProviderSnapshot({ silent: true, withLoading: false })
+
+        // 恢复滚动位置（在 DOM 更新后执行）
+        requestAnimationFrame(() => {
+          if (scrollContainer) {
+            scrollContainer.scrollTop = savedScrollTop
+          }
+        })
       } else {
         // 根据错误代码显示具体错误
         const errorMessages = {
@@ -178,11 +278,11 @@ export default function ApiConfigPage() {
           'INVALID_PROFILE_KEY': '无效的供应商档位',
           'MISSING_API_KEY': '请先编辑并保存该供应商的 API Key',
         }
-        setToast(errorMessages[result.errorCode] || `切换失败: ${result.error || '未知错误'}`)
+        setToast({ message: errorMessages[result.errorCode] || `切换失败: ${result.error || '未知错误'}`, type: 'error' })
       }
     } catch (error) {
       console.error('Error switching provider:', error)
-      setToast('切换失败')
+      setToast({ message: '切换失败', type: 'error' })
     } finally {
       setIsSwitching(false)
     }
@@ -200,7 +300,18 @@ export default function ApiConfigPage() {
    * 处理取消编辑
    */
   const handleCancelEdit = () => {
+    // 记录当前滚动位置，防止关闭面板后页面跳动
+    const scrollContainer = document.querySelector('.page-shell')
+    const savedScrollTop = scrollContainer?.scrollTop || 0
+
     setEditingProvider(null)
+
+    // 恢复滚动位置
+    requestAnimationFrame(() => {
+      if (scrollContainer) {
+        scrollContainer.scrollTop = savedScrollTop
+      }
+    })
   }
 
   /**
@@ -211,9 +322,13 @@ export default function ApiConfigPage() {
   const handleSaveToken = async (providerId, token) => {
     const normalizedToken = token.trim()
     if (!normalizedToken) {
-      setToast('API Key 不能为空')
+      setToast({ message: 'API Key 不能为空', type: 'warning' })
       return
     }
+
+    // 记录当前滚动位置，防止关闭面板后页面跳动
+    const scrollContainer = document.querySelector('.page-shell')
+    const savedScrollTop = scrollContainer?.scrollTop || 0
 
     try {
       setIsSavingToken(true)
@@ -228,7 +343,7 @@ export default function ApiConfigPage() {
           'WRITE_FAILED': '写入 .env 文件失败',
           'RENAME_FAILED': '写入 .env 文件失败',
         }
-        setToast(errorMessages[result.errorCode] || result.error || '保存 API Key 失败')
+        setToast({ message: errorMessages[result.errorCode] || result.error || '保存 API Key 失败', type: 'error' })
         return
       }
 
@@ -241,64 +356,60 @@ export default function ApiConfigPage() {
       }
 
       setEditingProvider(null)
-      setToast('API Key 已保存到环境变量')
+      setToast({ message: 'API Key 已保存到环境变量', type: 'success' })
+      await syncProviderSnapshot({ silent: true, withLoading: false })
+
+      // 恢复滚动位置（在 DOM 更新后执行）
+      requestAnimationFrame(() => {
+        if (scrollContainer) {
+          scrollContainer.scrollTop = savedScrollTop
+        }
+      })
     } catch (error) {
       console.error('Error saving API token:', error)
-      setToast('保存 API Key 失败')
+      setToast({ message: '保存 API Key 失败', type: 'error' })
     } finally {
       setIsSavingToken(false)
     }
   }
 
   return (
-    <div className="api-config-page">
-      <div className="page-container">
-        <div className="page-content">
-          {/* 页面头部 */}
-          <section className="page-header">
-            <h1>API 配置</h1>
-            <p>切换 Claude Code 的 API 接入点</p>
+    <PageShell title="API 配置" subtitle="切换 Claude Code 的 API 接入点">
+      <StateView loading={isLoading}>
+        <>
+          {/* 当前使用状态卡片 */}
+          <section className="card status-card">
+            <div className="status-label">当前使用</div>
+            <div className="status-value">{getCurrentProviderName()}</div>
           </section>
 
-          {isLoading ? (
-            <div className="loading-state">加载中...</div>
-          ) : (
-            <>
-              {/* 当前使用状态卡片 */}
-              <section className="card status-card">
-                <div className="status-label">当前使用</div>
-                <div className="status-value">{getCurrentProviderName()}</div>
-              </section>
-
-              {/* 供应商选择区域 */}
-              <section className="provider-section">
-                <h2 className="section-title">选择 API 接入点</h2>
-                <div className="provider-list">
-                  {providers.map((provider) => (
-                    <ProviderCard
-                      key={provider.id}
-                      provider={provider}
-                      isSelected={currentProvider === provider.id}
-                      isEditing={editingProvider === provider.id}
-                      isSwitching={isSwitching}
-                      isSavingToken={isSavingToken}
-                      envPathHint={envPathHint}
-                      onEnable={() => handleEnableProvider(provider.id)}
-                      onEdit={() => handleEditToken(provider.id)}
-                      onCancelEdit={handleCancelEdit}
-                      onSaveToken={(token) => handleSaveToken(provider.id, token)}
-                    />
-                  ))}
-                </div>
-              </section>
-            </>
-          )}
-        </div>
-      </div>
+          {/* 供应商选择区域 */}
+          <section className="provider-section">
+            <h2 className="section-title">选择 API 接入点</h2>
+            <div className="provider-list">
+              {providers.map((provider) => (
+                <ProviderCard
+                  key={provider.id}
+                  provider={provider}
+                  isSelected={currentProvider === provider.id}
+                  isEditing={editingProvider === provider.id}
+                  isSwitching={isSwitching}
+                  isSavingToken={isSavingToken}
+                  envPathHint={envPathHint}
+                  onEnable={() => handleEnableProvider(provider.id)}
+                  onEdit={() => handleEditToken(provider.id)}
+                  onCancelEdit={handleCancelEdit}
+                  onSaveToken={(token) => handleSaveToken(provider.id, token)}
+                />
+              ))}
+            </div>
+          </section>
+        </>
+      </StateView>
 
       {/* Toast */}
-      {toast && <Toast message={toast} onClose={() => setToast(null)} />}
-    </div>
+      {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
+    </PageShell>
   )
 }
 
@@ -331,6 +442,8 @@ function ProviderCard({
 }) {
   // 本地编辑状态
   const [editToken, setEditToken] = useState('')
+  // 是否支持该渠道的 token 编辑
+  const supportsToken = isTokenManagedProvider(provider)
 
   useEffect(() => {
     if (isEditing) {
@@ -369,51 +482,45 @@ function ProviderCard({
         <div className="provider-actions">
           {isSelected ? (
             <>
-              <span className="tag tag--success">当前使用</span>
-              {/* 仅第三方供应商显示编辑按钮 */}
-              {provider.id !== 'official' && (
-                <button
-                  className="btn btn--secondary btn--sm"
+              <Tag variant="success">当前使用</Tag>
+              {/* 仅支持 token 的供应商显示编辑按钮 */}
+              {supportsToken && (
+                <Button
+                  variant="secondary"
+                  size="sm"
                   disabled={isSwitching}
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    onEdit()
-                  }}
+                  onClick={(e) => { e.stopPropagation(); onEdit() }}
                 >
                   编辑 API Key
-                </button>
+                </Button>
               )}
             </>
-          ) : provider.id !== 'official' && !provider.token ? (
-            // 第三方供应商未配置 API Key：显示编辑按钮引导配置
-            <button
-              className="btn btn--secondary btn--sm"
+          ) : supportsToken && !provider.token ? (
+            // 需要 token 但未配置：显示编辑按钮引导配置
+            <Button
+              variant="secondary"
+              size="sm"
               disabled={isSwitching}
-              onClick={(e) => {
-                e.stopPropagation()
-                onEdit()
-              }}
+              onClick={(e) => { e.stopPropagation(); onEdit() }}
             >
               编辑 API Key
-            </button>
+            </Button>
           ) : (
-            // official 供应商 或 已配置 API Key 的第三方供应商
-            <button
-              className="btn btn--primary btn--sm"
-              disabled={isSwitching}
-              onClick={(e) => {
-                e.stopPropagation()
-                onEnable()
-              }}
+            // 无 token 供应商，或已配置好 token 的供应商
+            <Button
+              variant="primary"
+              size="sm"
+              loading={isSwitching}
+              onClick={(e) => { e.stopPropagation(); onEnable() }}
             >
-              {isSwitching ? '切换中...' : '启用'}
-            </button>
+              启用
+            </Button>
           )}
         </div>
       </div>
 
       {/* 编辑面板（仅展开时显示） */}
-      {isEditing && (
+      {supportsToken && isEditing && (
         <div className="token-panel is-open">
           <div className="field">
             <label>API Key</label>
@@ -422,26 +529,25 @@ function ProviderCard({
               value={editToken}
               onChange={(e) => setEditToken(e.target.value)}
               placeholder="输入 API Key..."
+              autoFocus
             />
           </div>
           <p className="field-note">
             API Key 与当前供应商只保存至 {envPathHint}（环境变量）
           </p>
           <div className="actions">
-            <button
-              className="btn btn--secondary btn--sm"
-              disabled={isSavingToken}
-              onClick={onCancelEdit}
-            >
+            <Button variant="secondary" size="sm" disabled={isSavingToken} onClick={onCancelEdit}>
               取消
-            </button>
-            <button
-              className="btn btn--primary btn--sm"
-              disabled={isSavingToken || !editToken.trim()}
+            </Button>
+            <Button
+              variant="primary"
+              size="sm"
+              loading={isSavingToken}
+              disabled={!editToken.trim()}
               onClick={handleSave}
             >
-              {isSavingToken ? '保存中...' : '保存'}
-            </button>
+              保存
+            </Button>
           </div>
         </div>
       )}

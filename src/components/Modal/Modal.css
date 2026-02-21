@@ -1,0 +1,108 @@
+/**
+ * Modal 组件样式
+ *
+ * 结构：.modal-overlay > .modal-panel > header + body + footer
+ * 尺寸变体：sm(400px) / md(560px, 默认) / lg(720px)
+ */
+
+/* ── 遮罩 ───────────────────────────────────────────────── */
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: var(--space-4);
+  animation: modal-fade-in 0.15s ease;
+}
+
+@keyframes modal-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+/* ── 面板 ───────────────────────────────────────────────── */
+
+.modal-panel {
+  background: var(--bg-base);
+  border-radius: var(--radius-2xl);
+  box-shadow: 0 8px 40px rgba(0, 0, 0, 0.15), 0 0 0 1px rgba(0, 0, 0, 0.06);
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100vh - 80px);
+  width: 100%;
+  animation: modal-slide-up 0.15s ease;
+}
+
+@keyframes modal-slide-up {
+  from { transform: translateY(8px); opacity: 0.6; }
+  to   { transform: translateY(0);   opacity: 1; }
+}
+
+/* 尺寸变体 */
+.modal-panel--sm { max-width: 400px; }
+.modal-panel--md { max-width: 560px; }
+.modal-panel--lg { max-width: 720px; }
+
+/* ── Header ─────────────────────────────────────────────── */
+
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-5) var(--space-6) var(--space-4);
+  border-bottom: 1px solid var(--border-light);
+  flex-shrink: 0;
+}
+
+.modal-title {
+  font-size: var(--text-lg);
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.modal-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: none;
+  background: transparent;
+  border-radius: var(--radius-sm);
+  color: var(--text-tertiary);
+  font-size: 14px;
+  cursor: pointer;
+  transition: background var(--transition-fast), color var(--transition-fast);
+  flex-shrink: 0;
+}
+
+.modal-close:hover {
+  background: var(--bg-muted);
+  color: var(--text-primary);
+}
+
+/* ── Body ───────────────────────────────────────────────── */
+
+.modal-body {
+  padding: var(--space-5) var(--space-6);
+  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
+}
+
+/* ── Footer ─────────────────────────────────────────────── */
+
+.modal-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-6) var(--space-5);
+  border-top: 1px solid var(--border-light);
+  flex-shrink: 0;
+}

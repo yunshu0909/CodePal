@@ -23,3 +23,27 @@
 
 - 代码层：回滚 `electron/main.js` 本次变更即可恢复旧行为。
 - 运行态：若切换失败，当前实现会自动回滚 `.env`；`settings` 侧保留备份文件用于手工恢复。
+
+---
+
+## 2026-02-20 增量决策（认证分流升级）
+
+### 背景
+
+- 问题：用户登出 Claude 账号后，切换到第三方供应商仍出现登录向导，影响可用性。
+- 根因：CLI 登录判断优先读取运行时 API 来源（环境变量/apiKeyHelper），仅写 `settings.env` 无法稳定绕开登录链路。
+
+### 决策
+
+- 认证分流规则固定：
+  - `Claude Official`：只走登录链路。
+  - `Kimi / AICodeMirror`：走 API 链路（`ANTHROPIC_API_KEY` + `ANTHROPIC_BASE_URL` + `apiKeyHelper`）。
+- 切到第三方时自动写托管 helper：`~/.claude/skill-manager-api-key-helper.sh`。
+- 切回 Official 时无条件清理托管 `apiKeyHelper`，避免继续走 API 鉴权。
+- settings 同步字段主通道改为 `ANTHROPIC_API_KEY`（兼容读取 `ANTHROPIC_AUTH_TOKEN` 作为历史兜底）。
+- 页面 custom 交互调整为“可直接切换”，不再增加确认弹窗。
+
+### 回滚方案
+
+- 若需回退旧行为，可移除“helper 写入/清理”逻辑并恢复 `AUTH_TOKEN` 写入方案。
+- 风险提示：回退后会重新出现“第三方已配置但仍触发登录向导”的体验问题。

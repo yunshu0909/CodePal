@@ -85,14 +85,20 @@ describe('V0.7 Backend Provider Switch Behavior', () => {
     expect(result.status).toBe(0)
 
     const config = readJson(fixture.settingsPath)
-    expect(config.env.ANTHROPIC_AUTH_TOKEN).toContain('sk-kimi-')
+    expect(config.env.ANTHROPIC_API_KEY).toContain('sk-kimi-')
+    expect(config.env.ANTHROPIC_AUTH_TOKEN).toBeUndefined()
     expect(config.env.ANTHROPIC_BASE_URL).toBe('https://api.kimi.com/coding/')
     expect(config.model).toBe('opus')
+    const canonicalTmpDir = fs.realpathSync(fixture.tmpDir)
+    expect(config.apiKeyHelper).toBe(path.join(canonicalTmpDir, 'skill-manager-api-key-helper.sh'))
 
     // 无关字段不得被误改
     expect(config.env.FOO).toBe('BAR')
     expect(config.permissions).toEqual({ allow: ['mcp__pencil'] })
     expect(config.extra).toEqual({ x: 1 })
+
+    const helperScriptPath = path.join(fixture.tmpDir, 'skill-manager-api-key-helper.sh')
+    expect(fs.existsSync(helperScriptPath)).toBe(true)
 
     const backupsDir = path.join(fixture.tmpDir, 'backups')
     const backups = fs.readdirSync(backupsDir)
@@ -119,9 +125,11 @@ describe('V0.7 Backend Provider Switch Behavior', () => {
     expect(officialSwitch.status).toBe(0)
 
     const config = readJson(fixture.settingsPath)
+    expect(config.env.ANTHROPIC_API_KEY).toBeUndefined()
     expect(config.env.ANTHROPIC_AUTH_TOKEN).toBeUndefined()
     expect(config.env.ANTHROPIC_BASE_URL).toBeUndefined()
     expect(config.model).toBe('opus')
+    expect(config.apiKeyHelper).toBeUndefined()
     // 无关 env 字段仍在
     expect(config.env.FOO).toBe('BAR')
   })
@@ -142,6 +150,27 @@ describe('V0.7 Backend Provider Switch Behavior', () => {
 
     const after = fs.readFileSync(fixture.settingsPath, 'utf-8')
     expect(after).toBe(before)
+  })
+
+  it('TC-S3-BE-08: 仅残留 apiKeyHelper 时应识别为 custom，避免误判 official', () => {
+    fs.writeFileSync(
+      fixture.settingsPath,
+      `${JSON.stringify({
+        env: {},
+        model: 'opus',
+        apiKeyHelper: '/tmp/skill-manager-api-key-helper.sh',
+      }, null, 2)}\n`,
+      'utf-8'
+    )
+
+    const result = runSwitchScript([
+      '--settings-path',
+      fixture.settingsPath,
+      'current',
+    ])
+
+    expect(result.status).toBe(0)
+    expect(result.stdout).toContain('当前档位: custom')
   })
 
   it('TC-S3-BE-07: 配置 JSON 损坏时应返回失败并不覆盖文件', () => {
