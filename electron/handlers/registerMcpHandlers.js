@@ -2,7 +2,7 @@
  * MCP 管理 IPC 处理器
  *
  * 负责：
- * - 读取 ~/.claude.json 和 ~/.codex/config.toml 配置文件
+ * - 读取 ~/.claude.json、~/.codex/config.toml、~/.cursor/mcp.json、~/.factory/mcp.json 配置文件
  * - 解析 JSON/TOML 格式的 MCP 配置
  * - 写入 MCP 配置（read-modify-write 模式）
  * - 检测配置文件外部修改并自动重载
@@ -21,11 +21,14 @@ const TOML = require('@iarna/toml')
  */
 const CONFIG_PATHS = {
   claude: '~/.claude.json',
-  codex: '~/.codex/config.toml'
+  codex: '~/.codex/config.toml',
+  cursor: '~/.cursor/mcp.json',
+  droidMcp: '~/.factory/mcp.json',
+  droidConfig: '~/.factory/config.json'
 }
 
 const CONFIG_ERROR_MESSAGES = {
-  TOOLS_NOT_INSTALLED: '未找到 Claude Code 或 Codex 的配置文件',
+  TOOLS_NOT_INSTALLED: '未找到 Claude Code、Codex、Cursor 或 Droid 的配置文件',
   CONFIG_PARSE_FAILED: '配置文件解析失败'
 }
 
@@ -65,20 +68,28 @@ async function pathExists(filepath) {
 
 /**
  * 检查工具是否安装（通过配置文件是否存在）
- * @returns {Promise<{claude: boolean, codex: boolean}>}
+ * @returns {Promise<{claude: boolean, codex: boolean, cursor: boolean, droid: boolean}>}
  */
 async function checkToolsInstalled() {
   const claudePath = expandHome(CONFIG_PATHS.claude)
   const codexPath = expandHome(CONFIG_PATHS.codex)
+  const cursorPath = expandHome(CONFIG_PATHS.cursor)
+  const droidMcpPath = expandHome(CONFIG_PATHS.droidMcp)
+  const droidConfigPath = expandHome(CONFIG_PATHS.droidConfig)
 
-  const [claudeExists, codexExists] = await Promise.all([
+  const [claudeExists, codexExists, cursorExists, droidMcpExists, droidConfigExists] = await Promise.all([
     pathExists(claudePath),
-    pathExists(codexPath)
+    pathExists(codexPath),
+    pathExists(cursorPath),
+    pathExists(droidMcpPath),
+    pathExists(droidConfigPath)
   ])
 
   return {
     claude: claudeExists,
-    codex: codexExists
+    codex: codexExists,
+    cursor: cursorExists,
+    droid: droidMcpExists || droidConfigExists
   }
 }
 
@@ -276,6 +287,155 @@ async function writeCodexConfig(data) {
 }
 
 /**
+ * 读取 Cursor 配置文件（JSON 格式）
+ * @returns {Promise<{success: boolean, data: Object|null, version: number|null, filePath: string, error: string|null, errorCode: string|null}>}
+ */
+async function readCursorConfig() {
+  const configPath = expandHome(CONFIG_PATHS.cursor)
+
+  try {
+    if (!(await pathExists(configPath))) {
+      return {
+        success: true,
+        data: { mcpServers: {} },
+        version: null,
+        filePath: configPath,
+        error: null,
+        errorCode: null
+      }
+    }
+
+    const version = await getFileVersion(configPath)
+    const content = await fs.readFile(configPath, 'utf-8')
+    const data = JSON.parse(content)
+
+    return {
+      success: true,
+      data,
+      version,
+      filePath: configPath,
+      error: null,
+      errorCode: null
+    }
+  } catch (error) {
+    console.error('Error reading Cursor config:', error)
+    if (error instanceof SyntaxError) {
+      return {
+        success: false,
+        data: null,
+        version: null,
+        filePath: configPath,
+        error: `Cursor 配置文件解析失败: ${error.message}`,
+        errorCode: 'INVALID_JSON_FORMAT'
+      }
+    }
+
+    return {
+      success: false,
+      data: null,
+      version: null,
+      filePath: configPath,
+      error: error.message,
+      errorCode: 'READ_FAILED'
+    }
+  }
+}
+
+/**
+ * 写入 Cursor 配置文件（JSON 格式）
+ * @param {Object} data - 配置数据
+ * @returns {Promise<{success: boolean, error: string|null, errorCode: string|null}>}
+ */
+async function writeCursorConfig(data) {
+  const configPath = expandHome(CONFIG_PATHS.cursor)
+
+  try {
+    await atomicWriteConfig(configPath, JSON.stringify(data, null, 2))
+    return { success: true, error: null, errorCode: null }
+  } catch (error) {
+    console.error('Error writing Cursor config:', error)
+    return buildWriteErrorResult(error)
+  }
+}
+
+/**
+ * 读取 Droid 配置文件（JSON 格式）
+ * 优先使用 ~/.factory/mcp.json；若不存在则回退 ~/.factory/config.json
+ * @returns {Promise<{success: boolean, data: Object|null, version: number|null, filePath: string, error: string|null, errorCode: string|null}>}
+ */
+async function readDroidConfig() {
+  const mcpPath = expandHome(CONFIG_PATHS.droidMcp)
+  const configPath = expandHome(CONFIG_PATHS.droidConfig)
+
+  try {
+    const usePath = (await pathExists(mcpPath))
+      ? mcpPath
+      : ((await pathExists(configPath)) ? configPath : mcpPath)
+
+    if (!(await pathExists(usePath))) {
+      return {
+        success: true,
+        data: { mcpServers: {} },
+        version: null,
+        filePath: usePath,
+        error: null,
+        errorCode: null
+      }
+    }
+
+    const version = await getFileVersion(usePath)
+    const content = await fs.readFile(usePath, 'utf-8')
+    const data = JSON.parse(content)
+
+    return {
+      success: true,
+      data,
+      version,
+      filePath: usePath,
+      error: null,
+      errorCode: null
+    }
+  } catch (error) {
+    console.error('Error reading Droid config:', error)
+    if (error instanceof SyntaxError) {
+      return {
+        success: false,
+        data: null,
+        version: null,
+        filePath: mcpPath,
+        error: `Droid 配置文件解析失败: ${error.message}`,
+        errorCode: 'INVALID_JSON_FORMAT'
+      }
+    }
+
+    return {
+      success: false,
+      data: null,
+      version: null,
+      filePath: mcpPath,
+      error: error.message,
+      errorCode: 'READ_FAILED'
+    }
+  }
+}
+
+/**
+ * 写入 Droid 配置文件（JSON 格式）
+ * @param {Object} data - 配置数据
+ * @param {string} filePath - 配置路径
+ * @returns {Promise<{success: boolean, error: string|null, errorCode: string|null}>}
+ */
+async function writeDroidConfig(data, filePath) {
+  try {
+    await atomicWriteConfig(filePath, JSON.stringify(data, null, 2))
+    return { success: true, error: null, errorCode: null }
+  } catch (error) {
+    console.error('Error writing Droid config:', error)
+    return buildWriteErrorResult(error)
+  }
+}
+
+/**
  * 从 Claude Code 配置中提取 MCP 列表
  * @param {Object} config - Claude Code 配置
  * @returns {Object} MCP 映射表 { mcpName: mcpConfig }
@@ -300,10 +460,41 @@ function extractCodexMcpServers(config) {
 }
 
 /**
+ * 从 Cursor 配置中提取 MCP 列表
+ * @param {Object} config - Cursor 配置
+ * @returns {Object} MCP 映射表 { mcpName: mcpConfig }
+ */
+function extractCursorMcpServers(config) {
+  if (!config || !config.mcpServers) {
+    return {}
+  }
+  return config.mcpServers
+}
+
+/**
+ * 从 Droid 配置中提取 MCP 列表
+ * 支持 mcpServers / mcp_servers 两种键
+ * @param {Object} config - Droid 配置
+ * @returns {Object} MCP 映射表 { mcpName: mcpConfig }
+ */
+function extractDroidMcpServers(config) {
+  if (!config || typeof config !== 'object') {
+    return {}
+  }
+  if (config.mcpServers && typeof config.mcpServers === 'object') {
+    return config.mcpServers
+  }
+  if (config.mcp_servers && typeof config.mcp_servers === 'object') {
+    return config.mcp_servers
+  }
+  return {}
+}
+
+/**
  * 转换 MCP 配置为统一格式
  * @param {string} name - MCP 名称
  * @param {Object} config - 原始配置
- * @param {string} source - 来源工具（claude/codex）
+ * @param {string} source - 来源工具（claude/codex/cursor/droid）
  * @returns {Object} 统一格式的 MCP 配置
  */
 function normalizeMcpConfig(name, config, source) {
@@ -314,14 +505,16 @@ function normalizeMcpConfig(name, config, source) {
     command: '',
     url: '',
     env: {},
-    installedIn: {
-      claude: false,
-      codex: false
-    }
+      installedIn: {
+        claude: false,
+        codex: false,
+        cursor: false,
+        droid: false
+      }
   }
 
   // 两边字段形状接近，但后续若出现差异可在 source 分支中扩展
-  if (source === 'claude' || source === 'codex') {
+  if (source === 'claude' || source === 'codex' || source === 'cursor' || source === 'droid') {
     if (config.url) {
       normalized.type = 'http'
       normalized.url = config.url
@@ -345,9 +538,11 @@ function normalizeMcpConfig(name, config, source) {
  * 合并两个工具的 MCP 配置
  * @param {Object} claudeMcps - Claude Code 的 MCP 配置
  * @param {Object} codexMcps - Codex 的 MCP 配置
+ * @param {Object} cursorMcps - Cursor 的 MCP 配置
+ * @param {Object} droidMcps - Droid 的 MCP 配置
  * @returns {Array} 合并后的 MCP 列表
  */
-function mergeMcpConfigs(claudeMcps, codexMcps) {
+function mergeMcpConfigs(claudeMcps, codexMcps, cursorMcps, droidMcps) {
   const mcpMap = new Map()
 
   for (const [name, config] of Object.entries(claudeMcps)) {
@@ -366,14 +561,34 @@ function mergeMcpConfigs(claudeMcps, codexMcps) {
     }
   }
 
+  for (const [name, config] of Object.entries(cursorMcps)) {
+    if (mcpMap.has(name)) {
+      mcpMap.get(name).installedIn.cursor = true
+    } else {
+      const normalized = normalizeMcpConfig(name, config, 'cursor')
+      normalized.installedIn.cursor = true
+      mcpMap.set(name, normalized)
+    }
+  }
+
+  for (const [name, config] of Object.entries(droidMcps)) {
+    if (mcpMap.has(name)) {
+      mcpMap.get(name).installedIn.droid = true
+    } else {
+      const normalized = normalizeMcpConfig(name, config, 'droid')
+      normalized.installedIn.droid = true
+      mcpMap.set(name, normalized)
+    }
+  }
+
   // PRD 要求按 MCP 名称升序展示
   return Array.from(mcpMap.values()).sort((a, b) => a.name.localeCompare(b.name, 'en', { sensitivity: 'base' }))
 }
 
 /**
- * 转换 MCP 配置格式（Claude <-> Codex）
+ * 转换 MCP 配置格式（Claude/Codex/Cursor）
  * @param {Object} config - 原始配置
- * @param {string} targetTool - 目标工具（claude/codex）
+ * @param {string} targetTool - 目标工具（claude/codex/cursor）
  * @returns {Object} 转换后的配置
  */
 function convertMcpConfig(config, targetTool) {
@@ -466,20 +681,116 @@ function applyCodexToggle(config, mcpId, enable, sourceConfig) {
 }
 
 /**
+ * 将 MCP 写入 Cursor 配置对象
+ * @param {Object} config - Cursor 配置对象
+ * @param {string} mcpId - MCP 名称
+ * @param {boolean} enable - 是否启用
+ * @param {Object|null} sourceConfig - 来源配置（用于跨工具复制）
+ */
+function applyCursorToggle(config, mcpId, enable, sourceConfig) {
+  if (!config.mcpServers) {
+    config.mcpServers = {}
+  }
+
+  if (enable) {
+    config.mcpServers[mcpId] = convertMcpConfig(sourceConfig, 'cursor')
+    return
+  }
+
+  delete config.mcpServers[mcpId]
+}
+
+/**
+ * 将 MCP 写入 Droid 配置对象
+ * 优先保持原键风格（mcpServers / mcp_servers）
+ * @param {Object} config - Droid 配置对象
+ * @param {string} mcpId - MCP 名称
+ * @param {boolean} enable - 是否启用
+ * @param {Object|null} sourceConfig - 来源配置（用于跨工具复制）
+ */
+function applyDroidToggle(config, mcpId, enable, sourceConfig) {
+  const key = (config && typeof config === 'object' && config.mcp_servers && !config.mcpServers)
+    ? 'mcp_servers'
+    : 'mcpServers'
+
+  if (!config[key]) {
+    config[key] = {}
+  }
+
+  if (enable) {
+    config[key][mcpId] = convertMcpConfig(sourceConfig, 'droid')
+    return
+  }
+
+  delete config[key][mcpId]
+}
+
+/**
+ * 按候选工具顺序查找可复制的来源 MCP 配置
+ * @param {string} mcpId - MCP 名称
+ * @param {string[]} candidates - 候选工具
+ * @returns {Promise<Object|null>}
+ */
+async function pickSourceConfig(mcpId, candidates) {
+  for (const candidate of candidates) {
+    if (candidate === 'claude') {
+      const result = await readClaudeConfig()
+      if (!result.success) continue
+      const config = extractClaudeMcpServers(result.data || {})[mcpId] || null
+      if (!isPlaceholderMcpConfig(config)) {
+        return config
+      }
+      continue
+    }
+
+    if (candidate === 'codex') {
+      const result = await readCodexConfig()
+      if (!result.success) continue
+      const config = extractCodexMcpServers(result.data || {})[mcpId] || null
+      if (!isPlaceholderMcpConfig(config)) {
+        return config
+      }
+      continue
+    }
+
+    if (candidate === 'cursor') {
+      const result = await readCursorConfig()
+      if (!result.success) continue
+      const config = extractCursorMcpServers(result.data || {})[mcpId] || null
+      if (!isPlaceholderMcpConfig(config)) {
+        return config
+      }
+      continue
+    }
+
+    if (candidate === 'droid') {
+      const result = await readDroidConfig()
+      if (!result.success) continue
+      const config = extractDroidMcpServers(result.data || {})[mcpId] || null
+      if (!isPlaceholderMcpConfig(config)) {
+        return config
+      }
+    }
+  }
+
+  return null
+}
+
+/**
  * 注册 MCP 相关的 IPC handlers
  * @param {Object} params - 参数对象
  * @param {Electron.IpcMain} params.ipcMain - Electron IPC main 实例
  */
 function registerMcpHandlers({ ipcMain }) {
   /**
-   * 扫描两个工具的配置文件，返回 MCP 列表和工具安装状态
+   * 扫描工具配置文件，返回 MCP 列表和工具安装状态
    * @returns {Promise<{success: boolean, mcpList: Array, toolsInstalled: Object, warnings?: string[], error: string|null, errorCode: string|null}>}
    */
   ipcMain.handle('mcp:scanConfigs', async () => {
     try {
       const detectedTools = await checkToolsInstalled()
 
-      if (!detectedTools.claude && !detectedTools.codex) {
+      if (!detectedTools.claude && !detectedTools.codex && !detectedTools.cursor && !detectedTools.droid) {
         return {
           success: false,
           mcpList: [],
@@ -489,14 +800,18 @@ function registerMcpHandlers({ ipcMain }) {
         }
       }
 
-      const [claudeResult, codexResult] = await Promise.all([
+      const [claudeResult, codexResult, cursorResult, droidResult] = await Promise.all([
         detectedTools.claude ? readClaudeConfig() : { success: true, data: { mcpServers: {} }, error: null },
-        detectedTools.codex ? readCodexConfig() : { success: true, data: { mcp_servers: {} }, error: null }
+        detectedTools.codex ? readCodexConfig() : { success: true, data: { mcp_servers: {} }, error: null },
+        detectedTools.cursor ? readCursorConfig() : { success: true, data: { mcpServers: {} }, error: null },
+        detectedTools.droid ? readDroidConfig() : { success: true, data: { mcpServers: {} }, error: null }
       ])
 
       const loadableTools = {
         claude: detectedTools.claude && claudeResult.success,
-        codex: detectedTools.codex && codexResult.success
+        codex: detectedTools.codex && codexResult.success,
+        cursor: detectedTools.cursor && cursorResult.success,
+        droid: detectedTools.droid && droidResult.success
       }
 
       const warnings = []
@@ -506,8 +821,14 @@ function registerMcpHandlers({ ipcMain }) {
       if (detectedTools.codex && !codexResult.success) {
         warnings.push(codexResult.error || 'Codex 配置读取失败')
       }
+      if (detectedTools.cursor && !cursorResult.success) {
+        warnings.push(cursorResult.error || 'Cursor 配置读取失败')
+      }
+      if (detectedTools.droid && !droidResult.success) {
+        warnings.push(droidResult.error || 'Droid 配置读取失败')
+      }
 
-      if (!loadableTools.claude && !loadableTools.codex) {
+      if (!loadableTools.claude && !loadableTools.codex && !loadableTools.cursor && !loadableTools.droid) {
         return {
           success: false,
           mcpList: [],
@@ -523,10 +844,16 @@ function registerMcpHandlers({ ipcMain }) {
       const codexMcps = loadableTools.codex
         ? extractCodexMcpServers(codexResult.data)
         : {}
+      const cursorMcps = loadableTools.cursor
+        ? extractCursorMcpServers(cursorResult.data)
+        : {}
+      const droidMcps = loadableTools.droid
+        ? extractDroidMcpServers(droidResult.data)
+        : {}
 
       return {
         success: true,
-        mcpList: mergeMcpConfigs(claudeMcps, codexMcps),
+        mcpList: mergeMcpConfigs(claudeMcps, codexMcps, cursorMcps, droidMcps),
         toolsInstalled: loadableTools,
         warnings,
         error: null,
@@ -537,7 +864,7 @@ function registerMcpHandlers({ ipcMain }) {
       return {
         success: false,
         mcpList: [],
-        toolsInstalled: { claude: false, codex: false },
+        toolsInstalled: { claude: false, codex: false, cursor: false, droid: false },
         error: error.message,
         errorCode: 'SCAN_FAILED'
       }
@@ -548,13 +875,13 @@ function registerMcpHandlers({ ipcMain }) {
    * 启用/停用指定 MCP 到指定工具
    * @param {Electron.IpcMainInvokeEvent} event - IPC 事件
    * @param {string} mcpId - MCP 标识符（名称）
-   * @param {string} tool - 目标工具（claude/codex）
+   * @param {string} tool - 目标工具（claude/codex/cursor/droid）
    * @param {boolean} enable - 是否启用
    * @returns {Promise<{success: boolean, error: string|null, errorCode: string|null, warningCode?: string|null, warning?: string|null}>}
    */
   ipcMain.handle('mcp:toggleMcp', async (event, mcpId, tool, enable) => {
     try {
-      if (!['claude', 'codex'].includes(tool)) {
+      if (!['claude', 'codex', 'cursor', 'droid'].includes(tool)) {
         return { success: false, error: '无效工具类型', errorCode: 'INVALID_TOOL' }
       }
 
@@ -566,10 +893,8 @@ function registerMcpHandlers({ ipcMain }) {
 
         let sourceConfig = null
         if (enable) {
-          const codexResult = await readCodexConfig()
-          const codexMcps = extractCodexMcpServers(codexResult.data || {})
-          sourceConfig = codexMcps[mcpId] || null
-          if (isPlaceholderMcpConfig(sourceConfig)) {
+          sourceConfig = await pickSourceConfig(mcpId, ['codex', 'cursor', 'droid'])
+          if (!sourceConfig) {
             return {
               success: false,
               error: '未找到可复制的 MCP 配置，请先在另一工具中完成有效配置',
@@ -607,17 +932,108 @@ function registerMcpHandlers({ ipcMain }) {
         }
       }
 
-      const readResult = await readCodexConfig()
+      if (tool === 'codex') {
+        const readResult = await readCodexConfig()
+        if (!readResult.success) {
+          return { success: false, error: readResult.error, errorCode: readResult.errorCode }
+        }
+
+        let sourceConfig = null
+        if (enable) {
+          sourceConfig = await pickSourceConfig(mcpId, ['claude', 'cursor', 'droid'])
+          if (!sourceConfig) {
+            return {
+              success: false,
+              error: '未找到可复制的 MCP 配置，请先在另一工具中完成有效配置',
+              errorCode: 'SOURCE_CONFIG_NOT_FOUND'
+            }
+          }
+        }
+
+        applyCodexToggle(readResult.data, mcpId, enable, sourceConfig)
+
+        let warningCode = null
+        const latestVersion = await getFileVersion(readResult.filePath)
+        if (latestVersion !== readResult.version) {
+          const reloadedResult = await readCodexConfig()
+          if (!reloadedResult.success) {
+            return { success: false, error: reloadedResult.error, errorCode: reloadedResult.errorCode }
+          }
+          applyCodexToggle(reloadedResult.data, mcpId, enable, sourceConfig)
+          readResult.data = reloadedResult.data
+          warningCode = 'CONFIG_RELOADED'
+        }
+
+        const writeResult = await writeCodexConfig(readResult.data)
+        if (!writeResult.success) {
+          return writeResult
+        }
+
+        return {
+          success: true,
+          error: null,
+          errorCode: null,
+          warningCode,
+          warning: warningCode ? '配置已重新加载' : null
+        }
+      }
+
+      if (tool === 'droid') {
+        const readResult = await readDroidConfig()
+        if (!readResult.success) {
+          return { success: false, error: readResult.error, errorCode: readResult.errorCode }
+        }
+
+        let sourceConfig = null
+        if (enable) {
+          sourceConfig = await pickSourceConfig(mcpId, ['claude', 'codex', 'cursor'])
+          if (!sourceConfig) {
+            return {
+              success: false,
+              error: '未找到可复制的 MCP 配置，请先在另一工具中完成有效配置',
+              errorCode: 'SOURCE_CONFIG_NOT_FOUND'
+            }
+          }
+        }
+
+        applyDroidToggle(readResult.data, mcpId, enable, sourceConfig)
+
+        let warningCode = null
+        const latestVersion = await getFileVersion(readResult.filePath)
+        if (latestVersion !== readResult.version) {
+          const reloadedResult = await readDroidConfig()
+          if (!reloadedResult.success) {
+            return { success: false, error: reloadedResult.error, errorCode: reloadedResult.errorCode }
+          }
+          applyDroidToggle(reloadedResult.data, mcpId, enable, sourceConfig)
+          readResult.data = reloadedResult.data
+          readResult.filePath = reloadedResult.filePath
+          warningCode = 'CONFIG_RELOADED'
+        }
+
+        const writeResult = await writeDroidConfig(readResult.data, readResult.filePath)
+        if (!writeResult.success) {
+          return writeResult
+        }
+
+        return {
+          success: true,
+          error: null,
+          errorCode: null,
+          warningCode,
+          warning: warningCode ? '配置已重新加载' : null
+        }
+      }
+
+      const readResult = await readCursorConfig()
       if (!readResult.success) {
         return { success: false, error: readResult.error, errorCode: readResult.errorCode }
       }
 
       let sourceConfig = null
       if (enable) {
-        const claudeResult = await readClaudeConfig()
-        const claudeMcps = extractClaudeMcpServers(claudeResult.data || {})
-        sourceConfig = claudeMcps[mcpId] || null
-        if (isPlaceholderMcpConfig(sourceConfig)) {
+        sourceConfig = await pickSourceConfig(mcpId, ['claude', 'codex', 'droid'])
+        if (!sourceConfig) {
           return {
             success: false,
             error: '未找到可复制的 MCP 配置，请先在另一工具中完成有效配置',
@@ -626,21 +1042,21 @@ function registerMcpHandlers({ ipcMain }) {
         }
       }
 
-      applyCodexToggle(readResult.data, mcpId, enable, sourceConfig)
+      applyCursorToggle(readResult.data, mcpId, enable, sourceConfig)
 
       let warningCode = null
       const latestVersion = await getFileVersion(readResult.filePath)
       if (latestVersion !== readResult.version) {
-        const reloadedResult = await readCodexConfig()
+        const reloadedResult = await readCursorConfig()
         if (!reloadedResult.success) {
           return { success: false, error: reloadedResult.error, errorCode: reloadedResult.errorCode }
         }
-        applyCodexToggle(reloadedResult.data, mcpId, enable, sourceConfig)
+        applyCursorToggle(reloadedResult.data, mcpId, enable, sourceConfig)
         readResult.data = reloadedResult.data
         warningCode = 'CONFIG_RELOADED'
       }
 
-      const writeResult = await writeCodexConfig(readResult.data)
+      const writeResult = await writeCursorConfig(readResult.data)
       if (!writeResult.success) {
         return writeResult
       }
@@ -659,7 +1075,7 @@ function registerMcpHandlers({ ipcMain }) {
   })
 
   /**
-   * 检查 Claude Code 和 Codex 是否安装
+   * 检查 Claude Code、Codex、Cursor 和 Droid 是否安装
    * @returns {Promise<{success: boolean, toolsInstalled: Object, error: string|null}>}
    */
   ipcMain.handle('mcp:checkToolsInstalled', async () => {
@@ -668,7 +1084,7 @@ function registerMcpHandlers({ ipcMain }) {
       return { success: true, toolsInstalled, error: null }
     } catch (error) {
       console.error('Error checking tools installed:', error)
-      return { success: false, toolsInstalled: { claude: false, codex: false }, error: error.message }
+      return { success: false, toolsInstalled: { claude: false, codex: false, cursor: false, droid: false }, error: error.message }
     }
   })
 }

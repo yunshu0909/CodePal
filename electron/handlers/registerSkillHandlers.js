@@ -113,7 +113,8 @@ ipcMain.handle('import-skills', async (event, { presetTools = [], customPaths = 
         claude: '.claude/skills',
         codex: '.codex/skills',
         cursor: '.cursor/skills',
-        trae: '.trae/skills'
+        trae: '.trae/skills',
+        droid: '.factory/skills'
       }
 
       for (const [toolId, subdir] of Object.entries(toolSubdirs)) {
@@ -590,7 +591,8 @@ async function scanCustomPathForSkills(customPath) {
     'claude-code': '.claude/skills',
     'codex': '.codex/skills',
     'cursor': '.cursor/skills',
-    'trae': '.trae/skills'
+    'trae': '.trae/skills',
+    'droid': '.factory/skills'
   }
 
   try {

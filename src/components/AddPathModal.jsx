@@ -196,7 +196,7 @@ export default function AddPathModal({ isOpen, onClose, onConfirm, existingPaths
             <>
               <div className="scan-result-title">❌ 未找到 skills 目录</div>
               <div className="scan-item">
-                该目录下未发现 .claude/skills/、.codex/skills/ 等
+                该目录下未发现 .claude/skills/、.codex/skills/、.factory/skills/ 等
               </div>
             </>
           )}

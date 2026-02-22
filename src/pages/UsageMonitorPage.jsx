@@ -299,6 +299,12 @@ export default function UsageMonitorPage() {
 
   // 自定义日期请求中标志（用于加载态）
   const [customLoading, setCustomLoading] = useState(false);
+  // 当前 Claude provider（用于第三方场景额度展示）
+  const [currentClaudeProvider, setCurrentClaudeProvider] = useState('official');
+  // Codex 限额快照（来自 ~/.codex/sessions token_count rate_limits）
+  const [codexRateLimits, setCodexRateLimits] = useState(null);
+  // Droid 已用量快照（来自 ~/.factory/sessions settings.json）
+  const [droidUsageSnapshot, setDroidUsageSnapshot] = useState(null);
 
   /**
    * 合并并持久化缓存
@@ -314,6 +320,91 @@ export default function UsageMonitorPage() {
       writeUsageCache(next);
       return next;
     });
+  }, []);
+
+  // 读取 Codex 限额（5h / weekly）
+  useEffect(() => {
+    let mounted = true;
+    let timerId = null;
+
+    const fetchLimits = async () => {
+      try {
+        if (!window.electronAPI?.getCodexRateLimits) return;
+        const result = await window.electronAPI.getCodexRateLimits();
+        if (!mounted) return;
+        if (result?.success && result.data) {
+          setCodexRateLimits(result.data);
+        } else {
+          setCodexRateLimits(null);
+        }
+      } catch {
+        if (mounted) setCodexRateLimits(null);
+      }
+    };
+
+    fetchLimits();
+    timerId = window.setInterval(fetchLimits, 60 * 1000);
+
+    return () => {
+      mounted = false;
+      if (timerId) window.clearInterval(timerId);
+    };
+  }, []);
+
+  // 读取 Droid 已用量（从 ~/.factory/sessions settings.json 汇总）
+  useEffect(() => {
+    let mounted = true;
+    let timerId = null;
+
+    const fetchDroidUsage = async () => {
+      try {
+        if (!window.electronAPI?.scanDroidSettingsFiles) return;
+
+        // 扫描最近 30 天的 Droid 会话
+        const now = new Date();
+        const thirtyDaysAgo = new Date(now);
+        thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+        const result = await window.electronAPI.scanDroidSettingsFiles({
+          basePath: '~/.factory/sessions',
+          start: thirtyDaysAgo.toISOString(),
+          end: now.toISOString()
+        });
+
+        if (!mounted) return;
+
+        if (result?.success && result.files?.length > 0) {
+          let totalInput = 0;
+          let totalOutput = 0;
+          let totalCacheRead = 0;
+          let sessionCount = 0;
+
+          for (const file of result.files) {
+            const usage = file.data?.tokenUsage;
+            if (!usage) continue;
+            totalInput += Number(usage.inputTokens) || 0;
+            totalOutput += Number(usage.outputTokens) || 0;
+            totalCacheRead += Number(usage.cacheReadTokens) || 0;
+            sessionCount += 1;
+          }
+
+          const total = totalInput + totalOutput + totalCacheRead;
+          setDroidUsageSnapshot(total > 0 ? { total, input: totalInput, output: totalOutput, cacheRead: totalCacheRead, sessionCount } : null);
+        } else {
+          setDroidUsageSnapshot(null);
+        }
+      } catch {
+        if (mounted) setDroidUsageSnapshot(null);
+      }
+    };
+
+    fetchDroidUsage();
+    timerId = window.setInterval(fetchDroidUsage, 5 * 60 * 1000);
+
+    return () => {
+      mounted = false;
+      if (timerId) window.clearInterval(timerId);
+    };
   }, []);
 
   /**
@@ -399,6 +490,27 @@ export default function UsageMonitorPage() {
   useEffect(() => {
     currentPeriodRef.current = currentPeriod;
   }, [currentPeriod]);
+
+  // 读取当前 Claude provider（判断是否第三方）
+  useEffect(() => {
+    let mounted = true;
+    const fetchProvider = async () => {
+      try {
+        if (!window.electronAPI?.getClaudeProvider) return;
+        const result = await window.electronAPI.getClaudeProvider();
+        if (!mounted) return;
+        if (result?.success && typeof result.current === 'string') {
+          setCurrentClaudeProvider(result.current);
+        }
+      } catch {
+        // ignore
+      }
+    };
+    fetchProvider();
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   // 首次进入页面时预热三个周期缓存，确保后续切换仅切展示
   useEffect(() => {
@@ -712,6 +824,18 @@ export default function UsageMonitorPage() {
     ? (customData || EMPTY_USAGE_DATA)
     : (periodCache[currentPeriod]?.data || EMPTY_USAGE_DATA);
 
+  const isClaudeThirdParty = currentClaudeProvider && currentClaudeProvider !== 'official';
+  const codexRemainingText = (() => {
+    const weekly = codexRateLimits?.weeklyRemainingPercent;
+    const primary = codexRateLimits?.primaryRemainingPercent;
+    const hasWeekly = Number.isFinite(weekly);
+    const hasPrimary = Number.isFinite(primary);
+    if (!hasWeekly && !hasPrimary) return '--';
+    if (hasWeekly && hasPrimary) return `weekly ${Math.round(weekly)}% · 5h ${Math.round(primary)}%`;
+    if (hasWeekly) return `weekly ${Math.round(weekly)}%`;
+    return `5h ${Math.round(primary)}%`;
+  })();
+
   // 格式化数字显示（带单位）
   const formatMetricValue = (num) => {
     if (num >= 1000000000) {
@@ -725,6 +849,13 @@ export default function UsageMonitorPage() {
     }
     return num.toString();
   };
+
+  // Droid 已用量文案（来自独立扫描的 settings.json 快照）
+  const droidUsageText = (() => {
+    if (!droidUsageSnapshot) return '--';
+    const { total, sessionCount } = droidUsageSnapshot;
+    return `${formatMetricValue(total)} tokens · ${sessionCount} 会话`;
+  })();
 
   return (
     <PageShell title="用量监测" subtitle="追踪各模型的 Token 消耗">
@@ -843,6 +974,40 @@ export default function UsageMonitorPage() {
           <span>加载中...</span>
         </div>
       )}
+
+      {/* 额度展示（只读） */}
+      <div className="usage-quota-row">
+        <div className="card quota-card">
+          <div className="card-header">
+            <div className="card-title">额度概览</div>
+          </div>
+          <div className="card-body quota-grid quota-grid--3col">
+            <div className="quota-item quota-item--result">
+              <div className="quota-label">Claude 剩余</div>
+              <div className="quota-value">
+                {isClaudeThirdParty
+                  ? 'N/A（第三方）'
+                  : '--'}
+              </div>
+            </div>
+            <div className="quota-item quota-item--result">
+              <div className="quota-label">Codex 剩余</div>
+              <div className="quota-value">
+                {codexRemainingText}
+              </div>
+            </div>
+            <div className="quota-item quota-item--result">
+              <div className="quota-label">Droid 已用</div>
+              <div className="quota-value">
+                {droidUsageText}
+              </div>
+            </div>
+            <div className="quota-tip">
+              Codex 限额来自本地会话日志中的 rate_limits 快照（5h / weekly）；Droid 用量来自 ~/.factory/sessions 会话统计。
+            </div>
+          </div>
+        </div>
+      </div>
 
 
       {/* 图表行：左侧指标卡(2x2) + 右侧饼图 */}

@@ -122,7 +122,7 @@ export async function selectFolder() {
 
 /**
  * Scan custom path for skills in tool subdirectories
- * Scans .claude/skills/, .codex/skills/, .cursor/skills/, .trae/skills/
+ * Scans .claude/skills/, .codex/skills/, .cursor/skills/, .trae/skills/, .factory/skills/
  * @param {string} basePath - Base directory path to scan
  * @returns {Promise<{success: boolean, skills: Object, error: string|null}>}
  *   skills format: { claude: 5, codex: 3 }

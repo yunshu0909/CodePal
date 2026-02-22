@@ -54,6 +54,14 @@
   background: var(--color-codex);
 }
 
+.tool-dot--cursor {
+  background: var(--color-cursor);
+}
+
+.tool-dot--droid {
+  background: var(--color-droid);
+}
+
 /* ============================================================
    Table Container
    ============================================================ */

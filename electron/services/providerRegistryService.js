@@ -24,6 +24,7 @@ const BUILTIN_PROVIDER_DEFINITIONS = {
   official: {
     name: 'Claude Official',
     model: 'opus',
+    models: ['opus'],
     tokenEnvKey: null,
     baseUrlEnvKey: null,
     defaultBaseUrl: null,
@@ -33,53 +34,6 @@ const BUILTIN_PROVIDER_DEFINITIONS = {
       url: 'https://www.anthropic.com/claude-code',
       icon: 'A',
       color: '#6b5ce7',
-    },
-  },
-  qwen: {
-    name: 'Qwen3 Coder Plus',
-    model: 'opus',
-    tokenEnvKey: 'QWEN_API_KEY',
-    baseUrlEnvKey: 'QWEN_BASE_URL',
-    defaultBaseUrl: 'https://dashscope.aliyuncs.com/apps/anthropic',
-    settingsEnv: {
-      ANTHROPIC_MODEL: 'qwen3-coder-plus',
-      ANTHROPIC_DEFAULT_OPUS_MODEL: 'qwen3-coder-plus',
-      ANTHROPIC_DEFAULT_SONNET_MODEL: 'qwen3-coder-plus',
-      ANTHROPIC_DEFAULT_HAIKU_MODEL: 'qwen3-coder-plus',
-    },
-    source: 'builtin',
-    ui: {
-      url: 'https://dashscope.aliyuncs.com/apps/anthropic',
-      icon: 'Q',
-      color: '#0891b2',
-    },
-  },
-  kimi: {
-    name: 'Kimi For Coding',
-    model: 'opus',
-    tokenEnvKey: 'KIMI_API_KEY',
-    baseUrlEnvKey: 'KIMI_BASE_URL',
-    defaultBaseUrl: 'https://api.kimi.com/coding/',
-    settingsEnv: {},
-    source: 'builtin',
-    ui: {
-      url: 'https://api.kimi.com/coding/',
-      icon: 'K',
-      color: '#4f46e5',
-    },
-  },
-  aicodemirror: {
-    name: 'AICodeMirror',
-    model: 'opus',
-    tokenEnvKey: 'AICODEMIRROR_API_KEY',
-    baseUrlEnvKey: 'AICODEMIRROR_BASE_URL',
-    defaultBaseUrl: 'https://api.aicodemirror.com/api/claudecode',
-    settingsEnv: {},
-    source: 'builtin',
-    ui: {
-      url: 'https://api.aicodemirror.com/api/claudecode',
-      icon: 'X',
-      color: '#d97706',
     },
   },
 }
@@ -96,6 +50,7 @@ const BUILTIN_PROVIDER_DEFINITIONS = {
  *   tokenEnvKey: string|null,
  *   baseUrlEnvKey: string|null,
  *   model: string,
+ *   models: string[],
  *   settingsEnv: Record<string, string>,
  *   icon: string,
  *   color: string,
@@ -129,6 +84,7 @@ function buildProviderCards(providerDefinitions) {
       tokenEnvKey: definition.tokenEnvKey || null,
       baseUrlEnvKey: definition.baseUrlEnvKey || null,
       model: definition.model || 'opus',
+      models: normalizeModelsArray(definition.models, definition.model || 'opus'),
       settingsEnv: { ...(definition.settingsEnv || {}) },
       // UI 渲染字段
       icon: definition.ui?.icon || providerId.charAt(0).toUpperCase(),
@@ -143,9 +99,10 @@ function buildProviderCards(providerDefinitions) {
  * 校验 register_provider manifest
  * @param {unknown} manifest - 待校验 manifest
  * @param {Record<string, any>} existingDefinitions - 已存在渠道定义
+ * @param {{allowBuiltinOverride?: boolean}} [options] - 校验选项
  * @returns {{success: boolean, normalized: Object|null, errorCode: string|null, error: string|null}}
  */
-function validateProviderManifest(manifest, existingDefinitions = {}) {
+function validateProviderManifest(manifest, existingDefinitions = {}, options = {}) {
   if (!isPlainObject(manifest)) {
     return { success: false, normalized: null, errorCode: 'INVALID_MANIFEST', error: 'manifest 必须是对象' }
   }
@@ -160,7 +117,7 @@ function validateProviderManifest(manifest, existingDefinitions = {}) {
     }
   }
 
-  if (BUILTIN_PROVIDER_DEFINITIONS[rawId]) {
+  if (BUILTIN_PROVIDER_DEFINITIONS[rawId] && !options.allowBuiltinOverride) {
     return {
       success: false,
       normalized: null,
@@ -207,6 +164,14 @@ function validateProviderManifest(manifest, existingDefinitions = {}) {
       error: 'tokenEnvKey 必须是合法环境变量名（全大写+下划线）',
     }
   }
+  if (tokenEnvKey === 'ANTHROPIC_AUTH_TOKEN') {
+    return {
+      success: false,
+      normalized: null,
+      errorCode: 'INVALID_TOKEN_ENV_KEY',
+      error: 'tokenEnvKey 不支持 ANTHROPIC_AUTH_TOKEN，请使用独立 API Key 变量名（例如 SILICONFLOW_API_KEY）',
+    }
+  }
 
   const baseUrlEnvKey = normalizeStringValue(manifest.baseUrlEnvKey)
   if (baseUrlEnvKey && !ENV_KEY_PATTERN.test(baseUrlEnvKey)) {
@@ -225,6 +190,16 @@ function validateProviderManifest(manifest, existingDefinitions = {}) {
       normalized: null,
       errorCode: 'INVALID_MODEL',
       error: 'model 长度不超过 80',
+    }
+  }
+
+  const modelsValidation = normalizeManifestModels(manifest.models, model)
+  if (!modelsValidation.success) {
+    return {
+      success: false,
+      normalized: null,
+      errorCode: modelsValidation.errorCode,
+      error: modelsValidation.error,
     }
   }
 
@@ -262,6 +237,7 @@ function validateProviderManifest(manifest, existingDefinitions = {}) {
       tokenEnvKey,
       baseUrlEnvKey: baseUrlEnvKey || `${rawId.replace(/-/g, '_').toUpperCase()}_BASE_URL`,
       model,
+      models: modelsValidation.models,
       settingsEnv: settingsEnvValidation.normalized,
       color,
       icon,
@@ -274,7 +250,7 @@ function validateProviderManifest(manifest, existingDefinitions = {}) {
 
 /**
  * 将 manifest 转换为渠道定义
- * @param {{id: string, name: string, baseUrl: string, tokenEnvKey: string, baseUrlEnvKey: string, model: string, settingsEnv: Record<string, string>, color: string, icon: string, uiUrl: string}} normalizedManifest - 归一化 manifest
+ * @param {{id: string, name: string, baseUrl: string, tokenEnvKey: string, baseUrlEnvKey: string, model: string, models: string[], settingsEnv: Record<string, string>, color: string, icon: string, uiUrl: string}} normalizedManifest - 归一化 manifest
  * @returns {{id: string, definition: Object}}
  */
 function createProviderDefinitionFromManifest(normalizedManifest) {
@@ -283,6 +259,7 @@ function createProviderDefinitionFromManifest(normalizedManifest) {
     definition: {
       name: normalizedManifest.name,
       model: normalizedManifest.model,
+      models: normalizedManifest.models,
       tokenEnvKey: normalizedManifest.tokenEnvKey,
       baseUrlEnvKey: normalizedManifest.baseUrlEnvKey,
       defaultBaseUrl: normalizedManifest.baseUrl,
@@ -345,7 +322,7 @@ async function loadCustomProviderDefinitions({ registryFilePath, pathExists }) {
 
   const definitions = {}
   for (const manifest of parsed.providers) {
-    const validation = validateProviderManifest(manifest, definitions)
+    const validation = validateProviderManifest(manifest, definitions, { allowBuiltinOverride: true })
     if (!validation.success || !validation.normalized) {
       return {
         success: false,
@@ -393,6 +370,7 @@ function extractCustomProviderManifests(providerDefinitions) {
       tokenEnvKey: definition.tokenEnvKey,
       baseUrlEnvKey: definition.baseUrlEnvKey,
       model: definition.model,
+      models: normalizeModelsArray(definition.models, definition.model),
       settingsEnv: definition.settingsEnv || {},
       icon: definition.ui?.icon || providerId.charAt(0).toUpperCase(),
       color: definition.ui?.color || '#2563eb',
@@ -480,6 +458,81 @@ function normalizeSettingsEnv(settingsEnv) {
   }
 
   return { success: true, normalized, errorCode: null, error: null }
+}
+
+/**
+ * 规范化模型列表（去重、去空）
+ * @param {unknown} models - 原始模型列表
+ * @param {string} fallbackModel - 回退模型
+ * @returns {string[]}
+ */
+function normalizeModelsArray(models, fallbackModel) {
+  const fallback = normalizeStringValue(fallbackModel) || 'opus'
+  if (!Array.isArray(models)) {
+    return [fallback]
+  }
+
+  const unique = []
+  const seen = new Set()
+  for (const item of models) {
+    const model = normalizeStringValue(item)
+    if (!model || seen.has(model)) continue
+    seen.add(model)
+    unique.push(model)
+  }
+
+  return unique.length > 0 ? unique : [fallback]
+}
+
+/**
+ * 校验 manifest.models
+ * @param {unknown} models - 待校验模型列表
+ * @param {string} fallbackModel - 默认模型
+ * @returns {{success: boolean, models: string[], errorCode: string|null, error: string|null}}
+ */
+function normalizeManifestModels(models, fallbackModel) {
+  if (models == null) {
+    return {
+      success: true,
+      models: normalizeModelsArray(null, fallbackModel),
+      errorCode: null,
+      error: null,
+    }
+  }
+
+  if (!Array.isArray(models)) {
+    return {
+      success: false,
+      models: [],
+      errorCode: 'INVALID_MODELS',
+      error: 'models 必须是字符串数组',
+    }
+  }
+
+  const normalized = normalizeModelsArray(models, fallbackModel)
+  if (normalized.length > 20) {
+    return {
+      success: false,
+      models: [],
+      errorCode: 'INVALID_MODELS',
+      error: 'models 最多 20 个',
+    }
+  }
+  if (normalized.some((model) => model.length > 80)) {
+    return {
+      success: false,
+      models: [],
+      errorCode: 'INVALID_MODELS',
+      error: 'models 中每个模型长度不超过 80',
+    }
+  }
+
+  return {
+    success: true,
+    models: normalized,
+    errorCode: null,
+    error: null,
+  }
 }
 
 /**

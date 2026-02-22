@@ -118,7 +118,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   /**
    * 扫描自定义路径下的 skills 分布
-   * 扫描 .claude/skills/、.codex/skills/、.cursor/skills/、.trae/skills/ 子目录
+   * 扫描 .claude/skills/、.codex/skills/、.cursor/skills/、.trae/skills/、.factory/skills/ 子目录
    * @param {string} customPath - 自定义路径
    * @returns {Promise<{success: boolean, skills: Object, error: string|null}>} 扫描结果
    * skills 格式: { claude: 5, codex: 3, ... }
@@ -216,6 +216,17 @@ contextBridge.exposeInMainWorld('electronAPI', {
   scanLogFiles: (params) => ipcRenderer.invoke('scan-log-files', params),
 
   /**
+   * 扫描 Droid (Kiro/Factory) settings.json 文件
+   * 扫描 ~/.factory/sessions/ 下的会话 settings.json 提取 token 用量
+   * @param {Object} params - 扫描参数
+   * @param {string} params.basePath - 基础目录路径
+   * @param {string} params.start - 开始时间（ISO 字符串）
+   * @param {string} params.end - 结束时间（ISO 字符串）
+   * @returns {Promise<{success: boolean, files: Array, totalMatched: number, scannedCount: number, truncated: boolean, error: string|null}>} 扫描结果
+   */
+  scanDroidSettingsFiles: (params) => ipcRenderer.invoke('scan-droid-settings', params),
+
+  /**
    * 聚合自定义日期范围用量
    * @param {Object} params - 聚合参数
    * @param {string} params.startDate - 开始日期（YYYY-MM-DD）
@@ -224,6 +235,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
    * @returns {Promise<{success: boolean, data?: object, meta?: {fromDailySummaryDays: number, recomputedDays: number, totalDays: number, failedDays: number}, error?: string}>}
    */
   aggregateUsageRange: (params) => ipcRenderer.invoke('aggregate-usage-range', params),
+
+  /**
+   * 获取 Codex 限额快照（5h / weekly）
+   * @returns {Promise<{success: boolean, data?: {primaryUsedPercent: number|null, weeklyUsedPercent: number|null, primaryRemainingPercent: number|null, weeklyRemainingPercent: number|null, primaryResetsAt: number|null, weeklyResetsAt: number|null, usedTokens: number|null}, error?: string, errorCode?: string}>}
+   */
+  getCodexRateLimits: () => ipcRenderer.invoke('get-codex-rate-limits'),
 
   // V0.7 API 配置 - 供应商切换
 
@@ -252,6 +269,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
    *       tokenEnvKey: null,
    *       baseUrlEnvKey: null,
    *       model: 'opus',
+   *       models: ['opus'],
    *       settingsEnv: {},
    *       icon: 'A',
    *       color: '#6b5ce7',
@@ -264,7 +282,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
    *   errorCode: null
    * }
    *
-   * @returns {Promise<{success: boolean, providers: Array<{id: string, name: string, url: string, uiUrl: string, baseUrl: string, tokenEnvKey: string|null, baseUrlEnvKey: string|null, model: string, settingsEnv: Record<string, string>, icon: string, color: string, supportsToken: boolean, source: string}>, registryPath: string, error: string|null, errorCode: string|null}>}
+   * @returns {Promise<{success: boolean, providers: Array<{id: string, name: string, url: string, uiUrl: string, baseUrl: string, tokenEnvKey: string|null, baseUrlEnvKey: string|null, model: string, models: string[], settingsEnv: Record<string, string>, icon: string, color: string, supportsToken: boolean, source: string}>, registryPath: string, error: string|null, errorCode: string|null}>}
    */
   listProviderDefinitions: () => ipcRenderer.invoke('list-provider-definitions'),
 
@@ -290,10 +308,25 @@ contextBridge.exposeInMainWorld('electronAPI', {
    *   errorCode: 'UNSAFE_SETTINGS_ENV_KEY'
    * }
    *
-   * @param {{id: string, name: string, baseUrl: string, tokenEnvKey: string, baseUrlEnvKey?: string, model?: string, settingsEnv?: Record<string, string>, icon?: string, color?: string, uiUrl?: string}} manifest - 渠道定义
+   * @param {{id: string, name: string, baseUrl: string, tokenEnvKey: string, baseUrlEnvKey?: string, model?: string, models?: string[], settingsEnv?: Record<string, string>, icon?: string, color?: string, uiUrl?: string}} manifest - 渠道定义
    * @returns {Promise<{success: boolean, provider: Object|null, registryPath: string, error: string|null, errorCode: string|null}>}
    */
   registerProviderManifest: (manifest) => ipcRenderer.invoke('register-provider-manifest', manifest),
+
+  /**
+   * 更新已存在的自定义供应商 manifest
+   * @param {string} providerId - 目标渠道 ID
+   * @param {{name: string, baseUrl: string, tokenEnvKey: string, baseUrlEnvKey?: string, model?: string, models?: string[], settingsEnv?: Record<string, string>, icon?: string, color?: string, uiUrl?: string}} manifest - 渠道定义（id 以 providerId 为准）
+   * @returns {Promise<{success: boolean, provider: Object|null, registryPath: string, error: string|null, errorCode: string|null}>}
+   */
+  updateProviderManifest: (providerId, manifest) => ipcRenderer.invoke('update-provider-manifest', providerId, manifest),
+
+  /**
+   * 删除自定义供应商 manifest
+   * @param {string} providerId - 目标渠道 ID
+   * @returns {Promise<{success: boolean, providerId: string|null, registryPath: string, error: string|null, errorCode: string|null}>}
+   */
+  deleteProviderManifest: (providerId) => ipcRenderer.invoke('delete-provider-manifest', providerId),
 
   /**
    * 读取供应商 API Key 的环境变量配置
@@ -310,11 +343,40 @@ contextBridge.exposeInMainWorld('electronAPI', {
   saveProviderToken: (providerKey, token) => ipcRenderer.invoke('save-provider-token', providerKey, token),
 
   /**
+   * 测试供应商 API 连通性
+   * @param {{baseUrl: string, token: string, model?: string}} params - 测试参数
+   * @returns {Promise<{success: boolean, error: string|null, errorCode: string|null}>}
+   */
+  testProviderConnection: (params) => ipcRenderer.invoke('test-provider-connection', params),
+
+  /**
+   * 读取 Droid 配置（~/.factory/config.json）
+   * @returns {Promise<{success: boolean, exists: boolean, config: object, configPath: string, error: string|null, errorCode: string|null}>}
+   */
+  getDroidConfig: () => ipcRenderer.invoke('get-droid-config'),
+
+  /**
+   * 生成 Droid 示例模板（可编辑）
+   * @param {{apiKey?: string, baseUrl?: string}} params - 模板参数
+   * @returns {Promise<{success: boolean, config?: object, error?: string, errorCode?: string}>}
+   */
+  buildDroidTemplate: (params) => ipcRenderer.invoke('build-droid-template', params),
+
+  /**
+   * 保存 Droid 配置（~/.factory/config.json）
+   * @param {object} config - 配置对象
+   * @returns {Promise<{success: boolean, configPath: string, error: string|null, errorCode: string|null}>}
+   */
+  saveDroidConfig: (config) => ipcRenderer.invoke('save-droid-config', config),
+
+  /**
    * 切换 Claude 供应商
    * @param {string} profileKey - 目标档位（动态 providerId）
+   * @param {string} [selectedModel] - 可选模型覆盖（需在该供应商 models 列表中）
    * @returns {Promise<{success: boolean, backupPath: string|null, error: string|null}>}
    */
-  switchClaudeProvider: (profileKey) => ipcRenderer.invoke('switch-claude-provider', profileKey),
+  switchClaudeProvider: (profileKey, selectedModel) =>
+    ipcRenderer.invoke('switch-claude-provider', profileKey, selectedModel),
 
   // V0.9 项目初始化 APIs
 
@@ -359,7 +421,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
    */
   mcp: {
     /**
-     * 扫描两个工具的配置文件，返回 MCP 列表和工具安装状态
+     * 扫描工具配置文件，返回 MCP 列表和工具安装状态
      * @returns {Promise<{success: boolean, mcpList: Array, toolsInstalled: Object, error: string|null}>}
      */
     scanConfigs: () => ipcRenderer.invoke('mcp:scanConfigs'),
@@ -367,14 +429,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
     /**
      * 启用/停用指定 MCP 到指定工具
      * @param {string} mcpId - MCP 标识符（名称）
-     * @param {string} tool - 目标工具（claude/codex）
+     * @param {string} tool - 目标工具（claude/codex/cursor）
      * @param {boolean} enable - 是否启用
      * @returns {Promise<{success: boolean, error: string|null}>}
      */
     toggleMcp: (mcpId, tool, enable) => ipcRenderer.invoke('mcp:toggleMcp', mcpId, tool, enable),
 
     /**
-     * 检查 Claude Code 和 Codex 是否安装
+     * 检查 Claude Code、Codex 和 Cursor 是否安装
      * @returns {Promise<{success: boolean, toolsInstalled: Object, error: string|null}>}
      */
     checkToolsInstalled: () => ipcRenderer.invoke('mcp:checkToolsInstalled')

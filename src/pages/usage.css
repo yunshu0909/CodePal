@@ -80,6 +80,7 @@
 .usage-toolbar {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: var(--space-3);
   margin-bottom: var(--space-5);
   padding: var(--space-2) 0;
@@ -126,6 +127,54 @@
   box-shadow: 0 1px 2px rgba(0,0,0,0.08);
 }
 
+.usage-quota-row {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--space-3);
+  margin-bottom: var(--space-5);
+}
+
+.quota-card .card-body {
+  padding: var(--space-3);
+}
+
+.quota-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-3);
+}
+
+.quota-grid--3col {
+  grid-template-columns: 1fr 1fr 1fr;
+}
+
+.quota-item {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.quota-label {
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+}
+
+.quota-item--result {
+  justify-content: center;
+}
+
+.quota-value {
+  font-size: var(--text-sm);
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.quota-tip {
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
+  grid-column: 1 / -1;
+}
+
 /* ============================================================
    Chart Row: Metrics (2x2) + Pie Chart
    ============================================================ */
@@ -139,6 +188,11 @@
 }
 
 @media (max-width: 768px) {
+  .quota-grid,
+  .quota-grid--3col {
+    grid-template-columns: 1fr;
+  }
+
   .chart-row {
     grid-template-columns: 1fr;
   }
@@ -344,6 +398,88 @@
   display: flex;
   align-items: center;
   gap: var(--space-2);
+}
+
+/* ============================================================
+   Expandable Row & Sub Items
+   ============================================================ */
+
+.expandable-row:hover td {
+  background: var(--bg-subtle);
+}
+
+.expand-arrow {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  font-size: 9px;
+  color: var(--text-tertiary);
+  transition: transform var(--transition-fast);
+  flex-shrink: 0;
+}
+
+.expand-arrow.expanded {
+  transform: rotate(90deg);
+}
+
+.sub-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  font-size: var(--text-2xs);
+  font-weight: 600;
+  color: var(--text-tertiary);
+  background: var(--bg-muted);
+  border-radius: var(--radius-full);
+  margin-left: var(--space-1);
+}
+
+.sub-item-row td {
+  background: var(--bg-subtle);
+  border-bottom: 1px solid var(--border-light);
+  padding-top: 7px;
+  padding-bottom: 7px;
+}
+
+.sub-item-row:last-child td {
+  border-bottom: 1px solid var(--border-default);
+}
+
+.sub-item-name {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding-left: 36px;
+}
+
+.sub-item-source {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 6px;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--color-primary);
+  background: var(--color-primary-light);
+  border-radius: var(--radius-sm);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.sub-item-raw {
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  word-break: break-all;
+}
+
+.sub-item-number {
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
 }
 
 .model-dot {

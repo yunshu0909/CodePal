@@ -9,7 +9,7 @@
  * @module store/usageAggregator
  */
 
-import { parseClaudeLog, parseCodexTokenSnapshot, calculateTotalTokens } from './logParser.js';
+import { parseClaudeLog, parseCodexTokenSnapshot, parseDroidSettings, calculateTotalTokens } from './logParser.js';
 
 // 模型颜色映射表（每个模型唯一颜色，避免冲突）
 const MODEL_COLORS = {
@@ -33,6 +33,9 @@ const MODEL_COLORS = {
   'llama': '#06b6d4',          // 青色
   'mistral': '#fbbf24',        // 黄色
   'codex': '#3b82f6',          // 蓝色
+  'droid': '#14b8a6',          // 青绿色（Kiro/Factory）
+  'glm': '#ef4444',            // 红色（智谱 GLM）
+  'minimax': '#0ea5e9',        // 天蓝色（MiniMax）
   'default': '#8b919a'         // 灰色
 };
 
@@ -257,6 +260,9 @@ async function scanCodexLogs(start, end) {
       records.push({
         timestamp: state.inWindow.timestamp,
         model: state.inWindow.model,
+        rawModel: 'codex',
+        provider: null,
+        source: 'codex',
         input: deltaNonCachedInput,
         output: deltaOutput,
         cacheRead: deltaCacheRead,
@@ -265,6 +271,65 @@ async function scanCodexLogs(start, end) {
     }
   } catch (error) {
     console.error('Error scanning Codex logs:', error);
+  }
+
+  return records;
+}
+
+/**
+ * 扫描 Droid (Kiro/Factory) 日志文件
+ * Droid 的用量存储在 ~/.factory/sessions/<project>/*.settings.json 中
+ * 每个 settings.json 包含该会话的累计 tokenUsage 快照
+ * @param {Date} start - 开始时间
+ * @param {Date} end - 结束时间
+ * @returns {Promise<Array>} 解析后的记录列表
+ */
+async function scanDroidLogs(start, end) {
+  const records = [];
+
+  try {
+    if (!window.electronAPI?.scanDroidSettingsFiles) {
+      return records;
+    }
+
+    const result = await window.electronAPI.scanDroidSettingsFiles({
+      basePath: '~/.factory/sessions',
+      start: start.toISOString(),
+      end: end.toISOString()
+    });
+
+    if (!result.success || !result.files) {
+      return records;
+    }
+
+    if (result.truncated) {
+      console.warn('Droid settings scan truncated:', {
+        totalMatched: result.totalMatched,
+        scannedCount: result.scannedCount
+      });
+    }
+
+    // 每个 settings.json 是一个独立会话的累计快照，直接作为记录
+    for (const file of result.files) {
+      const parsed = parseDroidSettings(file.data);
+      if (!parsed) {
+        continue;
+      }
+
+      records.push({
+        timestamp: file.mtime ? new Date(file.mtime) : null,
+        model: parsed.model,
+        rawModel: parsed.rawModel,
+        provider: parsed.provider,
+        source: parsed.source || 'droid',
+        input: parsed.input,
+        output: parsed.output,
+        cacheRead: parsed.cacheRead,
+        cacheCreate: parsed.cacheCreate
+      });
+    }
+  } catch (error) {
+    console.error('Error scanning Droid logs:', error);
   }
 
   return records;
@@ -337,6 +402,7 @@ function pickLatestClaudeRecord(current, incoming) {
 
 /**
  * 按模型聚合 Token 使用量
+ * 同时收集每个归一化模型下的原始模型子项明细
  * @param {Array} records - 解析后的记录列表
  * @returns {Map<string, object>} 聚合结果
  */
@@ -354,17 +420,47 @@ function aggregateByModel(records) {
         cacheRead: 0,
         cacheCreate: 0,
         total: 0,
-        count: 0
+        count: 0,
+        subItems: new Map()
       });
     }
 
     const modelData = aggregated.get(model);
+    const tokens = calculateTotalTokens(record);
     modelData.input += record.input || 0;
     modelData.output += record.output || 0;
     modelData.cacheRead += record.cacheRead || 0;
     modelData.cacheCreate += record.cacheCreate || 0;
-    modelData.total += calculateTotalTokens(record);
+    modelData.total += tokens;
     modelData.count += 1;
+
+    // 收集子项明细：按 "rawModel|source" 聚合
+    const rawModel = record.rawModel || model;
+    const source = record.source || 'unknown';
+    const provider = record.provider || null;
+    const subKey = `${rawModel}|${source}`;
+
+    if (!modelData.subItems.has(subKey)) {
+      modelData.subItems.set(subKey, {
+        rawModel,
+        source,
+        provider,
+        input: 0,
+        output: 0,
+        cacheRead: 0,
+        cacheCreate: 0,
+        total: 0,
+        count: 0
+      });
+    }
+
+    const sub = modelData.subItems.get(subKey);
+    sub.input += record.input || 0;
+    sub.output += record.output || 0;
+    sub.cacheRead += record.cacheRead || 0;
+    sub.cacheCreate += record.cacheCreate || 0;
+    sub.total += tokens;
+    sub.count += 1;
   }
 
   return aggregated;
@@ -411,7 +507,13 @@ function generateViewData(aggregated) {
     .sort((a, b) => (b.total - a.total) || a.name.localeCompare(b.name))
     .map(model => ({
       ...model,
-      color: getModelColor(model.name)
+      color: getModelColor(model.name),
+      // 将 subItems Map 转为数组，按 total 降序
+      subItems: model.subItems
+        ? Array.from(model.subItems.values())
+            .filter(sub => sub.total > 0)
+            .sort((a, b) => b.total - a.total)
+        : []
     }));
 
   const total = models.reduce((sum, m) => sum + m.total, 0);
@@ -555,13 +657,14 @@ export async function aggregateUsage(period) {
     const { start, end } = getBeijingTimeWindow(period);
 
     // 2. 扫描日志文件
-    const [claudeRecords, codexRecords] = await Promise.all([
+    const [claudeRecords, codexRecords, droidRecords] = await Promise.all([
       scanClaudeLogs(start, end),
-      scanCodexLogs(start, end)
+      scanCodexLogs(start, end),
+      scanDroidLogs(start, end)
     ]);
 
     // 合并所有记录
-    const allRecords = [...claudeRecords, ...codexRecords];
+    const allRecords = [...claudeRecords, ...codexRecords, ...droidRecords];
 
     // 3. 按模型聚合
     const aggregated = aggregateByModel(allRecords);

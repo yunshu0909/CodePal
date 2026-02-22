@@ -14,13 +14,15 @@ const fs = require('fs/promises')
 const path = require('path')
 const os = require('os')
 const { scanLogFilesInRange } = require('./logScanner')
+const { scanDroidSettingsInRange } = require('./droidLogScanner')
 
 const CODEX_SESSION_ID_REGEX = /([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i
 
 // 日汇总缓存 schema 版本号：
 // - v1：旧口径（Claude 未按 message.id 最终态去重）
 // - v2：新口径（Claude 按 message.id 最终态去重）
-const DAILY_SUMMARY_SCHEMA_VERSION = 2
+// - v3：新增 subItems 子项明细（rawModel/source/provider）
+const DAILY_SUMMARY_SCHEMA_VERSION = 3
 
 // 模型颜色映射表（沿用前端聚合口径，确保图例颜色稳定）
 const MODEL_COLORS = {
@@ -44,6 +46,9 @@ const MODEL_COLORS = {
   llama: '#06b6d4',
   mistral: '#fbbf24',
   codex: '#3b82f6',
+  droid: '#14b8a6',
+  glm: '#ef4444',
+  minimax: '#0ea5e9',
   default: '#8b919a'
 }
 
@@ -156,6 +161,31 @@ function buildDateRange(startDate, endDate) {
 }
 
 /**
+ * 从原始模型名中提取 provider 前缀
+ * @param {string} rawModel - 原始模型名
+ * @returns {{ provider: string|null, modelPart: string }}
+ */
+function extractProviderAndModel(rawModel) {
+  if (!rawModel || typeof rawModel !== 'string') {
+    return { provider: null, modelPart: rawModel || '' }
+  }
+
+  if (rawModel.startsWith('custom:')) {
+    return { provider: null, modelPart: rawModel }
+  }
+
+  const lastSlash = rawModel.lastIndexOf('/')
+  if (lastSlash > 0 && lastSlash < rawModel.length - 1) {
+    return {
+      provider: rawModel.substring(0, lastSlash),
+      modelPart: rawModel.substring(lastSlash + 1)
+    }
+  }
+
+  return { provider: null, modelPart: rawModel }
+}
+
+/**
  * 标准化模型名称
  * @param {string} model - 原始模型名
  * @returns {string}
@@ -165,7 +195,8 @@ function normalizeModelName(model) {
     return 'unknown'
   }
 
-  const lowerModel = model.toLowerCase()
+  const { modelPart } = extractProviderAndModel(model)
+  const lowerModel = modelPart.toLowerCase()
 
   if (lowerModel.includes('claude-opus') || lowerModel.includes('opus')) return 'opus'
   if (lowerModel.includes('claude-sonnet') || lowerModel.includes('sonnet')) return 'sonnet'
@@ -177,9 +208,12 @@ function normalizeModelName(model) {
   if (lowerModel.includes('gpt-4')) return 'gpt-4'
   if (lowerModel.includes('gpt-3.5') || lowerModel.includes('gpt3')) return 'gpt-3.5'
 
+  if (lowerModel.includes('minimax')) return 'minimax'
+  if (lowerModel.includes('glm')) return 'glm'
+  if (lowerModel.includes('gemini')) return 'gemini'
+
   if (lowerModel.includes('kimi')) return 'kimi'
   if (lowerModel.includes('deepseek')) return 'deepseek'
-  if (lowerModel.includes('gemini')) return 'gemini'
   if (lowerModel.includes('qwen')) return 'qwen'
   if (lowerModel.includes('yi')) return 'yi'
   if (lowerModel.includes('llama')) return 'llama'
@@ -203,12 +237,17 @@ function parseClaudeLog(line) {
 
     const usage = data.message.usage
     const timestamp = data.timestamp || data.message.timestamp
-    const model = normalizeModelName(data.message.model || 'unknown')
+    const rawModel = data.message.model || 'unknown'
+    const model = normalizeModelName(rawModel)
+    const { provider } = extractProviderAndModel(rawModel)
     const messageId = typeof data.message.id === 'string' ? data.message.id : null
 
     return {
       timestamp: timestamp ? new Date(timestamp) : null,
       model,
+      rawModel,
+      provider: provider || null,
+      source: 'claude',
       messageId,
       input: toSafeInt(usage.input_tokens),
       output: toSafeInt(usage.output_tokens),
@@ -421,6 +460,9 @@ async function scanCodexLogs(start, end, deps = {}) {
     records.push({
       timestamp: state.inWindow.timestamp,
       model: state.inWindow.model,
+      rawModel: 'codex',
+      provider: null,
+      source: 'codex',
       input: deltaNonCachedInput,
       output: deltaOutput,
       cacheRead: deltaCacheRead,
@@ -432,9 +474,93 @@ async function scanCodexLogs(start, end, deps = {}) {
 }
 
 /**
+ * 标准化 Droid 模型名称
+ * @param {string} model - 原始模型名
+ * @returns {string}
+ */
+function normalizeDroidModelName(model) {
+  if (!model || typeof model !== 'string') return 'droid'
+
+  const cleaned = model.toLowerCase().replace(/^custom:/, '')
+
+  if (cleaned.includes('opus')) return 'opus'
+  if (cleaned.includes('sonnet')) return 'sonnet'
+  if (cleaned.includes('haiku')) return 'haiku'
+  if (cleaned.includes('claude')) return 'claude'
+  if (cleaned.includes('gpt-5') || cleaned.includes('gpt5')) return 'gpt-5'
+  if (cleaned.includes('gpt-4o')) return 'gpt-4o'
+  if (cleaned.includes('gpt-4')) return 'gpt-4'
+  if (cleaned.includes('gpt-3.5') || cleaned.includes('gpt3')) return 'gpt-3.5'
+  if (cleaned.includes('minimax')) return 'minimax'
+  if (cleaned.includes('glm')) return 'glm'
+  if (cleaned.includes('gemini')) return 'gemini'
+  if (cleaned.includes('deepseek')) return 'deepseek'
+  if (cleaned.includes('kimi')) return 'kimi'
+  if (cleaned.includes('qwen')) return 'qwen'
+  if (cleaned.includes('llama')) return 'llama'
+  if (cleaned.includes('mistral')) return 'mistral'
+
+  return 'droid'
+}
+
+/**
+ * 扫描 Droid (Kiro/Factory) settings.json 并提取窗口内记录
+ * @param {Date} start - 窗口开始（含）
+ * @param {Date} end - 窗口结束（不含）
+ * @param {object} deps - 依赖注入
+ * @returns {Promise<Array<object>>}
+ */
+async function scanDroidLogs(start, end, deps = {}) {
+  const pathExistsFn = deps.pathExistsFn || pathExists
+  const scanDroidSettingsInRangeFn = deps.scanDroidSettingsInRangeFn || scanDroidSettingsInRange
+  const homeDir = deps.homeDir || os.homedir()
+
+  const droidBasePath = path.join(homeDir, '.factory', 'sessions')
+  const exists = await pathExistsFn(droidBasePath)
+
+  if (!exists) {
+    return []
+  }
+
+  const scanResult = await scanDroidSettingsInRangeFn(droidBasePath, start, end)
+  const records = []
+
+  for (const file of scanResult.files || []) {
+    const data = file.data
+    if (!data?.tokenUsage) continue
+
+    const usage = data.tokenUsage
+    const input = toSafeInt(usage.inputTokens)
+    const output = toSafeInt(usage.outputTokens)
+    const cacheRead = toSafeInt(usage.cacheReadTokens)
+    const cacheCreate = toSafeInt(usage.cacheCreationTokens)
+    const total = input + output + cacheRead + cacheCreate
+
+    if (total <= 0) continue
+
+    const rawModel = data.model || 'droid'
+    const model = normalizeDroidModelName(rawModel)
+
+    records.push({
+      timestamp: file.mtime ? new Date(file.mtime) : null,
+      model,
+      rawModel,
+      provider: null,
+      source: 'droid',
+      input,
+      output,
+      cacheRead,
+      cacheCreate
+    })
+  }
+
+  return records
+}
+
+/**
  * 按模型聚合记录
  * @param {Array<object>} records - 原始记录
- * @returns {Map<string, {name: string, input: number, output: number, cacheRead: number, cacheCreate: number, total: number, count: number}>}
+ * @returns {Map<string, {name: string, input: number, output: number, cacheRead: number, cacheCreate: number, total: number, count: number, subItems: Map}>}
  */
 function aggregateByModel(records) {
   const aggregated = new Map()
@@ -450,17 +576,47 @@ function aggregateByModel(records) {
         cacheRead: 0,
         cacheCreate: 0,
         total: 0,
-        count: 0
+        count: 0,
+        subItems: new Map()
       })
     }
 
     const modelData = aggregated.get(model)
+    const tokens = (record.input || 0) + (record.output || 0) + (record.cacheRead || 0) + (record.cacheCreate || 0)
     modelData.input += record.input || 0
     modelData.output += record.output || 0
     modelData.cacheRead += record.cacheRead || 0
     modelData.cacheCreate += record.cacheCreate || 0
-    modelData.total += (record.input || 0) + (record.output || 0) + (record.cacheRead || 0) + (record.cacheCreate || 0)
+    modelData.total += tokens
     modelData.count += 1
+
+    // 收集子项明细
+    const rawModel = record.rawModel || model
+    const source = record.source || 'unknown'
+    const provider = record.provider || null
+    const subKey = `${rawModel}|${source}`
+
+    if (!modelData.subItems.has(subKey)) {
+      modelData.subItems.set(subKey, {
+        rawModel,
+        source,
+        provider,
+        input: 0,
+        output: 0,
+        cacheRead: 0,
+        cacheCreate: 0,
+        total: 0,
+        count: 0
+      })
+    }
+
+    const sub = modelData.subItems.get(subKey)
+    sub.input += record.input || 0
+    sub.output += record.output || 0
+    sub.cacheRead += record.cacheRead || 0
+    sub.cacheCreate += record.cacheCreate || 0
+    sub.total += tokens
+    sub.count += 1
   }
 
   return aggregated
@@ -556,7 +712,12 @@ function generateViewData(aggregated) {
     .sort((a, b) => (b.total - a.total) || a.name.localeCompare(b.name))
     .map((model) => ({
       ...model,
-      color: getModelColor(model.name)
+      color: getModelColor(model.name),
+      subItems: model.subItems
+        ? Array.from(model.subItems.values())
+            .filter((s) => s.total > 0)
+            .sort((a, b) => b.total - a.total)
+        : []
     }))
 
   const total = models.reduce((sum, model) => sum + model.total, 0)
@@ -760,12 +921,17 @@ function buildDailySummary(dateKey, aggregated, generatedAt = new Date()) {
   for (const [modelName, modelData] of aggregated.entries()) {
     if (modelData.total <= 0) continue
 
+    const subItems = modelData.subItems
+      ? Array.from(modelData.subItems.values()).filter(s => s.total > 0)
+      : []
+
     models[modelName] = {
       input: modelData.input,
       output: modelData.output,
       cacheRead: modelData.cacheRead,
       cacheCreate: modelData.cacheCreate,
-      total: modelData.total
+      total: modelData.total,
+      subItems
     }
   }
 
@@ -796,12 +962,13 @@ async function recomputeDailySummary(dateKey, deps = {}) {
   const end = new Date(start)
   end.setUTCDate(end.getUTCDate() + 1)
 
-  const [claudeRecords, codexRecords] = await Promise.all([
+  const [claudeRecords, codexRecords, droidRecords] = await Promise.all([
     scanClaudeLogs(start, end, deps),
-    scanCodexLogs(start, end, deps)
+    scanCodexLogs(start, end, deps),
+    scanDroidLogs(start, end, deps)
   ])
 
-  const allRecords = [...claudeRecords, ...codexRecords]
+  const allRecords = [...claudeRecords, ...codexRecords, ...droidRecords]
   const aggregated = aggregateByModel(allRecords)
 
   return buildDailySummary(dateKey, aggregated, deps.nowFn ? deps.nowFn() : new Date())
@@ -825,7 +992,8 @@ function mergeDailySummaries(dailySummaries) {
           cacheRead: 0,
           cacheCreate: 0,
           total: 0,
-          count: 0
+          count: 0,
+          subItems: new Map()
         })
       }
 
@@ -836,6 +1004,33 @@ function mergeDailySummaries(dailySummaries) {
       acc.cacheCreate += toSafeInt(modelData.cacheCreate)
       acc.total += toSafeInt(modelData.total)
       acc.count += 1
+
+      // 合并子项
+      for (const sub of modelData.subItems || []) {
+        const subKey = `${sub.rawModel || modelName}|${sub.source || 'unknown'}`
+
+        if (!acc.subItems.has(subKey)) {
+          acc.subItems.set(subKey, {
+            rawModel: sub.rawModel || modelName,
+            source: sub.source || 'unknown',
+            provider: sub.provider || null,
+            input: 0,
+            output: 0,
+            cacheRead: 0,
+            cacheCreate: 0,
+            total: 0,
+            count: 0
+          })
+        }
+
+        const accSub = acc.subItems.get(subKey)
+        accSub.input += toSafeInt(sub.input)
+        accSub.output += toSafeInt(sub.output)
+        accSub.cacheRead += toSafeInt(sub.cacheRead)
+        accSub.cacheCreate += toSafeInt(sub.cacheCreate)
+        accSub.total += toSafeInt(sub.total)
+        accSub.count += toSafeInt(sub.count) || 1
+      }
     }
   }
 

@@ -129,6 +129,10 @@ body {
   background: #1a9aff;
 }
 
+.tool-icon.dr {
+  background: #0ea5a4;
+}
+
 .tool-icon.custom {
   background: #9b9b9b;
 }

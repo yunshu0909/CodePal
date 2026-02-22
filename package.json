@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "concurrently \"npm run dev:vite\" \"npm run dev:electron\"",
     "dev:vite": "vite",
-    "dev:electron": "wait-on http://localhost:5173 && electron .",
+    "dev:electron": "VITE_DEV_SERVER_URL=http://localhost:5173 wait-on http://localhost:5173 && electron .",
     "mcp:provider-registry": "node mcp/provider_registry_mcp.js",
     "mcp:provider-registry:smoke": "node mcp/provider_registry_mcp_smoke.js",
     "mcp:install-provider-registry:mvp": "node scripts/mcp/install_provider_registry_mvp.js",
@@ -49,7 +49,12 @@
     "test:v06:all": "npm run test:v06 && npm run test:e2e:v06",
     "test:v07:all": "npm run test:v07 && npm run test:e2e:v07",
     "test:v09:all": "npm run test:v09 && npm run test:e2e:v09",
-    "test:v12:all": "npm run test:v12 && npm run test:e2e:v12"
+    "test:v12:all": "npm run test:v12 && npm run test:e2e:v12",
+    "pack": "npm run build && electron-builder --dir",
+    "dist": "npm run build && electron-builder",
+    "dist:mac": "npm run build && electron-builder --mac dmg",
+    "predist": "rm -f .provider-manifests.json",
+    "predist:mac": "rm -f .provider-manifests.json"
   },
   "keywords": [
     "electron",
@@ -58,6 +63,32 @@
   ],
   "author": "",
   "license": "ISC",
+  "build": {
+    "appId": "com.coding-assistant.app",
+    "productName": "Coding Assistant",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "package.json"
+    ],
+    "extraResources": [],
+    "asar": true,
+    "asarUnpack": [],
+    "mac": {
+      "target": "dmg",
+      "category": "public.app-category.developer-tools"
+    },
+    "dmg": {
+      "title": "Coding Assistant",
+      "contents": [
+        { "x": 130, "y": 220 },
+        { "x": 410, "y": 220, "type": "link", "path": "/Applications" }
+      ]
+    }
+  },
   "dependencies": {
     "@iarna/toml": "^2.2.5",
     "dotenv": "^17.3.1",
@@ -75,6 +106,7 @@
     "@vitest/ui": "^4.0.18",
     "concurrently": "^9.2.1",
     "electron": "^40.2.1",
+    "electron-builder": "^26.8.1",
     "electron-mock": "^0.5.0",
     "happy-dom": "^20.6.1",
     "jsdom": "^28.0.0",

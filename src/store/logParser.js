@@ -28,15 +28,19 @@ export function parseClaudeLog(line) {
     const timestamp = data.timestamp || data.message.timestamp;
 
     // 提取模型名称
-    let model = data.message.model || 'unknown';
+    const rawModel = data.message.model || 'unknown';
+    const { provider } = extractProviderAndModel(rawModel);
 
     // 标准化模型名称（移除版本号后缀，统一为系列名称）
-    model = normalizeModelName(model);
+    const model = normalizeModelName(rawModel);
     const messageId = typeof data.message.id === 'string' ? data.message.id : null;
 
     return {
       timestamp: timestamp ? new Date(timestamp) : null,
       model,
+      rawModel,
+      provider: provider || null,
+      source: 'claude',
       messageId,
       input: usage.input_tokens || 0,
       output: usage.output_tokens || 0,
@@ -80,11 +84,14 @@ export function parseCodexLog(line) {
 
     // Codex 通常使用 openai 模型，但需要根据日志中的 model_provider 推断
     // 默认标记为 codex，后续可根据 provider 细化
-    let model = 'codex';
+    const model = 'codex';
 
     return {
       timestamp: timestamp ? new Date(timestamp) : null,
       model,
+      rawModel: 'codex',
+      provider: null,
+      source: 'codex',
       input: usage.input_tokens || 0,
       output: usage.output_tokens || 0,
       cacheRead: usage.cached_input_tokens || 0,
@@ -136,6 +143,36 @@ export function parseCodexTokenSnapshot(line) {
 }
 
 /**
+ * 从原始模型名中提取 provider 前缀
+ * 如 "minimax/minimax-m2.1" → { provider: "minimax", modelPart: "minimax-m2.1" }
+ * 如 "Pro/MiniMaxAI/MiniMax-M2.5" → { provider: "Pro/MiniMaxAI", modelPart: "MiniMax-M2.5" }
+ * 如 "claude-opus-4-6" → { provider: null, modelPart: "claude-opus-4-6" }
+ * @param {string} rawModel - 原始模型名
+ * @returns {{ provider: string|null, modelPart: string }}
+ */
+function extractProviderAndModel(rawModel) {
+  if (!rawModel || typeof rawModel !== 'string') {
+    return { provider: null, modelPart: rawModel || '' };
+  }
+
+  // "custom:" 前缀是 Droid 特有的，不算 provider
+  if (rawModel.startsWith('custom:')) {
+    return { provider: null, modelPart: rawModel };
+  }
+
+  // 按最后一个 "/" 拆分：前面是 provider，后面是模型名
+  const lastSlash = rawModel.lastIndexOf('/');
+  if (lastSlash > 0 && lastSlash < rawModel.length - 1) {
+    return {
+      provider: rawModel.substring(0, lastSlash),
+      modelPart: rawModel.substring(lastSlash + 1)
+    };
+  }
+
+  return { provider: null, modelPart: rawModel };
+}
+
+/**
  * 标准化模型名称
  * 将完整模型名称转换为系列名称（如 claude-sonnet-4-5-20250929 -> sonnet）
  * @param {string} model - 原始模型名称
@@ -146,7 +183,9 @@ function normalizeModelName(model) {
     return 'unknown';
   }
 
-  const lowerModel = model.toLowerCase();
+  // 先去掉 provider 前缀再匹配
+  const { modelPart } = extractProviderAndModel(model);
+  const lowerModel = modelPart.toLowerCase();
 
   // Claude 模型系列
   if (lowerModel.includes('claude-opus') || lowerModel.includes('opus')) {
@@ -176,15 +215,27 @@ function normalizeModelName(model) {
     return 'gpt-3.5';
   }
 
+  // MiniMax 模型系列
+  if (lowerModel.includes('minimax')) {
+    return 'minimax';
+  }
+
+  // GLM 模型系列（智谱）
+  if (lowerModel.includes('glm')) {
+    return 'glm';
+  }
+
+  // Gemini 模型系列
+  if (lowerModel.includes('gemini')) {
+    return 'gemini';
+  }
+
   // 其他模型
   if (lowerModel.includes('kimi')) {
     return 'kimi';
   }
   if (lowerModel.includes('deepseek')) {
     return 'deepseek';
-  }
-  if (lowerModel.includes('gemini')) {
-    return 'gemini';
   }
   if (lowerModel.includes('qwen')) {
     return 'qwen';
@@ -225,6 +276,98 @@ export function isInTimeWindow(record, start, end) {
     return false;
   }
   return record.timestamp >= start && record.timestamp <= end;
+}
+
+/**
+ * 解析 Droid (Kiro/Factory) settings.json 数据
+ * Droid 的用量存储在会话级别的 settings.json 中，包含累计 tokenUsage 快照
+ * @param {object} data - settings.json 解析后的对象
+ * @returns {object|null} 解析后的记录 {model, input, output, cacheRead, cacheCreate}
+ */
+export function parseDroidSettings(data) {
+  try {
+    if (!data || !data.tokenUsage) {
+      return null;
+    }
+
+    const usage = data.tokenUsage;
+    const inputTokens = toSafeInt(usage.inputTokens);
+    const outputTokens = toSafeInt(usage.outputTokens);
+    const cacheReadTokens = toSafeInt(usage.cacheReadTokens);
+    const cacheCreationTokens = toSafeInt(usage.cacheCreationTokens);
+    const total = inputTokens + outputTokens + cacheReadTokens + cacheCreationTokens;
+
+    // 过滤零用量会话
+    if (total <= 0) {
+      return null;
+    }
+
+    // 提取模型名称并标准化
+    const rawModel = data.model || 'droid';
+    const model = normalizeDroidModelName(rawModel);
+
+    return {
+      model,
+      rawModel,
+      provider: null,
+      source: 'droid',
+      input: inputTokens,
+      output: outputTokens,
+      cacheRead: cacheReadTokens,
+      cacheCreate: cacheCreationTokens,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 标准化 Droid 模型名称
+ * Droid 模型名格式如 "custom:Opus-4.6-Kiro-[duojie.games]-0"、"claude-opus-4-6" 等
+ * 需要映射到与 Claude/Codex 一致的系列名称
+ * @param {string} model - 原始模型名称
+ * @returns {string} 标准化后的模型名称
+ */
+function normalizeDroidModelName(model) {
+  if (!model || typeof model !== 'string') {
+    return 'droid';
+  }
+
+  const lowerModel = model.toLowerCase();
+
+  // 去掉 "custom:" 前缀
+  const cleaned = lowerModel.replace(/^custom:/, '');
+
+  // Claude 模型系列
+  if (cleaned.includes('opus')) return 'opus';
+  if (cleaned.includes('sonnet')) return 'sonnet';
+  if (cleaned.includes('haiku')) return 'haiku';
+  if (cleaned.includes('claude')) return 'claude';
+
+  // GPT 模型系列
+  if (cleaned.includes('gpt-5') || cleaned.includes('gpt5')) return 'gpt-5';
+  if (cleaned.includes('gpt-4o')) return 'gpt-4o';
+  if (cleaned.includes('gpt-4')) return 'gpt-4';
+  if (cleaned.includes('gpt-3.5') || cleaned.includes('gpt3')) return 'gpt-3.5';
+
+  // MiniMax 模型系列
+  if (cleaned.includes('minimax')) return 'minimax';
+
+  // GLM 模型系列（智谱）
+  if (cleaned.includes('glm')) return 'glm';
+
+  // Gemini 模型系列
+  if (cleaned.includes('gemini')) return 'gemini';
+
+  // 其他模型
+  if (cleaned.includes('deepseek')) return 'deepseek';
+  if (cleaned.includes('kimi')) return 'kimi';
+  if (cleaned.includes('qwen')) return 'qwen';
+  if (cleaned.includes('llama')) return 'llama';
+  if (cleaned.includes('mistral')) return 'mistral';
+
+  // 无法识别时标记为 droid
+  return 'droid';
 }
 
 /**

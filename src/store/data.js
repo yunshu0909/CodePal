@@ -61,6 +61,13 @@ export const toolDefinitions = [
     iconClass: 'tr',
     path: '~/.trae/skills/',
   },
+  {
+    id: 'droid',
+    name: 'Droid',
+    icon: 'DR',
+    iconClass: 'dr',
+    path: '~/.factory/skills/',
+  },
 ]
 
 // Default central repository path

@@ -28,6 +28,8 @@
   /* ── Color: Brand ───────────────────────────────────── */
   --color-claude: #6b5ce7;
   --color-codex: #e67e22;
+  --color-cursor: #2ecc71;
+  --color-droid: #0ea5a4;
 
   /* ── Color: Text ────────────────────────────────────── */
   --text-primary: #1a1d23;

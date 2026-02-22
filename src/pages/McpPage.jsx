@@ -26,7 +26,9 @@ import PageShell from '../components/PageShell'
  */
 const TOOL_NAME_MAP = {
   claude: 'Claude Code',
-  codex: 'Codex'
+  codex: 'Codex',
+  cursor: 'Cursor',
+  droid: 'Droid'
 }
 
 const TOGGLE_DEBOUNCE_MS = 300
@@ -39,7 +41,7 @@ const TOGGLE_DEBOUNCE_MS = 300
  */
 function mapScanErrorMessage(errorCode, fallback) {
   if (errorCode === 'TOOLS_NOT_INSTALLED') {
-    return '未找到 Claude Code 或 Codex 的配置文件'
+    return '未找到 Claude Code、Codex、Cursor 或 Droid 的配置文件'
   }
   if (errorCode === 'CONFIG_PARSE_FAILED') {
     return fallback || '配置文件解析失败'
@@ -82,7 +84,7 @@ export default function McpPage({ isActive = true }) {
   // MCP 列表
   const [mcpList, setMcpList] = useState([])
   // 工具安装状态（仅包含可正常读取配置的工具）
-  const [toolsInstalled, setToolsInstalled] = useState({ claude: false, codex: false })
+  const [toolsInstalled, setToolsInstalled] = useState({ claude: false, codex: false, cursor: false, droid: false })
   // 搜索关键词
   const [searchQuery, setSearchQuery] = useState('')
   // 加载态
@@ -150,7 +152,7 @@ export default function McpPage({ isActive = true }) {
       }
 
       setMcpList(result.mcpList || [])
-      setToolsInstalled(result.toolsInstalled || { claude: false, codex: false })
+      setToolsInstalled(result.toolsInstalled || { claude: false, codex: false, cursor: false, droid: false })
 
       // 保留页面可用性：部分成功时只提示 warning，不阻断展示
       if (Array.isArray(result.warnings) && result.warnings.length > 0) {
@@ -221,7 +223,9 @@ export default function McpPage({ isActive = true }) {
     const total = mcpList.length
     const claudeCount = mcpList.filter((m) => m.installedIn?.claude).length
     const codexCount = mcpList.filter((m) => m.installedIn?.codex).length
-    return { total, claudeCount, codexCount }
+    const cursorCount = mcpList.filter((m) => m.installedIn?.cursor).length
+    const droidCount = mcpList.filter((m) => m.installedIn?.droid).length
+    return { total, claudeCount, codexCount, cursorCount, droidCount }
   }, [mcpList])
 
   /**
@@ -370,6 +374,22 @@ export default function McpPage({ isActive = true }) {
               </div>
             </th>
           )}
+          {toolsInstalled.cursor && (
+            <th className="col-tool">
+              <div className="tool-header">
+                <span className="tool-dot tool-dot--cursor" />
+                Cursor
+              </div>
+            </th>
+          )}
+          {toolsInstalled.droid && (
+            <th className="col-tool">
+              <div className="tool-header">
+                <span className="tool-dot tool-dot--droid" />
+                Droid
+              </div>
+            </th>
+          )}
         </tr>
       </thead>
       <tbody>
@@ -399,6 +419,24 @@ export default function McpPage({ isActive = true }) {
                   checked={Boolean(mcp.installedIn?.codex)}
                   onChange={() => handleToggle(mcp.id, 'codex', Boolean(mcp.installedIn?.codex))}
                   disabled={inFlightMap.get(`${mcp.id}-codex`)}
+                />
+              </td>
+            )}
+            {toolsInstalled.cursor && (
+              <td className="col-tool">
+                <Toggle
+                  checked={Boolean(mcp.installedIn?.cursor)}
+                  onChange={() => handleToggle(mcp.id, 'cursor', Boolean(mcp.installedIn?.cursor))}
+                  disabled={inFlightMap.get(`${mcp.id}-cursor`)}
+                />
+              </td>
+            )}
+            {toolsInstalled.droid && (
+              <td className="col-tool">
+                <Toggle
+                  checked={Boolean(mcp.installedIn?.droid)}
+                  onChange={() => handleToggle(mcp.id, 'droid', Boolean(mcp.installedIn?.droid))}
+                  disabled={inFlightMap.get(`${mcp.id}-droid`)}
                 />
               </td>
             )}
@@ -433,6 +471,20 @@ export default function McpPage({ isActive = true }) {
                 <span className="stat-value">{stats.codexCount}</span>
               </div>
             )}
+            {toolsInstalled.cursor && (
+              <div className="stat-item">
+                <span className="tool-dot tool-dot--cursor" />
+                <span>Cursor</span>
+                <span className="stat-value">{stats.cursorCount}</span>
+              </div>
+            )}
+            {toolsInstalled.droid && (
+              <div className="stat-item">
+                <span className="tool-dot tool-dot--droid" />
+                <span>Droid</span>
+                <span className="stat-value">{stats.droidCount}</span>
+              </div>
+            )}
           </div>
           <SearchInput
             value={searchQuery}
@@ -451,7 +503,7 @@ export default function McpPage({ isActive = true }) {
           loadingMessage="正在扫描配置文件..."
           empty={mcpList.length === 0}
           emptyMessage="未检测到 MCP"
-          emptyHint="请在 Claude Code 或 Codex 中添加 MCP 配置"
+          emptyHint="请在 Claude Code、Codex、Cursor 或 Droid 中添加 MCP 配置"
           emptyIcon="📡"
         >
           {filteredMcpList.length === 0 && searchQuery ? (

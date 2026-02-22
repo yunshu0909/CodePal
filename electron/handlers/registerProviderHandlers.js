@@ -80,6 +80,160 @@ const MANAGED_CLAUDE_ENV_KEYS = [
 ]
 
 /**
+ * 清理当前进程中的认证变量，避免 API Key 与 Auth Token 同时存在导致冲突。
+ * @returns {void}
+ */
+function clearRuntimeAuthConflictEnv() {
+  delete process.env.ANTHROPIC_AUTH_TOKEN
+  delete process.env.ANTHROPIC_API_KEY
+}
+
+/**
+ * 判断是否为合法 http/https URL
+ * @param {string} value - URL 字符串
+ * @returns {boolean}
+ */
+function isValidHttpUrl(value) {
+  if (!value) return false
+  try {
+    const parsed = new URL(value)
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:'
+  } catch {
+    return false
+  }
+}
+
+/**
+ * 去除 URL 末尾斜杠
+ * @param {string} url - 原始 URL
+ * @returns {string}
+ */
+function trimTrailingSlash(url) {
+  return url.replace(/\/+$/, '')
+}
+
+/**
+ * 安全读取响应文本（限制长度）
+ * @param {Response} response - fetch 响应
+ * @returns {Promise<string>}
+ */
+async function safeReadResponseText(response) {
+  try {
+    const text = await response.text()
+    return text.slice(0, 8000)
+  } catch {
+    return ''
+  }
+}
+
+/**
+ * 测试供应商 API 连通性
+ * 说明：
+ * - 按 Claude Code 的调用方式优先测试 `${baseUrl}/v1/messages`
+ * - 当 baseUrl 末尾带 `/v1` 时，额外尝试 `${baseUrl}/messages` 仅用于诊断误配
+ *
+ * @param {{baseUrl: string, token: string, model?: string}} params - 测试参数
+ * @returns {Promise<{success: boolean, errorCode: string|null, error: string|null}>}
+ */
+async function testProviderConnection(params) {
+  const baseUrl = normalizeEnvValue(params?.baseUrl)
+  const token = normalizeEnvValue(params?.token)
+  const model = normalizeEnvValue(params?.model) || 'opus'
+
+  if (!baseUrl || !isValidHttpUrl(baseUrl)) {
+    return { success: false, errorCode: 'INVALID_BASE_URL', error: 'Base URL 非法，仅支持 http/https' }
+  }
+  if (!token) {
+    return { success: false, errorCode: 'INVALID_TOKEN', error: 'API Key 不能为空' }
+  }
+  if (typeof fetch !== 'function') {
+    return { success: false, errorCode: 'UNSUPPORTED_RUNTIME', error: '当前运行环境不支持网络测试' }
+  }
+
+  const normalizedBaseUrl = trimTrailingSlash(baseUrl)
+  const runtimeUrl = `${normalizedBaseUrl}/v1/messages`
+  const looksLikeVersionedBase = /\/v\d+$/i.test(normalizedBaseUrl)
+  const diagnosticUrl = looksLikeVersionedBase ? `${normalizedBaseUrl}/messages` : null
+
+  const callMessagesApi = async (url) => {
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), 12000)
+    try {
+      const headers = {
+        'x-api-key': token,
+        authorization: `Bearer ${token}`,
+        'anthropic-version': '2023-06-01',
+        'content-type': 'application/json',
+      }
+
+      const response = await fetch(url, {
+        method: 'POST',
+        headers,
+        signal: controller.signal,
+        body: JSON.stringify({
+          model,
+          max_tokens: 1,
+          messages: [{ role: 'user', content: 'ping' }],
+        }),
+      })
+      clearTimeout(timer)
+
+      if (response.ok) {
+        return { ok: true, status: response.status, text: '' }
+      }
+
+      const errorText = await safeReadResponseText(response)
+      if (response.status === 401 || response.status === 403) {
+        return { ok: false, status: response.status, text: `鉴权失败（${response.status}）` }
+      }
+      if (response.status === 400) {
+        // 400 常见于模型参数校验失败，但代表链路与端点存在。
+        return { ok: true, status: response.status, text: '', note: '服务可达（请求参数被服务端校验拒绝）' }
+      }
+      if (response.status === 500 && /invalid\s+claude\s+code\s+request/i.test(errorText)) {
+        // 部分第三方网关会对“非 Claude Code 原生请求形状”返回 500，
+        // 但这已证明鉴权与路由可达，不应判定为连接失败。
+        return { ok: true, status: response.status, text: '', note: '服务可达（网关要求 Claude Code 原生请求格式）' }
+      }
+      return {
+        ok: false,
+        status: response.status,
+        text: `请求失败（${response.status}）${errorText ? `: ${errorText}` : ''}`
+      }
+    } catch (error) {
+      clearTimeout(timer)
+      if (error?.name === 'AbortError') {
+        return { ok: false, status: 0, text: '请求超时（12s）' }
+      }
+      return { ok: false, status: 0, text: `请求异常: ${error.message || '未知错误'}` }
+    }
+  }
+
+  const runtimeResult = await callMessagesApi(runtimeUrl)
+  if (runtimeResult.ok) {
+    return { success: true, errorCode: null, error: null, note: runtimeResult.note || null }
+  }
+
+  // 诊断：用户常把 Base URL 填成 .../v1，Claude 实际会拼接 /v1/messages，导致 404。
+  if (diagnosticUrl && runtimeResult.status === 404) {
+    const diagnosticResult = await callMessagesApi(diagnosticUrl)
+    if (diagnosticResult.ok) {
+      return {
+        success: false,
+        errorCode: 'BASE_URL_FORMAT',
+        error: 'Base URL 可能多写了 /v1。请改为不含 /v1 的根地址后重试（例如 https://api.siliconflow.cn）。'
+      }
+    }
+  }
+
+  return {
+    success: false,
+    errorCode: runtimeResult.status === 404 ? 'ENDPOINT_NOT_FOUND' : 'CONNECT_FAILED',
+    error: runtimeResult.text || '连接失败'
+  }
+}
+
+/**
  * 延迟加载自定义渠道定义
  * @returns {Promise<void>}
  */
@@ -331,7 +485,7 @@ async function readClaudeSettingsFile() {
 /**
  * 基于环境变量生成供应商配置档
  * @param {Record<string, string|undefined>} envSource - 环境变量来源
- * @returns {Record<string, {name: string, token: string|null, baseUrl: string|null, model: string, settingsEnv: Record<string, string>}>}
+ * @returns {Record<string, {name: string, token: string|null, baseUrl: string|null, model: string, models: string[], settingsEnv: Record<string, string>}>}
  */
 function getProviderProfiles(envSource = {}) {
   const profiles = {}
@@ -350,6 +504,9 @@ function getProviderProfiles(envSource = {}) {
       token,
       baseUrl: configuredBaseUrl || definition.defaultBaseUrl || null,
       model: definition.model,
+      models: Array.isArray(definition.models) && definition.models.length > 0
+        ? definition.models
+        : [definition.model || 'opus'],
       settingsEnv: definition.settingsEnv || {},
     }
   }
@@ -580,6 +737,7 @@ async function saveProviderTokenToEnv(providerKey, token) {
     }
   }
 
+  clearRuntimeAuthConflictEnv()
   return { success: true, envPath: ENV_FILE_PATH, errorCode: null, error: null }
 }
 
@@ -607,6 +765,8 @@ function detectProviderFromSettings(settingsData, providerProfiles) {
   if (!isPlainObject(settingsData)) return 'official'
 
   const managedApiKeyHelper = normalizeEnvValue(settingsData.apiKeyHelper)
+  const configuredModel = normalizeEnvValue(settingsData.model)
+  const officialModel = providerProfiles?.official?.model || 'opus'
   const envObject = isPlainObject(settingsData.env) ? settingsData.env : null
   if (!envObject) return managedApiKeyHelper ? 'custom' : 'official'
 
@@ -618,7 +778,10 @@ function detectProviderFromSettings(settingsData, providerProfiles) {
   if (!token && !baseUrl) {
     // settings 上仅残留 apiKeyHelper 时，CLI 仍会走 API helper 链路。
     // 该状态不能判定为 official，否则 UI 会把“需要清理的异常态”误显示为官方态。
-    return managedApiKeyHelper ? 'custom' : 'official'
+    if (managedApiKeyHelper) return 'custom'
+    // 无 token/baseUrl 但 model 已偏离官方默认，通常代表用户在外部改成了非官方接入。
+    if (configuredModel && configuredModel !== officialModel) return 'custom'
+    return 'official'
   }
 
   for (const [providerKey, profile] of Object.entries(providerProfiles)) {
@@ -634,14 +797,22 @@ function detectProviderFromSettings(settingsData, providerProfiles) {
 /**
  * 将供应商档应用到 Claude settings 数据
  * @param {Record<string, any>} settingsData - 原始 settings 数据
- * @param {{token: string|null, baseUrl: string|null, model: string, settingsEnv?: Record<string, string>}} profile - 目标供应商档
+ * @param {{token: string|null, baseUrl: string|null, model: string, models?: string[], settingsEnv?: Record<string, string>}} profile - 目标供应商档
+ * @param {string|null} selectedModel - 用户选择模型（可选）
  * @param {string} managedApiKeyHelperPath - Skill Manager 托管 helper 路径
  * @returns {Record<string, any>}
  */
-function applyProviderProfileToSettings(settingsData, profile, managedApiKeyHelperPath) {
+function applyProviderProfileToSettings(settingsData, profile, selectedModel, managedApiKeyHelperPath) {
   const source = isPlainObject(settingsData) ? settingsData : {}
   const updated = JSON.parse(JSON.stringify(source))
   const envObject = isPlainObject(updated.env) ? updated.env : {}
+  const normalizedSelectedModel = normalizeEnvValue(selectedModel)
+  const allowedModels = Array.isArray(profile.models) && profile.models.length > 0
+    ? profile.models
+    : [profile.model]
+  const effectiveModel = normalizedSelectedModel && allowedModels.includes(normalizedSelectedModel)
+    ? normalizedSelectedModel
+    : profile.model
 
   for (const key of MANAGED_CLAUDE_ENV_KEYS) {
     delete envObject[key]
@@ -663,6 +834,9 @@ function applyProviderProfileToSettings(settingsData, profile, managedApiKeyHelp
       }
     }
   }
+  if (effectiveModel) {
+    envObject.ANTHROPIC_MODEL = effectiveModel
+  }
 
   updated.env = envObject
   if (profile.token) {
@@ -672,7 +846,7 @@ function applyProviderProfileToSettings(settingsData, profile, managedApiKeyHelp
     // Official 严格登录模式：无条件清理 apiKeyHelper，避免继续走 API 鉴权。
     delete updated.apiKeyHelper
   }
-  updated.model = profile.model
+  updated.model = effectiveModel || profile.model
   return updated
 }
 
@@ -751,10 +925,11 @@ async function switchProviderInEnv(profileKey, providerProfiles) {
 /**
  * 将供应商切换结果写入 Claude settings.json
  * @param {string} profileKey - 供应商档位
- * @param {Record<string, {token: string|null, baseUrl: string|null, model: string}>} providerProfiles - 当前供应商配置档
+ * @param {Record<string, {token: string|null, baseUrl: string|null, model: string, models?: string[]}>} providerProfiles - 当前供应商配置档
+ * @param {string|null} selectedModel - 用户选择模型（可选）
  * @returns {Promise<{success: boolean, settingsPath: string, backupPath: string|null, error: string|null, errorCode: string|null}>}
  */
-async function switchProviderInClaudeSettings(profileKey, providerProfiles) {
+async function switchProviderInClaudeSettings(profileKey, providerProfiles, selectedModel = null) {
   const profile = providerProfiles[profileKey]
   if (!profile) {
     return {
@@ -808,6 +983,7 @@ async function switchProviderInClaudeSettings(profileKey, providerProfiles) {
   const updatedSettings = applyProviderProfileToSettings(
     settingsReadResult.data,
     profile,
+    selectedModel,
     CLAUDE_API_KEY_HELPER_PATH
   )
   const updatedSettingsText = `${JSON.stringify(updatedSettings, null, 2)}\n`
@@ -1113,6 +1289,170 @@ ipcMain.handle('register-provider-manifest', async (event, manifest) => {
 })
 
 /**
+ * IPC: 更新自定义供应商 manifest
+ * 说明：
+ * - 支持更新自定义渠道与内置渠道（内置渠道将以同 id 自定义覆盖的方式持久化）
+ * - 渠道 id 固定为 providerId，不支持重命名
+ *
+ * @param {Electron.IpcMainInvokeEvent} event - IPC 事件
+ * @param {string} providerId - 待更新的渠道 ID
+ * @param {Object} manifest - 渠道 manifest（name/baseUrl/tokenEnvKey/model/models/settingsEnv 等）
+ * @returns {Promise<{success: boolean, provider: Object|null, registryPath: string, error: string|null, errorCode: string|null}>}
+ */
+ipcMain.handle('update-provider-manifest', async (event, providerId, manifest) => {
+  try {
+    await ensureProviderDefinitionsLoaded()
+
+    if (typeof providerId !== 'string' || !providerId.trim()) {
+      return {
+        success: false,
+        provider: null,
+        registryPath: PROVIDER_REGISTRY_FILE_PATH,
+        error: '渠道 id 非法',
+        errorCode: 'INVALID_PROVIDER_ID',
+      }
+    }
+
+    const normalizedId = providerId.trim()
+    const existingDefinition = PROVIDER_DEFINITIONS[normalizedId]
+    if (!existingDefinition) {
+      return {
+        success: false,
+        provider: null,
+        registryPath: PROVIDER_REGISTRY_FILE_PATH,
+        error: '渠道不存在',
+        errorCode: 'PROVIDER_NOT_FOUND',
+      }
+    }
+    const nextManifest = {
+      ...(isPlainObject(manifest) ? manifest : {}),
+      id: normalizedId,
+    }
+    const validationContext = { ...PROVIDER_DEFINITIONS }
+    delete validationContext[normalizedId]
+    const validation = validateProviderManifest(nextManifest, validationContext, { allowBuiltinOverride: true })
+    if (!validation.success || !validation.normalized) {
+      return {
+        success: false,
+        provider: null,
+        registryPath: PROVIDER_REGISTRY_FILE_PATH,
+        error: validation.error || '渠道 manifest 非法',
+        errorCode: validation.errorCode || 'INVALID_MANIFEST',
+      }
+    }
+
+    const previousDefinition = existingDefinition
+    const { id, definition } = createProviderDefinitionFromManifest(validation.normalized)
+    PROVIDER_DEFINITIONS[id] = definition
+
+    const saveResult = await persistCustomProviderDefinitions()
+    if (!saveResult.success) {
+      PROVIDER_DEFINITIONS[id] = previousDefinition
+      return {
+        success: false,
+        provider: null,
+        registryPath: PROVIDER_REGISTRY_FILE_PATH,
+        error: saveResult.error || '写入渠道注册表失败',
+        errorCode: saveResult.errorCode || 'REGISTRY_WRITE_FAILED',
+      }
+    }
+
+    return {
+      success: true,
+      provider: buildProviderCards({ [id]: definition })[0] || null,
+      registryPath: PROVIDER_REGISTRY_FILE_PATH,
+      error: null,
+      errorCode: null,
+    }
+  } catch (error) {
+    console.error('Error updating provider manifest:', error)
+    return {
+      success: false,
+      provider: null,
+      registryPath: PROVIDER_REGISTRY_FILE_PATH,
+      error: `修改渠道失败: ${error.message}`,
+      errorCode: 'UNKNOWN_ERROR',
+    }
+  }
+})
+
+/**
+ * IPC: 删除自定义供应商 manifest
+ * 说明：仅允许删除 source=custom 的渠道
+ *
+ * @param {Electron.IpcMainInvokeEvent} event - IPC 事件
+ * @param {string} providerId - 待删除渠道 ID
+ * @returns {Promise<{success: boolean, providerId: string|null, registryPath: string, error: string|null, errorCode: string|null}>}
+ */
+ipcMain.handle('delete-provider-manifest', async (event, providerId) => {
+  try {
+    await ensureProviderDefinitionsLoaded()
+
+    if (typeof providerId !== 'string' || !providerId.trim()) {
+      return {
+        success: false,
+        providerId: null,
+        registryPath: PROVIDER_REGISTRY_FILE_PATH,
+        error: '渠道 id 非法',
+        errorCode: 'INVALID_PROVIDER_ID',
+      }
+    }
+
+    const normalizedId = providerId.trim()
+    const existingDefinition = PROVIDER_DEFINITIONS[normalizedId]
+    if (!existingDefinition) {
+      return {
+        success: false,
+        providerId: null,
+        registryPath: PROVIDER_REGISTRY_FILE_PATH,
+        error: '渠道不存在',
+        errorCode: 'PROVIDER_NOT_FOUND',
+      }
+    }
+    if (existingDefinition.source !== 'custom') {
+      return {
+        success: false,
+        providerId: null,
+        registryPath: PROVIDER_REGISTRY_FILE_PATH,
+        error: '仅支持删除自定义渠道',
+        errorCode: 'BUILTIN_PROVIDER_READONLY',
+      }
+    }
+
+    delete PROVIDER_DEFINITIONS[normalizedId]
+
+    const saveResult = await persistCustomProviderDefinitions()
+    if (!saveResult.success) {
+      PROVIDER_DEFINITIONS[normalizedId] = existingDefinition
+      return {
+        success: false,
+        providerId: null,
+        registryPath: PROVIDER_REGISTRY_FILE_PATH,
+        error: saveResult.error || '写入渠道注册表失败',
+        errorCode: saveResult.errorCode || 'REGISTRY_WRITE_FAILED',
+      }
+    }
+
+    return {
+      success: true,
+      providerId: normalizedId,
+      registryPath: PROVIDER_REGISTRY_FILE_PATH,
+      error: null,
+      errorCode: null,
+    }
+  } catch (error) {
+    console.error('Error deleting provider manifest:', error)
+    return {
+      success: false,
+      providerId: null,
+      registryPath: PROVIDER_REGISTRY_FILE_PATH,
+      error: `删除渠道失败: ${error.message}`,
+      errorCode: 'UNKNOWN_ERROR',
+    }
+  }
+})
+
+/**
  * IPC: 读取供应商 API Key 环境变量配置
  * @returns {Promise<{success: boolean, providers: Record<string, {token: string}>, envPath: string, error: string|null, errorCode: string|null}>}
  */
@@ -1173,12 +1513,31 @@ ipcMain.handle('save-provider-token', async (event, providerKey, token) => {
 })
 
 /**
+ * IPC: 测试供应商连接
+ * @param {Electron.IpcMainInvokeEvent} event - IPC 事件
+ * @param {{baseUrl: string, token: string, model?: string}} params - 测试参数
+ * @returns {Promise<{success: boolean, error: string|null, errorCode: string|null}>}
+ */
+ipcMain.handle('test-provider-connection', async (event, params) => {
+  try {
+    return await testProviderConnection(params || {})
+  } catch (error) {
+    return {
+      success: false,
+      errorCode: 'UNKNOWN_ERROR',
+      error: `连接测试失败: ${error.message}`,
+    }
+  }
+})
+
+/**
  * IPC: 切换 Claude 供应商
  * @param {Electron.IpcMainInvokeEvent} event - IPC 事件
  * @param {string} profileKey - 目标档位
+ * @param {string|null|undefined} selectedModel - 可选模型覆盖
  * @returns {Promise<{success: boolean, backupPath: string|null, error: string|null, errorCode: string|null}>}
  */
-ipcMain.handle('switch-claude-provider', async (event, profileKey) => {
+ipcMain.handle('switch-claude-provider', async (event, profileKey, selectedModel) => {
   try {
     await ensureProviderDefinitionsLoaded()
     // IPC 参数类型校验
@@ -1196,6 +1555,22 @@ ipcMain.handle('switch-claude-provider', async (event, profileKey) => {
       }
     }
     const providerProfiles = getProviderProfiles(envSource)
+    const normalizedSelectedModel = typeof selectedModel === 'string'
+      ? selectedModel.trim()
+      : ''
+    if (normalizedSelectedModel) {
+      const profileModels = Array.isArray(providerProfiles[profileKey]?.models)
+        ? providerProfiles[profileKey].models
+        : [providerProfiles[profileKey]?.model || 'opus']
+      if (!profileModels.includes(normalizedSelectedModel)) {
+        return {
+          success: false,
+          backupPath: null,
+          error: '无效的模型选项',
+          errorCode: 'INVALID_MODEL',
+        }
+      }
+    }
 
     // 非官方档位要求必须已配置 API Key，避免写入无效配置。
     if (profileKey !== 'official' && !providerProfiles[profileKey].token) {
@@ -1225,7 +1600,11 @@ ipcMain.handle('switch-claude-provider', async (event, profileKey) => {
       }
     }
 
-    const settingsSwitchResult = await switchProviderInClaudeSettings(profileKey, providerProfiles)
+    const settingsSwitchResult = await switchProviderInClaudeSettings(
+      profileKey,
+      providerProfiles,
+      normalizedSelectedModel || null
+    )
     if (!settingsSwitchResult.success) {
       const rollbackResult = await restoreEnvSnapshot(
         switchResult.previousContent,
@@ -1260,6 +1639,7 @@ ipcMain.handle('switch-claude-provider', async (event, profileKey) => {
       }
     }
 
+    clearRuntimeAuthConflictEnv()
     return {
       success: true,
       backupPath: settingsSwitchResult.backupPath || null,

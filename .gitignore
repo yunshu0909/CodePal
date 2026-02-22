@@ -11,6 +11,10 @@ node_modules/
 # 构建输出
 dist/
 build/
+release/
+
+# 子仓库
+interactive-feedback-mcp/
 
 # 测试相关
 test-results/

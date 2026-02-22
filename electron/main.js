@@ -22,6 +22,7 @@ const ENV_FILE_PATH = path.resolve(__dirname, '..', '.env')
 dotenv.config({ path: ENV_FILE_PATH })
 
 const { scanLogFilesInRange } = require('./logScanner')
+const { scanDroidSettingsInRange } = require('./droidLogScanner')
 const { handleScanLogFiles } = require('./scanLogFilesHandler')
 const { handleAggregateUsageRange } = require('./aggregateUsageRangeHandler')
 const { registerSkillHandlers } = require('./handlers/registerSkillHandlers')
@@ -36,6 +37,21 @@ const PROVIDER_REGISTRY_FILE_PATH = resolveProviderRegistryFilePath()
 const PROVIDER_REGISTRY_MCP_SCRIPT_PATH = path.resolve(__dirname, '..', 'mcp', 'provider_registry_mcp.js')
 
 const store = new Store()
+const DROID_CONFIG_DIR = path.join(os.homedir(), '.factory')
+const DROID_CONFIG_PATH = path.join(DROID_CONFIG_DIR, 'config.json')
+const DROID_ALLOWED_PROVIDERS = new Set(['anthropic', 'openai', 'openai-response', 'gemini', 'openrouter'])
+const DROID_DUOJIE_TEMPLATE_MODELS = [
+  { model_display_name: 'Opus 4.5 Kiro [duojie.games]', model: 'claude-opus-4-5-kiro', provider: 'anthropic', supports_vision: true, max_tokens: 8192 },
+  { model_display_name: 'Opus 4.5 [duojie.games]', model: 'claude-opus-4-5-20251101', provider: 'anthropic', supports_vision: true, max_tokens: 8192 },
+  { model_display_name: 'Opus 4.5 Max [duojie.games]', model: 'claude-opus-4-5-max', provider: 'anthropic', supports_vision: true, max_tokens: 8192 },
+  { model_display_name: 'GLM-4.7 [duojie.games]', model: 'glm-4.7', provider: 'anthropic', supports_vision: true, max_tokens: 8192 },
+  { model_display_name: 'GPT 5.2 Codex [duojie.games]', model: 'gpt-5.2-codex', provider: 'openai-response', supports_vision: true, max_tokens: 8192 },
+  { model_display_name: 'Claude Haiku 4.5 [duojie.games]', model: 'claude-haiku-4-5', provider: 'anthropic', supports_vision: true, max_tokens: 8192 },
+  { model_display_name: 'Sonnet 4.5 [duojie.games]', model: 'claude-sonnet-4-5', provider: 'anthropic', supports_vision: true, max_tokens: 8192 },
+  { model_display_name: 'Gemini 3 Flash [duojie.games]', model: 'gemini-3-flash-preview', provider: 'anthropic', supports_vision: true, max_tokens: 8192 },
+  { model_display_name: 'Gemini 3 Pro Image [duojie.games]', model: 'gemini-3-pro-image-preview', provider: 'anthropic', supports_vision: true, max_tokens: 8192 },
+  { model_display_name: 'Gemini 3 Pro [duojie.games]', model: 'gemini-3-pro-preview', provider: 'anthropic', supports_vision: true, max_tokens: 8192 },
+]
 
 // 防止 EPIPE 错误导致崩溃（开发环境管道断开时）
 process.stdout.on('error', (err) => {
@@ -76,6 +92,205 @@ async function enqueueFileWrite(filePath, writeTask) {
     if (fileWriteQueues.get(filePath) === nextTask) {
       fileWriteQueues.delete(filePath)
     }
+  }
+}
+
+/**
+ * 读取 Droid 配置文件
+ * @returns {Promise<{exists: boolean, data: {custom_models: Array}, error: string|null}>}
+ */
+async function readDroidConfigFile() {
+  try {
+    const content = await fs.readFile(DROID_CONFIG_PATH, 'utf-8')
+    const parsed = JSON.parse(content)
+    return {
+      exists: true,
+      data: normalizeDroidConfig(parsed),
+      error: null,
+    }
+  } catch (error) {
+    if (error.code === 'ENOENT') {
+      return { exists: false, data: { custom_models: [] }, error: null }
+    }
+    if (error instanceof SyntaxError) {
+      return { exists: true, data: { custom_models: [] }, error: 'CONFIG_PARSE_FAILED' }
+    }
+    return { exists: false, data: { custom_models: [] }, error: error.message }
+  }
+}
+
+/**
+ * 规范化 Droid config 结构
+ * @param {any} raw - 原始配置
+ * @returns {{custom_models: Array}}
+ */
+function normalizeDroidConfig(raw) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    return { custom_models: [] }
+  }
+  const models = Array.isArray(raw.custom_models) ? raw.custom_models : []
+  return {
+    ...raw,
+    custom_models: models
+      .filter((item) => item && typeof item === 'object' && !Array.isArray(item))
+      .map((item) => ({
+        model_display_name: String(item.model_display_name || '').trim(),
+        model: String(item.model || '').trim(),
+        base_url: String(item.base_url || '').trim(),
+        api_key: String(item.api_key || '').trim(),
+        provider: String(item.provider || '').trim(),
+        supports_vision: typeof item.supports_vision === 'boolean' ? item.supports_vision : undefined,
+        max_tokens: Number.isFinite(Number(item.max_tokens)) ? Math.floor(Number(item.max_tokens)) : undefined,
+        supports_prompt_caching: typeof item.supports_prompt_caching === 'boolean'
+          ? item.supports_prompt_caching
+          : undefined,
+      }))
+      .filter((item) => item.model_display_name && item.model && item.base_url && item.api_key && item.provider)
+  }
+}
+
+/**
+ * 校验 Droid 模型配置
+ * @param {any} model - 模型项
+ * @returns {{ok: boolean, error?: string}}
+ */
+function validateDroidModel(model) {
+  if (!model || typeof model !== 'object' || Array.isArray(model)) {
+    return { ok: false, error: '模型项必须是对象' }
+  }
+  const required = ['model_display_name', 'model', 'base_url', 'api_key', 'provider']
+  for (const key of required) {
+    const value = String(model[key] || '').trim()
+    if (!value) return { ok: false, error: `缺少必填字段: ${key}` }
+  }
+  let parsedUrl
+  try {
+    parsedUrl = new URL(String(model.base_url).trim())
+  } catch {
+    return { ok: false, error: 'base_url 非法，仅支持 http/https' }
+  }
+  if (parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:') {
+    return { ok: false, error: 'base_url 非法，仅支持 http/https' }
+  }
+  const provider = String(model.provider || '').trim().toLowerCase()
+  if (!DROID_ALLOWED_PROVIDERS.has(provider)) {
+    return { ok: false, error: `provider 非法: ${provider}` }
+  }
+  return { ok: true }
+}
+
+/**
+ * 生成 duojie.games 模板
+ * @param {string} apiKey - API key
+ * @param {string} baseUrl - Base URL
+ * @returns {{custom_models: Array}}
+ */
+function buildDroidDuojieTemplate(apiKey, baseUrl) {
+  const normalizedKey = String(apiKey || '').trim()
+  const normalizedBaseUrl = String(baseUrl || '').trim().replace(/\/+$/, '') || 'https://api.duojie.games'
+  return {
+    custom_models: DROID_DUOJIE_TEMPLATE_MODELS.map((item) => ({
+      ...item,
+      base_url: normalizedBaseUrl,
+      api_key: normalizedKey,
+    }))
+  }
+}
+
+/**
+ * 递归收集目录下的 jsonl 文件
+ * @param {string} dirPath - 目录路径
+ * @param {Array<{path: string, mtimeMs: number}>} files - 结果容器
+ * @param {number} depth - 当前递归深度
+ * @returns {Promise<void>}
+ */
+async function collectJsonlFiles(dirPath, files, depth = 0) {
+  if (depth > 6) return
+  let entries = []
+  try {
+    entries = await fs.readdir(dirPath, { withFileTypes: true })
+  } catch {
+    return
+  }
+
+  for (const entry of entries) {
+    const fullPath = path.join(dirPath, entry.name)
+    if (entry.isDirectory()) {
+      await collectJsonlFiles(fullPath, files, depth + 1)
+      continue
+    }
+    if (!entry.isFile() || !entry.name.endsWith('.jsonl')) continue
+    try {
+      const stat = await fs.stat(fullPath)
+      files.push({ path: fullPath, mtimeMs: stat.mtimeMs })
+    } catch {
+      // ignore
+    }
+  }
+}
+
+/**
+ * 读取 Codex 速率限制快照（5h / weekly）
+ * 数据来源：~/.codex/sessions/*.jsonl 最新 token_count 事件
+ * @returns {Promise<{success: boolean, data?: object, error?: string, errorCode?: string}>}
+ */
+async function readCodexRateLimitSnapshot() {
+  const baseDir = path.join(os.homedir(), '.codex', 'sessions')
+  const files = []
+  await collectJsonlFiles(baseDir, files)
+  if (files.length === 0) {
+    return { success: false, errorCode: 'NO_SESSION_FILES', error: '未找到 Codex 会话日志' }
+  }
+
+  files.sort((a, b) => b.mtimeMs - a.mtimeMs)
+  const candidates = files.slice(0, 40)
+
+  for (const file of candidates) {
+    let content = ''
+    try {
+      content = await fs.readFile(file.path, 'utf-8')
+    } catch {
+      continue
+    }
+    const lines = content.split(/\r?\n/).filter(Boolean)
+    for (let i = lines.length - 1; i >= 0; i -= 1) {
+      let parsed
+      try {
+        parsed = JSON.parse(lines[i])
+      } catch {
+        continue
+      }
+      const rateLimits = parsed?.payload?.rate_limits
+      if (parsed?.type !== 'event_msg' || parsed?.payload?.type !== 'token_count' || !rateLimits) {
+        continue
+      }
+
+      const primaryUsed = Number(rateLimits?.primary?.used_percent)
+      const secondaryUsed = Number(rateLimits?.secondary?.used_percent)
+      const primaryRemaining = Number.isFinite(primaryUsed) ? Math.max(0, 100 - primaryUsed) : null
+      const secondaryRemaining = Number.isFinite(secondaryUsed) ? Math.max(0, 100 - secondaryUsed) : null
+      const usedTokens = Number(parsed?.payload?.info?.total_token_usage?.total_tokens)
+
+      return {
+        success: true,
+        data: {
+          primaryUsedPercent: Number.isFinite(primaryUsed) ? primaryUsed : null,
+          weeklyUsedPercent: Number.isFinite(secondaryUsed) ? secondaryUsed : null,
+          primaryRemainingPercent: primaryRemaining,
+          weeklyRemainingPercent: secondaryRemaining,
+          primaryResetsAt: rateLimits?.primary?.resets_at || null,
+          weeklyResetsAt: rateLimits?.secondary?.resets_at || null,
+          usedTokens: Number.isFinite(usedTokens) ? usedTokens : null,
+          sourceFile: file.path,
+        },
+      }
+    }
+  }
+
+  return {
+    success: false,
+    errorCode: 'NO_RATE_LIMIT_EVENT',
+    error: '未在近期 Codex 日志中找到 rate_limits 数据',
   }
 }
 
@@ -430,6 +645,7 @@ const ALLOWED_DELETE_DIRS = [
   '.codex/skills',
   '.cursor/skills',
   '.trae/skills',
+  '.factory/skills',
   'Documents/SkillManager'
 ]
 
@@ -644,13 +860,14 @@ ipcMain.handle('write-config', async (event, configPath, data) => {
 
 /**
  * 预设工具配置
- * 固定4个工具：Claude Code、CodeX、Cursor、Trae
+ * 预设工具：Claude Code、CodeX、Cursor、Trae、Droid
  */
 const PRESET_TOOLS = [
   { id: 'claude-code', name: 'Claude Code', icon: 'CC', iconClass: 'cc', path: '~/.claude/skills/' },
   { id: 'codex', name: 'CodeX', icon: 'CX', iconClass: 'cx', path: '~/.codex/skills/' },
   { id: 'cursor', name: 'Cursor', icon: 'CU', iconClass: 'cu', path: '~/.cursor/skills/' },
-  { id: 'trae', name: 'Trae', icon: 'TR', iconClass: 'tr', path: '~/.trae/skills/' }
+  { id: 'trae', name: 'Trae', icon: 'TR', iconClass: 'tr', path: '~/.trae/skills/' },
+  { id: 'droid', name: 'Droid', icon: 'DR', iconClass: 'dr', path: '~/.factory/skills/' }
 ]
 
 /**
@@ -734,7 +951,7 @@ ipcMain.handle('scan-preset-tools', async (event) => {
 
 /**
  * 扫描自定义路径下的 skills 分布
- * 扫描 .claude/skills/、.codex/skills/、.cursor/skills/、.trae/skills/ 子目录
+ * 扫描 .claude/skills/、.codex/skills/、.cursor/skills/、.trae/skills/、.factory/skills/ 子目录
  * @param {Electron.IpcMainInvokeEvent} event - IPC 事件
  * @param {string} customPath - 自定义路径
  * @returns {Promise<{success: boolean, skills: Object, error: string|null}>} 扫描结果
@@ -761,7 +978,8 @@ ipcMain.handle('scan-custom-path', async (event, customPath) => {
       'claude-code': '.claude/skills',
       'codex': '.codex/skills',
       'cursor': '.cursor/skills',
-      'trae': '.trae/skills'
+      'trae': '.trae/skills',
+      'droid': '.factory/skills'
     }
 
     const skills = {}
@@ -947,6 +1165,47 @@ ipcMain.handle('scan-log-files', async (event, params) => {
 })
 
 /**
+ * 扫描 Droid (Kiro/Factory) settings.json 文件
+ * @param {Electron.IpcMainInvokeEvent} event - IPC 事件
+ * @param {{basePath?: string, start?: string, end?: string}} params - 扫描参数
+ * @returns {Promise<{success: boolean, files: Array, totalMatched: number, scannedCount: number, truncated: boolean, error: string|null}>}
+ */
+ipcMain.handle('scan-droid-settings', async (event, params) => {
+  try {
+    const { basePath, start, end } = params || {}
+
+    if (typeof basePath !== 'string' || !basePath) {
+      return { success: false, files: [], totalMatched: 0, scannedCount: 0, truncated: false, error: 'INVALID_PATH' }
+    }
+
+    const expandedPath = expandHome(basePath)
+    const startTime = new Date(start)
+    const endTime = new Date(end)
+
+    const exists = await pathExists(expandedPath)
+    if (!exists) {
+      return { success: true, files: [], totalMatched: 0, scannedCount: 0, truncated: false, error: null }
+    }
+
+    const scanResult = await scanDroidSettingsInRange(expandedPath, startTime, endTime)
+
+    return {
+      success: true,
+      files: scanResult.files || [],
+      totalMatched: scanResult.totalMatched || 0,
+      scannedCount: scanResult.scannedCount || 0,
+      truncated: Boolean(scanResult.truncated),
+      error: null
+    }
+  } catch (error) {
+    if (error.code === 'EACCES' || error.code === 'EPERM') {
+      return { success: false, files: [], totalMatched: 0, scannedCount: 0, truncated: false, error: 'PERMISSION_DENIED' }
+    }
+    return { success: false, files: [], totalMatched: 0, scannedCount: 0, truncated: false, error: error.message }
+  }
+})
+
+/**
  * 聚合自定义日期范围用量
  * @param {Electron.IpcMainInvokeEvent} event - IPC 事件
  * @param {{startDate?: string, endDate?: string, timezone?: string}} params - 聚合参数
@@ -958,6 +1217,132 @@ ipcMain.handle('aggregate-usage-range', async (event, params) => {
     homeDir: os.homedir(),
     scanLogFilesInRangeFn: scanLogFilesInRange
   })
+})
+
+/**
+ * 读取 Codex 限额快照（5h / weekly）
+ * @returns {Promise<{success: boolean, data?: object, error?: string, errorCode?: string}>}
+ */
+ipcMain.handle('get-codex-rate-limits', async () => {
+  try {
+    return await readCodexRateLimitSnapshot()
+  } catch (error) {
+    return {
+      success: false,
+      errorCode: 'UNKNOWN_ERROR',
+      error: `读取 Codex 限额失败: ${error.message}`,
+    }
+  }
+})
+
+/**
+ * 读取 Droid 配置（~/.factory/config.json）
+ * @returns {Promise<{success: boolean, exists: boolean, config: object, configPath: string, error: string|null, errorCode: string|null}>}
+ */
+ipcMain.handle('get-droid-config', async () => {
+  try {
+    const result = await readDroidConfigFile()
+    if (result.error === 'CONFIG_PARSE_FAILED') {
+      return {
+        success: false,
+        exists: true,
+        config: { custom_models: [] },
+        configPath: DROID_CONFIG_PATH,
+        error: 'Droid config.json JSON 格式错误',
+        errorCode: 'CONFIG_PARSE_FAILED',
+      }
+    }
+    if (result.error) {
+      return {
+        success: false,
+        exists: false,
+        config: { custom_models: [] },
+        configPath: DROID_CONFIG_PATH,
+        error: result.error,
+        errorCode: 'READ_FAILED',
+      }
+    }
+    return {
+      success: true,
+      exists: result.exists,
+      config: result.data,
+      configPath: DROID_CONFIG_PATH,
+      error: null,
+      errorCode: null,
+    }
+  } catch (error) {
+    return {
+      success: false,
+      exists: false,
+      config: { custom_models: [] },
+      configPath: DROID_CONFIG_PATH,
+      error: `读取 Droid 配置失败: ${error.message}`,
+      errorCode: 'UNKNOWN_ERROR',
+    }
+  }
+})
+
+/**
+ * 生成 Droid 示例模板（可编辑）
+ * @param {Electron.IpcMainInvokeEvent} event - IPC 事件
+ * @param {{apiKey?: string, baseUrl?: string}} params - 模板参数
+ * @returns {Promise<{success: boolean, config?: object, error?: string, errorCode?: string}>}
+ */
+ipcMain.handle('build-droid-template', async (event, params) => {
+  const apiKey = String(params?.apiKey || '').trim()
+  const baseUrl = String(params?.baseUrl || '').trim()
+  if (!apiKey) {
+    return { success: false, errorCode: 'INVALID_API_KEY', error: 'API Key 不能为空' }
+  }
+  if (!baseUrl) {
+    return { success: false, errorCode: 'INVALID_BASE_URL', error: 'Base URL 不能为空' }
+  }
+  return {
+    success: true,
+    config: buildDroidDuojieTemplate(apiKey, baseUrl),
+    error: null,
+    errorCode: null,
+  }
+})
+
+/**
+ * 保存 Droid 配置（~/.factory/config.json）
+ * @param {Electron.IpcMainInvokeEvent} event - IPC 事件
+ * @param {object} config - 配置对象
+ * @returns {Promise<{success: boolean, configPath: string, error: string|null, errorCode: string|null}>}
+ */
+ipcMain.handle('save-droid-config', async (event, config) => {
+  try {
+    const normalized = normalizeDroidConfig(config)
+    for (const model of normalized.custom_models) {
+      const validation = validateDroidModel(model)
+      if (!validation.ok) {
+        return {
+          success: false,
+          configPath: DROID_CONFIG_PATH,
+          error: validation.error || '模型配置不合法',
+          errorCode: 'INVALID_MODEL_CONFIG',
+        }
+      }
+    }
+
+    await fs.mkdir(DROID_CONFIG_DIR, { recursive: true })
+    const text = `${JSON.stringify(normalized, null, 2)}\n`
+    await enqueueFileWrite(DROID_CONFIG_PATH, async () => atomicWriteFile(DROID_CONFIG_PATH, text))
+    return {
+      success: true,
+      configPath: DROID_CONFIG_PATH,
+      error: null,
+      errorCode: null,
+    }
+  } catch (error) {
+    return {
+      success: false,
+      configPath: DROID_CONFIG_PATH,
+      error: `保存 Droid 配置失败: ${error.message}`,
+      errorCode: 'WRITE_FAILED',
+    }
+  }
 })
 
 // IPC handler for aggregate usage (kept for compatibility, actual aggregation happens in renderer)
