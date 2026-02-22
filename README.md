@@ -1,8 +1,8 @@
-# Coding Assistant
+# CodePal — 你的 AI 编程搭档
 
-一个面向日常开发的桌面编程助手（Electron + React），帮助你统一管理本地 AI Skills、监控使用情况并切换 API 供应商。
+一个桌面应用，帮你把 Claude Code、Cursor、CodeX 等 AI 编程工具从"能用"变成"好用"。统一管理 Skills、监控用量、切换 API 供应商、配置 MCP 服务，一个面板搞定。
 
-## 三大功能（编程助手核心）
+## 核心功能
 
 ### 1) Skills 管理（导入 / 推送 / 停用）
 
