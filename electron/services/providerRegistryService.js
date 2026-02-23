@@ -86,6 +86,7 @@ function buildProviderCards(providerDefinitions) {
       model: definition.model || 'opus',
       models: normalizeModelsArray(definition.models, definition.model || 'opus'),
       settingsEnv: { ...(definition.settingsEnv || {}) },
+      modelTiers: definition.modelTiers || {},
       // UI 渲染字段
       icon: definition.ui?.icon || providerId.charAt(0).toUpperCase(),
       color: definition.ui?.color || '#2563eb',
@@ -239,6 +240,7 @@ function validateProviderManifest(manifest, existingDefinitions = {}, options = 
       model,
       models: modelsValidation.models,
       settingsEnv: settingsEnvValidation.normalized,
+      modelTiers: isPlainObject(manifest.modelTiers) ? manifest.modelTiers : {},
       color,
       icon,
       uiUrl: normalizeStringValue(manifest.uiUrl) || baseUrl,
@@ -264,6 +266,7 @@ function createProviderDefinitionFromManifest(normalizedManifest) {
       baseUrlEnvKey: normalizedManifest.baseUrlEnvKey,
       defaultBaseUrl: normalizedManifest.baseUrl,
       settingsEnv: normalizedManifest.settingsEnv,
+      modelTiers: normalizedManifest.modelTiers || {},
       source: 'custom',
       ui: {
         url: normalizedManifest.uiUrl,
@@ -372,6 +375,7 @@ function extractCustomProviderManifests(providerDefinitions) {
       model: definition.model,
       models: normalizeModelsArray(definition.models, definition.model),
       settingsEnv: definition.settingsEnv || {},
+      modelTiers: definition.modelTiers || {},
       icon: definition.ui?.icon || providerId.charAt(0).toUpperCase(),
       color: definition.ui?.color || '#2563eb',
       uiUrl: definition.ui?.url || definition.defaultBaseUrl,

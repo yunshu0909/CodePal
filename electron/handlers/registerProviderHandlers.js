@@ -508,6 +508,7 @@ function getProviderProfiles(envSource = {}) {
         ? definition.models
         : [definition.model || 'opus'],
       settingsEnv: definition.settingsEnv || {},
+      modelTiers: definition.modelTiers || {},
     }
   }
 
@@ -836,6 +837,13 @@ function applyProviderProfileToSettings(settingsData, profile, selectedModel, ma
   }
   if (effectiveModel) {
     envObject.ANTHROPIC_MODEL = effectiveModel
+    // 根据选中模型的 modelTiers 动态写入分级
+    const tiers = isPlainObject(profile.modelTiers) ? profile.modelTiers[effectiveModel] : null
+    if (isPlainObject(tiers)) {
+      envObject.ANTHROPIC_DEFAULT_OPUS_MODEL = effectiveModel
+      if (tiers.sonnet) envObject.ANTHROPIC_DEFAULT_SONNET_MODEL = tiers.sonnet
+      if (tiers.haiku) envObject.ANTHROPIC_DEFAULT_HAIKU_MODEL = tiers.haiku
+    }
   }
 
   updated.env = envObject

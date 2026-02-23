@@ -274,6 +274,7 @@ export default function ApiConfigPage() {
     token: '',
     models: ['opus'],
     modelDraft: '',
+    modelTiers: {},
   })
   // 自定义渠道表单模式（create/edit）
   const [providerFormMode, setProviderFormMode] = useState('create')
@@ -305,6 +306,7 @@ export default function ApiConfigPage() {
       token: '',
       models: ['opus'],
       modelDraft: '',
+      modelTiers: {},
     })
   }, [])
 
@@ -589,6 +591,13 @@ export default function ApiConfigPage() {
           .filter(Boolean)
       )
     )
+    const cleanTiers = {}
+    for (const [model, tier] of Object.entries(newProvider.modelTiers || {})) {
+      const s = (tier.sonnet || '').trim()
+      const h = (tier.haiku || '').trim()
+      if (s || h) cleanTiers[model] = { ...(s ? { sonnet: s } : {}), ...(h ? { haiku: h } : {}) }
+    }
+
     const manifest = {
       id: providerId,
       name: newProvider.name.trim(),
@@ -596,6 +605,7 @@ export default function ApiConfigPage() {
       tokenEnvKey: newProvider.tokenEnvKey.trim(),
       model: normalizedModels[0] || 'opus',
       models: normalizedModels.length > 0 ? normalizedModels : ['opus'],
+      ...(Object.keys(cleanTiers).length > 0 ? { modelTiers: cleanTiers } : {}),
     }
 
     if (!manifest.id || !manifest.name || !manifest.baseUrl || !manifest.tokenEnvKey) {
@@ -990,8 +1000,14 @@ export default function ApiConfigPage() {
       token: provider.token || '',
       models: mergedModels,
       modelDraft: '',
+      modelTiers: provider.modelTiers && typeof provider.modelTiers === 'object'
+        ? { ...provider.modelTiers }
+        : {},
     })
     setShowProviderForm(true)
+    setTimeout(() => {
+      document.querySelector('.custom-provider-card')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }, 50)
     setToast({ message: `正在编辑 ${provider.name}`, type: 'info' })
   }
 
@@ -1194,11 +1210,24 @@ export default function ApiConfigPage() {
 
   // ==================== 导入 / 导出 ====================
 
-  const handleExportAllConfig = () => {
+  const handleExportAllConfig = async () => {
+    // 先从后端拉取最新的 token，确保导出包含 API Key
+    let latestTokens = {}
+    try {
+      const envConfig = await window.electronAPI.getProviderEnvConfig()
+      if (envConfig?.providers) {
+        latestTokens = envConfig.providers
+      }
+    } catch {
+      // ignore
+    }
+
     const customProviders = providers
       .filter((p) => p.source === 'custom')
-      .map(({ id, name, baseUrl, tokenEnvKey, token, models, settingsEnv, ui }) => ({
-        id, name, baseUrl, tokenEnvKey, token, models, settingsEnv, ui,
+      .map(({ id, name, baseUrl, tokenEnvKey, token, models, settingsEnv, modelTiers, ui }) => ({
+        id, name, baseUrl, tokenEnvKey,
+        token: token || latestTokens[id]?.token || '',
+        models, settingsEnv, modelTiers, ui,
       }))
 
     const exportData = {
@@ -1254,6 +1283,7 @@ export default function ApiConfigPage() {
                 token: cp.token || '',
                 models: cp.models || ['opus'],
                 settingsEnv: cp.settingsEnv || {},
+                modelTiers: cp.modelTiers || {},
                 ui: cp.ui || {},
               })
             } catch {
@@ -1446,24 +1476,57 @@ export default function ApiConfigPage() {
                     </div>
                     <div className="field model-field">
                       <label>模型列表</label>
+                      <p className="field-note" style={{ marginBottom: 4 }}>
+                        第一项是默认模型；最多 20 个。每个模型可展开配置 Sonnet/Haiku 降级模型（可选）。
+                      </p>
                       <div className="model-list-editor">
-                        {(newProvider.models || []).map((model, index) => (
-                          <div className="model-list-row" key={`${index}-${model}`}>
-                            <input
-                              type="text"
-                              value={model}
-                              onChange={(e) => handleModelChange(index, e.target.value)}
-                              placeholder="输入模型名"
-                            />
-                            <Button
-                              variant="danger"
-                              size="sm"
-                              onClick={() => handleRemoveModel(index)}
-                            >
-                              删除
-                            </Button>
-                          </div>
-                        ))}
+                        {(newProvider.models || []).map((model, index) => {
+                          const tier = (newProvider.modelTiers || {})[model] || {}
+                          return (
+                            <div key={`${index}-${model}`}>
+                              <div className="model-list-row">
+                                <span style={{ fontSize: 11, color: '#e8a838', flexShrink: 0, width: 42 }}>Opus</span>
+                                <input
+                                  type="text"
+                                  value={model}
+                                  onChange={(e) => handleModelChange(index, e.target.value)}
+                                  placeholder="输入模型名"
+                                />
+                                <Button variant="danger" size="sm" onClick={() => handleRemoveModel(index)}>删除</Button>
+                              </div>
+                              {model.trim() && (
+                                <div style={{ paddingLeft: 42, display: 'flex', flexDirection: 'column', gap: 4, marginBottom: 6 }}>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                    <span style={{ fontSize: 11, color: '#888', flexShrink: 0, width: 42 }}>Sonnet</span>
+                                    <input
+                                      type="text"
+                                      value={tier.sonnet || ''}
+                                      onChange={(e) => setNewProvider((prev) => ({
+                                        ...prev,
+                                        modelTiers: { ...prev.modelTiers, [model]: { ...prev.modelTiers?.[model], sonnet: e.target.value } },
+                                      }))}
+                                      placeholder="普通编码任务（可选）"
+                                      style={{ flex: 1, fontSize: 12 }}
+                                    />
+                                  </div>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                    <span style={{ fontSize: 11, color: '#888', flexShrink: 0, width: 42 }}>Haiku</span>
+                                    <input
+                                      type="text"
+                                      value={tier.haiku || ''}
+                                      onChange={(e) => setNewProvider((prev) => ({
+                                        ...prev,
+                                        modelTiers: { ...prev.modelTiers, [model]: { ...prev.modelTiers?.[model], haiku: e.target.value } },
+                                      }))}
+                                      placeholder="简单快速任务（可选）"
+                                      style={{ flex: 1, fontSize: 12 }}
+                                    />
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          )
+                        })}
                         <div className="model-list-row">
                           <input
                             type="text"
@@ -1471,16 +1534,7 @@ export default function ApiConfigPage() {
                             onChange={(e) => setNewProvider((prev) => ({ ...prev, modelDraft: e.target.value }))}
                             placeholder="新增模型，例如 qwen3-coder-plus"
                           />
-                          <Button
-                            variant="secondary"
-                            size="sm"
-                            onClick={handleAddModel}
-                          >
-                            添加
-                          </Button>
-                        </div>
-                        <div className="field-note">
-                          第一项是默认模型；最多 20 个。
+                          <Button variant="secondary" size="sm" onClick={handleAddModel}>添加</Button>
                         </div>
                       </div>
                     </div>

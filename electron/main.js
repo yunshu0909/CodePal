@@ -18,7 +18,11 @@ const os = require('os')
 const dotenv = require('dotenv')
 
 // 加载环境变量（从 .env 文件）
-const ENV_FILE_PATH = path.resolve(__dirname, '..', '.env')
+// 打包后 __dirname 在 app.asar 内，不可写；改用 ~/Documents/SkillManager/.env
+const IS_PACKAGED = app.isPackaged
+const ENV_FILE_PATH = IS_PACKAGED
+  ? path.join(os.homedir(), 'Documents', 'SkillManager', '.env')
+  : path.resolve(__dirname, '..', '.env')
 dotenv.config({ path: ENV_FILE_PATH })
 
 const { scanLogFilesInRange } = require('./logScanner')
@@ -323,6 +327,12 @@ function createWindow() {
 }
 
 app.whenReady().then(async () => {
+  // 打包模式下确保配置目录存在
+  if (IS_PACKAGED) {
+    const configDir = path.join(os.homedir(), 'Documents', 'SkillManager')
+    await fs.mkdir(configDir, { recursive: true }).catch(() => {})
+  }
+
   // 启动时自动 ensure 内置 provider_registry，避免用户先手动安装
   try {
     const ensureResult = await ensureBuiltinProviderRegistryInstalled({

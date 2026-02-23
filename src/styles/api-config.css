@@ -240,7 +240,7 @@
 
 .provider-actions {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   align-self: flex-start;
   justify-content: flex-end;
   flex-wrap: wrap;
