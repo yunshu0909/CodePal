@@ -352,6 +352,45 @@ contextBridge.exposeInMainWorld('electronAPI', {
    */
   setPermissionMode: (mode) => ipcRenderer.invoke('set-permission-mode', mode),
 
+  // V0.14 双向自动同步 APIs
+
+  /**
+   * 比较两个技能目录的 SKILL.md 内容 hash
+   * @param {Object} params - { sourcePath, targetPath }
+   * @returns {Promise<{success: boolean, isDifferent: boolean, sourceMtime: number}>}
+   */
+  compareSkillContent: (params) => ipcRenderer.invoke('compare-skill-content', params),
+
+  /**
+   * 监听中央仓库变更事件（主进程 → 渲染进程）
+   * @param {(skillNames: string[]) => void} callback - 变更回调
+   * @returns {() => void} 取消监听函数
+   */
+  onCentralRepoChanged: (callback) => {
+    const handler = (_event, skillNames) => callback(skillNames)
+    ipcRenderer.on('central-repo-changed', handler)
+    return () => ipcRenderer.removeListener('central-repo-changed', handler)
+  },
+
+  /**
+   * 获取同步锁（方向 2 写入前调用，屏蔽方向 1 的 watcher）
+   * @returns {Promise<{success: boolean}>}
+   */
+  acquireSyncLock: () => ipcRenderer.invoke('acquire-sync-lock'),
+
+  /**
+   * 释放同步锁（方向 2 写入后调用，主进程延迟 1s 解锁）
+   * @returns {Promise<{success: boolean}>}
+   */
+  releaseSyncLock: () => ipcRenderer.invoke('release-sync-lock'),
+
+  /**
+   * 重启中央仓库文件监听（仓库路径变更时调用）
+   * @param {string} newRepoPath - 新仓库路径
+   * @returns {Promise<{success: boolean}>}
+   */
+  restartRepoWatcher: (newRepoPath) => ipcRenderer.invoke('restart-repo-watcher', newRepoPath),
+
   // V0.11 MCP 管理 APIs
 
   /**

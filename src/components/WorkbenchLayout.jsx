@@ -12,6 +12,7 @@
 
 import React from 'react'
 import '../styles/workbench.css'
+import pkg from '../../package.json'
 
 /**
  * 工作台布局组件
@@ -54,6 +55,9 @@ function WorkbenchLayout({ children, activeModule, onModuleChange }) {
       <div className="main-container">
         {/* 左侧边栏 */}
         <aside className="sidebar">
+          {/* 品牌区 */}
+          <div className="sidebar-brand">CodePal</div>
+
           <nav className="sidebar-nav">
             {navItems.map((item) => (
               <button
@@ -66,6 +70,13 @@ function WorkbenchLayout({ children, activeModule, onModuleChange }) {
               </button>
             ))}
           </nav>
+
+          {/* 底部署名区 */}
+          <div className="sidebar-footer">
+            {/* 更新提醒预留位置：有新版本时渲染此块 */}
+            {/* <div className="sidebar-update">🔔 发现新版本</div> */}
+            <div className="sidebar-meta">v{pkg.version} · 云舒</div>
+          </div>
         </aside>
 
         {/* 内容区域 */}

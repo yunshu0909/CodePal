@@ -84,6 +84,9 @@
   flex-shrink: 0;
   margin-left: var(--space-4, 16px);
   -webkit-app-region: no-drag;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2, 8px);
 }
 
 /* 分隔线修饰符（divider prop 为 true 时添加） */

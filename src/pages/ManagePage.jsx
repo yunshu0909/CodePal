@@ -19,6 +19,10 @@ import PageShell from '../components/PageShell'
 import SearchInput from '../components/SearchInput/SearchInput'
 import Button from '../components/Button/Button'
 import StateView from '../components/StateView/StateView'
+import TagFilterChips from '../components/TagFilterChips/TagFilterChips'
+import TagSelector from '../components/TagSelector/TagSelector'
+import TagManagementModal from '../components/TagManagementModal/TagManagementModal'
+import useTagManagement from '../hooks/useTagManagement'
 
 // 勾选图标
 const checkSvg = (
@@ -111,6 +115,15 @@ export default function ManagePage({ onReimport, onNavigateToConfig, refreshSign
   // 启用的推送目标列表
   const [pushTargets, setPushTargets] = useState([])
 
+  // 标签管理（状态 + 操作方法）
+  const {
+    tags, skillTags, activeTagFilter, setActiveTagFilter,
+    isTagModalOpen, setIsTagModalOpen,
+    loadTagData,
+    handleAssignTag, handleRemoveTag,
+    handleCreateTag, handleRenameTag, handleDeleteTag,
+  } = useTagManagement(setToast)
+
   /**
    * 加载技能数据和推送目标配置
    */
@@ -153,13 +166,16 @@ export default function ManagePage({ onReimport, onNavigateToConfig, refreshSign
       )
 
       setSkills((previousSkills) => mergeSkillsKeepOrder(previousSkills, skillsWithGlobalStatus))
+
+      // 4. 加载标签数据
+      await loadTagData()
     } catch (error) {
       console.error('Error loading data:', error)
-      setToast('加载数据失败')
+      setToast({ message: '加载数据失败', type: 'error' })
     } finally {
       setIsLoading(false)
     }
-  }, [])
+  }, [loadTagData])
 
   // 初始加载
   useEffect(() => {
@@ -173,20 +189,30 @@ export default function ManagePage({ onReimport, onNavigateToConfig, refreshSign
   }, [refreshSignal, loadData])
 
   /**
-   * 根据搜索关键词过滤技能列表
-   * 搜索范围：技能名称、显示名称、描述
+   * 根据标签和搜索关键词过滤技能列表
+   * 标签过滤在前（AND 逻辑），搜索过滤在后
    */
   const filteredSkills = useMemo(() => {
-    if (!searchQuery.trim()) return skills
+    let result = skills
 
-    const query = searchQuery.toLowerCase()
-    return skills.filter((skill) => {
-      const nameMatch = skill.name.toLowerCase().includes(query)
-      const displayNameMatch = skill.displayName && skill.displayName.toLowerCase().includes(query)
-      const descMatch = skill.desc && skill.desc.toLowerCase().includes(query)
-      return nameMatch || displayNameMatch || descMatch
-    })
-  }, [skills, searchQuery])
+    // 标签过滤
+    if (activeTagFilter) {
+      result = result.filter((s) => skillTags[s.id] === activeTagFilter)
+    }
+
+    // 搜索过滤
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase()
+      result = result.filter((skill) => {
+        const nameMatch = skill.name.toLowerCase().includes(query)
+        const displayNameMatch = skill.displayName && skill.displayName.toLowerCase().includes(query)
+        const descMatch = skill.desc && skill.desc.toLowerCase().includes(query)
+        return nameMatch || displayNameMatch || descMatch
+      })
+    }
+
+    return result
+  }, [skills, searchQuery, activeTagFilter, skillTags])
 
   /**
    * 计算全选复选框的状态
@@ -263,7 +289,7 @@ export default function ManagePage({ onReimport, onNavigateToConfig, refreshSign
       return
     }
     if (pushTargets.length === 0) {
-      setToast('未配置推送目标，请先点击右上角"配置"')
+      setToast({ message: '未配置推送目标，请先点击右上角"配置"', type: 'warning' })
       return
     }
 
@@ -288,7 +314,7 @@ export default function ManagePage({ onReimport, onNavigateToConfig, refreshSign
         const totalUnpushed = results.reduce((sum, r) => sum + (r.unpushedCount || 0), 0)
         success = totalUnpushed > 0
         if (success) {
-          setToast(`已停用 ${skill.displayName || skill.name}`)
+          setToast({ message: `已停用 ${skill.displayName || skill.name}`, type: 'success' })
         }
       } else {
         // 未推送 -> 推送：推送到所有启用的推送目标
@@ -306,7 +332,7 @@ export default function ManagePage({ onReimport, onNavigateToConfig, refreshSign
         const totalPushed = results.reduce((sum, r) => sum + (r.pushedCount || 0), 0)
         success = totalPushed > 0
         if (success) {
-          setToast(`已推送 ${skill.displayName || skill.name}`)
+          setToast({ message: `已推送 ${skill.displayName || skill.name}`, type: 'success' })
         }
       }
 
@@ -320,7 +346,7 @@ export default function ManagePage({ onReimport, onNavigateToConfig, refreshSign
       }
     } catch (error) {
       console.error('Toggle skill status error:', error)
-      setToast('操作失败')
+      setToast({ message: '操作失败', type: 'error' })
     } finally {
       setIsProcessing(false)
       // 释放操作锁
@@ -336,7 +362,7 @@ export default function ManagePage({ onReimport, onNavigateToConfig, refreshSign
     // 操作锁检查：防止并发操作
     if (operationLock.current || selected.size === 0) return
     if (pushTargets.length === 0) {
-      setToast('未配置推送目标，请先点击右上角“配置”')
+      setToast({ message: '未配置推送目标，请先点击右上角”配置”', type: 'warning' })
       return
     }
 
@@ -350,7 +376,7 @@ export default function ManagePage({ onReimport, onNavigateToConfig, refreshSign
       )
 
       if (selectedUnpushedSkills.length === 0) {
-        setToast('选中的技能已全部推送')
+        setToast({ message: '选中的技能已全部推送', type: 'info' })
         setIsProcessing(false)
         return
       }
@@ -367,14 +393,14 @@ export default function ManagePage({ onReimport, onNavigateToConfig, refreshSign
       const totalPushed = results.reduce((sum, r) => sum + (r.pushedCount || 0), 0)
       const uniqueTools = pushTargets.length
 
-      setToast(`已推送 ${selectedUnpushedSkills.length} 个 skill 到 ${uniqueTools} 个工具`)
+      setToast({ message: `已推送 ${selectedUnpushedSkills.length} 个 skill 到 ${uniqueTools} 个工具`, type: 'success' })
 
       // 清空选中并刷新
       setSelected(new Set())
       await loadData()
     } catch (error) {
       console.error('Batch push error:', error)
-      setToast('批量推送失败')
+      setToast({ message: '批量推送失败', type: 'error' })
     } finally {
       setIsProcessing(false)
       // 释放操作锁
@@ -390,7 +416,7 @@ export default function ManagePage({ onReimport, onNavigateToConfig, refreshSign
     // 操作锁检查：防止并发操作
     if (operationLock.current || selected.size === 0) return
     if (pushTargets.length === 0) {
-      setToast('未配置推送目标，请先点击右上角“配置”')
+      setToast({ message: '未配置推送目标，请先点击右上角”配置”', type: 'warning' })
       return
     }
 
@@ -404,7 +430,7 @@ export default function ManagePage({ onReimport, onNavigateToConfig, refreshSign
       )
 
       if (selectedPushedSkills.length === 0) {
-        setToast('选中的技能未推送，无需停用')
+        setToast({ message: '选中的技能未推送，无需停用', type: 'info' })
         setIsProcessing(false)
         return
       }
@@ -418,14 +444,14 @@ export default function ManagePage({ onReimport, onNavigateToConfig, refreshSign
         })
       )
 
-      setToast(`已停用 ${selectedPushedSkills.length} 个 skill`)
+      setToast({ message: `已停用 ${selectedPushedSkills.length} 个 skill`, type: 'success' })
 
       // 清空选中并刷新
       setSelected(new Set())
       await loadData()
     } catch (error) {
       console.error('Batch deactivate error:', error)
-      setToast('批量停用失败')
+      setToast({ message: '批量停用失败', type: 'error' })
     } finally {
       setIsProcessing(false)
       // 释放操作锁
@@ -445,7 +471,10 @@ export default function ManagePage({ onReimport, onNavigateToConfig, refreshSign
       subtitle="管理和推送你的 Skills 到各个工具"
       className="page-shell--no-padding"
       actions={
-        <Button variant="secondary" size="sm" onClick={onNavigateToConfig}>配置</Button>
+        <>
+          <Button variant="secondary" size="sm" onClick={() => setIsTagModalOpen(true)}>管理标签</Button>
+          <Button variant="secondary" size="sm" onClick={onNavigateToConfig}>配置</Button>
+        </>
       }
     >
       {/* Search */}
@@ -457,6 +486,16 @@ export default function ManagePage({ onReimport, onNavigateToConfig, refreshSign
           disabled={isLoading}
         />
       </div>
+
+      {/* Tag Filter Chips */}
+      {tags.length > 0 && (
+        <TagFilterChips
+          tags={tags}
+          skillTags={skillTags}
+          activeTagId={activeTagFilter}
+          onSelect={setActiveTagFilter}
+        />
+      )}
 
       {/* Batch Action Bar */}
       <BatchActionBar
@@ -490,6 +529,7 @@ export default function ManagePage({ onReimport, onNavigateToConfig, refreshSign
                 </div>
                 <span className="header-text">Skill ({filteredSkills.length})</span>
               </div>
+              <div className="header-tag">标签</div>
               <div className="header-status">
                 <span className="header-status-text">状态</span>
               </div>
@@ -516,6 +556,15 @@ export default function ManagePage({ onReimport, onNavigateToConfig, refreshSign
                     </div>
                     <div className="skill-desc">{skill.desc}</div>
                   </div>
+                  <div className="skill-tag-column" onClick={(e) => e.stopPropagation()}>
+                    <TagSelector
+                      skillId={skill.id}
+                      currentTagId={skillTags[skill.id] || null}
+                      tags={tags}
+                      onAssign={handleAssignTag}
+                      onRemove={handleRemoveTag}
+                    />
+                  </div>
                   <div
                     className="skill-status-container"
                     onClick={(e) => toggleSkillStatus(skill, e)}
@@ -534,12 +583,25 @@ export default function ManagePage({ onReimport, onNavigateToConfig, refreshSign
       {/* Footer */}
       <div className="manage-footer">
         <span className="manage-footer-info">
-          点击行选择 · 点击状态标签切换 · 选中后批量操作
+          共 {skills.length} 个技能 · 已推送 {skills.filter((s) => s.pushed).length}
         </span>
       </div>
 
+      {/* Tag Management Modal */}
+      <TagManagementModal
+        open={isTagModalOpen}
+        onClose={() => { setIsTagModalOpen(false); loadData() }}
+        tags={tags}
+        skillTags={skillTags}
+        skills={skills}
+        onCreateTag={handleCreateTag}
+        onRenameTag={handleRenameTag}
+        onDeleteTag={handleDeleteTag}
+        onRemoveSkillFromTag={handleRemoveTag}
+      />
+
       {/* Toast */}
-      {toast && <Toast message={toast} onClose={() => setToast(null)} />}
+      {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
     </PageShell>
   )
 }

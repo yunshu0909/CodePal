@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#7c6bf0"/>
+      <stop offset="100%" style="stop-color:#5a45d6"/>
+    </linearGradient>
+  </defs>
+
+  <!-- 圆角方形背景 -->
+  <rect x="16" y="16" width="480" height="480" rx="96" ry="96" fill="url(#bg)"/>
+
+  <!-- C 和 P 连体字母 -->
+  <text x="256" y="310" text-anchor="middle"
+        font-family="SF Pro Rounded, -apple-system, Helvetica Neue, Arial, sans-serif"
+        font-size="260" font-weight="700" fill="white" letter-spacing="-12">
+    CP
+  </text>
+
+  <!-- 底部小光标闪烁线，点缀"代码"感 -->
+  <rect x="338" y="330" width="4" height="32" rx="2" fill="#ffd866" opacity="0.9"/>
+</svg>

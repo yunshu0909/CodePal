@@ -10,6 +10,7 @@
 
 const fs = require('fs/promises')
 const path = require('path')
+const crypto = require('crypto')
 
 /**
  * 注册技能管理相关 IPC handlers
@@ -624,6 +625,50 @@ async function scanCustomPathForSkills(customPath) {
     return { success: false, skills: [], error: error.message }
   }
 }
+
+/**
+ * 比较两个技能目录的 SKILL.md 内容 hash
+ * 用于方向 2（工具→中央）增量同步时判断是否需要更新
+ * @param {Electron.IpcMainInvokeEvent} event - IPC 事件
+ * @param {Object} params - 比较参数
+ * @param {string} params.sourcePath - 来源技能目录路径
+ * @param {string} params.targetPath - 目标技能目录路径
+ * @returns {Promise<{success: boolean, isDifferent: boolean, sourceMtime: number}>}
+ */
+ipcMain.handle('compare-skill-content', async (event, { sourcePath, targetPath }) => {
+  try {
+    const expandedSource = expandHome(sourcePath)
+    const expandedTarget = expandHome(targetPath)
+
+    const sourceSkillMd = path.join(expandedSource, 'SKILL.md')
+    const targetSkillMd = path.join(expandedTarget, 'SKILL.md')
+
+    // 任一文件不存在时视为无需更新
+    const sourceExists = await pathExists(sourceSkillMd)
+    const targetExists = await pathExists(targetSkillMd)
+    if (!sourceExists || !targetExists) {
+      return { success: true, isDifferent: false, sourceMtime: 0 }
+    }
+
+    const [sourceContent, targetContent, sourceStat] = await Promise.all([
+      fs.readFile(sourceSkillMd, 'utf-8'),
+      fs.readFile(targetSkillMd, 'utf-8'),
+      fs.stat(sourceSkillMd),
+    ])
+
+    const sourceHash = crypto.createHash('sha256').update(sourceContent).digest('hex')
+    const targetHash = crypto.createHash('sha256').update(targetContent).digest('hex')
+
+    return {
+      success: true,
+      isDifferent: sourceHash !== targetHash,
+      sourceMtime: sourceStat.mtimeMs,
+    }
+  } catch (error) {
+    console.error('Error comparing skill content:', error)
+    return { success: false, isDifferent: false, sourceMtime: 0 }
+  }
+})
 }
 
 module.exports = {

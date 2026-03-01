@@ -15,6 +15,7 @@ import { toolDefinitions, dataStore } from '../store/data'
 import Checkbox from '../components/Checkbox'
 import Toast from '../components/Toast'
 import AddPathModal from '../components/AddPathModal'
+import PageShell from '../components/PageShell'
 
 /**
  * 导入页面组件
@@ -95,7 +96,7 @@ export default function ImportPage({ onImportComplete, isReimport = false }) {
         }
       } catch (error) {
         console.error('Error initializing import page:', error)
-        setToast('初始化失败')
+        setToast({ message: '初始化失败', type: 'error' })
       } finally {
         setIsLoading(false)
       }
@@ -163,7 +164,7 @@ export default function ImportPage({ onImportComplete, isReimport = false }) {
     // 保存到配置
     saveCustomPaths(newPaths)
 
-    setToast('已删除自定义路径')
+    setToast({ message: '已删除自定义路径', type: 'success' })
   }
 
   /**
@@ -194,7 +195,7 @@ export default function ImportPage({ onImportComplete, isReimport = false }) {
       normalizePathForCompare(pathItem.path) === normalizedPath
     )
     if (duplicate) {
-      setToast('该路径已存在')
+      setToast({ message: '该路径已存在', type: 'warning' })
       setIsModalOpen(false)
       return
     }
@@ -210,7 +211,7 @@ export default function ImportPage({ onImportComplete, isReimport = false }) {
     await saveCustomPaths(newPaths)
 
     setIsModalOpen(false)
-    setToast('已添加自定义路径')
+    setToast({ message: '已添加自定义路径', type: 'success' })
   }
 
   /**
@@ -223,15 +224,15 @@ export default function ImportPage({ onImportComplete, isReimport = false }) {
         return // 用户取消选择
       }
       if (!result.success) {
-        setToast('更改位置失败')
+        setToast({ message: '更改位置失败', type: 'error' })
         return
       }
 
       setRepoPath(result.path)
-      setToast('中央仓库位置已更改')
+      setToast({ message: '中央仓库位置已更改', type: 'success' })
     } catch (error) {
       console.error('Error changing repo path:', error)
-      setToast('更改位置失败')
+      setToast({ message: '更改位置失败', type: 'error' })
     }
   }
 
@@ -264,7 +265,7 @@ export default function ImportPage({ onImportComplete, isReimport = false }) {
       }
 
       if (result.success) {
-        setToast(`已导入 ${result.copiedCount} 个 skill`)
+        setToast({ message: `已导入 ${result.copiedCount} 个 skill`, type: 'success' })
 
         // Auto switch to manage page after a short delay
         setTimeout(() => {
@@ -272,11 +273,11 @@ export default function ImportPage({ onImportComplete, isReimport = false }) {
         }, 500)
       } else {
         const errorMsg = result.errors?.[0] || '导入失败'
-        setToast(`导入失败：${errorMsg}`)
+        setToast({ message: `导入失败：${errorMsg}`, type: 'error' })
       }
     } catch (error) {
       console.error('Import error:', error)
-      setToast(`导入失败：${error.message}`)
+      setToast({ message: `导入失败：${error.message}`, type: 'error' })
     } finally {
       setIsImporting(false)
     }
@@ -314,29 +315,21 @@ export default function ImportPage({ onImportComplete, isReimport = false }) {
   // 截断过长的路径显示
   const truncatePath = (path, maxLength = 35) => {
     if (!path || path.length <= maxLength) return path
-    const parts = path.split('/')
+    // 末尾斜杠会导致 split 后最后一项为空，先去掉
+    const trimmed = path.endsWith('/') ? path.slice(0, -1) : path
+    const parts = trimmed.split('/')
     if (parts.length <= 2) return path
     // 保留开头和结尾，中间用 ... 代替
     return parts[0] + '/.../' + parts[parts.length - 1]
   }
 
   return (
-    <div className="manage-container">
-      {/* 页面内 header */}
-      <div className="manage-header">
-        <div className="manage-header-left">
-          <h1 className="manage-header-title">
-            {isReimport ? '重新导入 Skills' : '导入 Skills'}
-          </h1>
-          <div className="manage-header-subtitle">
-            {isReimport
-              ? '重新导入会清空中央仓库并重新复制所选工具的 Skills'
-              : 'Skills 会从选中工具导入，后续一键推送到这些工具'}
-          </div>
-        </div>
-      </div>
-
-      <div className="import-body">
+    <PageShell
+      title={isReimport ? '重新导入 Skills' : '导入 Skills'}
+      subtitle={isReimport
+        ? '重新导入会清空中央仓库并重新复制所选工具的 Skills'
+        : 'Skills 会从选中工具导入，后续一键推送到这些工具'}
+    >
         {/* Preset Tools Section */}
         <div className="section-title">
           选择导入来源
@@ -429,9 +422,8 @@ export default function ImportPage({ onImportComplete, isReimport = false }) {
             {isImporting ? '导入中...' : isReimport ? '重新导入' : '一键导入'}
           </button>
         </div>
-      </div>
 
-      {toast && <Toast message={toast} onClose={() => setToast(null)} />}
+      {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
 
       <AddPathModal
         isOpen={isModalOpen}
@@ -439,6 +431,6 @@ export default function ImportPage({ onImportComplete, isReimport = false }) {
         onConfirm={handleAddCustomPath}
         existingPaths={customPaths}
       />
-    </div>
+    </PageShell>
   )
 }

@@ -1,0 +1,101 @@
+/**
+ * TagFilterChips 组件样式
+ *
+ * 结构：.tag-filter-chips > .tag-chip + .tag-chip-more-wrap > .tag-chip-more-dropdown
+ */
+
+/* === 容器 === */
+.tag-filter-chips {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0 var(--space-8) var(--space-4);
+  flex-shrink: 0;
+  flex-wrap: nowrap;
+  overflow: hidden;
+}
+
+/* === Chip 基础 === */
+.tag-chip {
+  padding: 5px 14px;
+  border-radius: var(--radius-full);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  cursor: pointer;
+  border: none;
+  background: var(--bg-muted);
+  color: var(--text-secondary);
+  transition: all var(--transition-fast);
+  white-space: nowrap;
+  user-select: none;
+  flex-shrink: 0;
+}
+
+.tag-chip:hover {
+  background: var(--border-default);
+  color: var(--text-primary);
+}
+
+.tag-chip.active {
+  background: var(--color-primary);
+  color: #fff;
+}
+
+/* === 计数 === */
+.tag-chip-count {
+  opacity: 0.7;
+  font-weight: 400;
+  margin-left: 2px;
+}
+
+/* === +N 折叠按钮 === */
+.tag-chip-more-wrap {
+  position: relative;
+  flex-shrink: 0;
+}
+
+/* === +N 下拉菜单 === */
+.tag-chip-more-dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  background: var(--bg-base);
+  border: 1.5px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
+  z-index: 20;
+  min-width: 140px;
+  padding: var(--space-1);
+}
+
+.tag-chip-more-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  width: 100%;
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: background var(--transition-fast);
+  text-align: left;
+}
+
+.tag-chip-more-item:hover {
+  background: var(--bg-muted);
+  color: var(--text-primary);
+}
+
+.tag-chip-more-item.active {
+  color: var(--color-primary);
+  font-weight: 500;
+}
+
+.tag-chip-more-item-count {
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+}

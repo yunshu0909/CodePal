@@ -1104,6 +1104,13 @@ body {
   border-color: var(--color-primary);
 }
 
+.header-tag {
+  width: 110px;
+  flex-shrink: 0;
+  text-align: left;
+  padding-left: 4px;
+}
+
 .header-status {
   width: 80px;
   flex-shrink: 0;
@@ -1197,7 +1204,8 @@ body {
 
 .manage-skill-list {
   padding: 0 var(--space-8);
-  max-height: 420px;
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
 }
 
@@ -1231,6 +1239,13 @@ body {
   font-size: var(--text-xs);
   color: var(--text-tertiary);
   margin-top: 2px;
+}
+
+/* 技能行标签列 */
+.skill-tag-column {
+  width: 110px;
+  flex-shrink: 0;
+  position: relative;
 }
 
 .skill-status-container {

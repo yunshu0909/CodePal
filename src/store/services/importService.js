@@ -308,9 +308,12 @@ export function createImportService(deps) {
       await deps.ensureDir(repoPath)
 
       let added = 0
+      let updated = 0
       let skipped = 0
       let scannedSources = 0
       const errors = []
+      // 多来源冲突解决：记录每个待更新技能的最佳候选（mtime 最新的赢）
+      const updateCandidates = {}
 
       // 1) 处理预设工具来源（例如 ~/.claude/skills）
       for (const toolId of presetSourceIds) {
@@ -326,7 +329,22 @@ export function createImportService(deps) {
 
         for (const skill of scanResult.skills) {
           if (existingSkillNames.has(skill.name)) {
-            skipped++
+            // 已存在：比较内容 hash，有变化才标记为更新候选
+            if (deps.compareSkillContent) {
+              const sourcePath = deps.getToolSkillPath(tool.path, skill.name)
+              const targetPath = await deps.getCentralSkillPath(skill.name, repoPath)
+              const cmp = await deps.compareSkillContent(sourcePath, targetPath)
+              if (cmp.success && cmp.isDifferent) {
+                // mtime 最新的来源赢
+                if (!updateCandidates[skill.name] || cmp.sourceMtime > updateCandidates[skill.name].mtime) {
+                  updateCandidates[skill.name] = { sourcePath, mtime: cmp.sourceMtime }
+                }
+              } else {
+                skipped++
+              }
+            } else {
+              skipped++
+            }
             continue
           }
 
@@ -375,7 +393,21 @@ export function createImportService(deps) {
 
           for (const skill of toolScanResult.skills) {
             if (existingSkillNames.has(skill.name)) {
-              skipped++
+              // 已存在：比较内容 hash，有变化才标记为更新候选
+              if (deps.compareSkillContent) {
+                const sourcePath = deps.getToolSkillPath(customToolPath, skill.name)
+                const targetPath = await deps.getCentralSkillPath(skill.name, repoPath)
+                const cmp = await deps.compareSkillContent(sourcePath, targetPath)
+                if (cmp.success && cmp.isDifferent) {
+                  if (!updateCandidates[skill.name] || cmp.sourceMtime > updateCandidates[skill.name].mtime) {
+                    updateCandidates[skill.name] = { sourcePath, mtime: cmp.sourceMtime }
+                  }
+                } else {
+                  skipped++
+                }
+              } else {
+                skipped++
+              }
               continue
             }
 
@@ -402,16 +434,28 @@ export function createImportService(deps) {
         }
       }
 
+      // 批量应用更新候选（多来源冲突已通过 mtime 解决）
+      for (const [skillName, candidate] of Object.entries(updateCandidates)) {
+        const targetPath = await deps.getCentralSkillPath(skillName, repoPath)
+        const copyResult = await deps.copySkill(candidate.sourcePath, targetPath, { force: true })
+        if (copyResult.success) {
+          updated++
+        } else {
+          errors.push(`update ${skillName}: ${copyResult.error}`)
+        }
+      }
+
       await deps.saveConfig(config)
 
-      // 新增后清空推送状态缓存，避免状态展示读取旧值
-      if (added > 0) {
+      // 新增或更新后清空推送状态缓存，避免状态展示读取旧值
+      if (added > 0 || updated > 0) {
         deps.clearPushStatusCache()
       }
 
       return {
-        success: errors.length === 0 || added > 0,
+        success: errors.length === 0 || added > 0 || updated > 0,
         added,
+        updated,
         skipped,
         scannedSources,
         errors: errors.length > 0 ? errors : null,

@@ -69,16 +69,21 @@ export default function App() {
 
     const runAutoRefresh = async () => {
       try {
+        // 方向 2 会写入中央仓库，先获取同步锁避免触发方向 1
+        await window.electronAPI?.acquireSyncLock?.()
         const refreshResult = await dataStore.autoIncrementalRefresh()
         if (isDisposed) return
 
-        if (refreshResult?.added > 0) {
+        if (refreshResult?.added > 0 || refreshResult?.updated > 0) {
           // 通过信号通知技能模块刷新数据；不弹 toast，避免打断用户操作
           setSkillsRefreshSignal((prev) => prev + 1)
         }
       } catch (error) {
         // 自动任务失败仅记录日志，避免影响用户主流程
         console.error('Auto incremental refresh failed:', error)
+      } finally {
+        // 释放同步锁（主进程会延迟 1s 再解锁）
+        window.electronAPI?.releaseSyncLock?.().catch(() => {})
       }
     }
 
@@ -91,6 +96,22 @@ export default function App() {
       window.clearInterval(timerId)
     }
   }, [initialSkillManagerPage])
+
+  // 方向 1：监听中央仓库文件变更，自动推送到已启用工具
+  useEffect(() => {
+    if (!window.electronAPI?.onCentralRepoChanged) return undefined
+    const unsubscribe = window.electronAPI.onCentralRepoChanged(async (changedSkillNames) => {
+      try {
+        const result = await dataStore.handleCentralRepoChanged(changedSkillNames)
+        if (result.syncedCount > 0) {
+          setSkillsRefreshSignal((prev) => prev + 1)
+        }
+      } catch (error) {
+        console.error('[auto-sync] Central → tools failed:', error)
+      }
+    })
+    return () => unsubscribe()
+  }, [])
 
   /**
    * 导入后首次进入管理页时初始化推送目标

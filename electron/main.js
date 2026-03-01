@@ -29,6 +29,7 @@ const { registerProviderHandlers } = require('./handlers/registerProviderHandler
 const { registerProjectInitHandlers } = require('./handlers/registerProjectInitHandlers')
 const { registerPermissionModeHandlers } = require('./handlers/permissionModeHandlers')
 const { registerMcpHandlers } = require('./handlers/registerMcpHandlers')
+const { registerRepoWatcherHandlers } = require('./handlers/registerRepoWatcherHandlers')
 const { resolveProviderRegistryFilePath } = require('./services/providerRegistryPathService')
 const { ensureBuiltinProviderRegistryInstalled } = require('./services/builtinMcpInstallerService')
 
@@ -48,6 +49,8 @@ process.stderr.on('error', (err) => {
 })
 
 let mainWindow
+// 中央仓库监听服务清理函数
+let repoWatcherCleanup = null
 /**
  * 配置文件写入队列（按文件路径串行）
  * 解决同一文件并发写入时的临时文件冲突与写入顺序不确定问题
@@ -124,9 +127,28 @@ app.whenReady().then(async () => {
   }
 
   createWindow()
+
+  // 启动中央仓库文件监听（方向 1：中央→工具自动推送）
+  let initialRepoPath = '~/Documents/SkillManager/'
+  try {
+    const configPath = expandHome('~/Documents/SkillManager/.config.json')
+    const configContent = await fs.readFile(configPath, 'utf-8')
+    const config = JSON.parse(configContent)
+    if (config.repoPath) initialRepoPath = config.repoPath
+  } catch {
+    // 使用默认路径
+  }
+
+  repoWatcherCleanup = registerRepoWatcherHandlers({
+    ipcMain,
+    getMainWindow: () => mainWindow,
+    expandHome,
+    initialRepoPath,
+  })
 })
 
 app.on('window-all-closed', () => {
+  repoWatcherCleanup?.stopWatching().catch(() => {})
   if (process.platform !== 'darwin') {
     app.quit()
   }

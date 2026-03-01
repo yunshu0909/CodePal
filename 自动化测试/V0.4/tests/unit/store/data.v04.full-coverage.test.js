@@ -499,4 +499,67 @@ describe('dataStore V0.4 Full Coverage (Unit)', () => {
     expect(writeConfig).toHaveBeenCalledTimes(0)
     expect(copySkill).toHaveBeenCalledTimes(0)
   })
+
+  it('UT-BE-27: getConfig 默认读取应跟随 repoPath 读取真实仓库配置', async () => {
+    readConfig.mockImplementation(async (configPath) => {
+      if (configPath === '~/Documents/SkillManager/.config.json') {
+        return {
+          success: true,
+          data: makeConfig({
+            repoPath: '/Users/demo/new-repo/',
+            importSources: [],
+            customPaths: [],
+          }),
+        }
+      }
+
+      if (configPath === '/Users/demo/new-repo/.config.json') {
+        return {
+          success: true,
+          data: makeConfig({
+            repoPath: '/Users/demo/new-repo/',
+            importSources: ['custom-1'],
+            customPaths: [{ id: 'custom-1', path: '/workspace/team', skills: { codex: 2 } }],
+          }),
+        }
+      }
+
+      return { success: false, data: null }
+    })
+
+    const config = await dataStore.getConfig()
+
+    expect(config.repoPath).toBe('/Users/demo/new-repo/')
+    expect(config.importSources).toEqual(['custom-1'])
+    expect(config.customPaths).toHaveLength(1)
+    expect(readConfig).toHaveBeenCalledTimes(2)
+    expect(readConfig).toHaveBeenNthCalledWith(1, '~/Documents/SkillManager/.config.json')
+    expect(readConfig).toHaveBeenNthCalledWith(2, '/Users/demo/new-repo/.config.json')
+  })
+
+  it('UT-BE-28: saveConfig 在非默认仓库时应同步写回默认锚点文件', async () => {
+    writeConfig.mockResolvedValue({ success: true, error: null })
+    ensureDir.mockResolvedValue({ success: true, error: null })
+
+    const result = await dataStore.saveConfig(
+      makeConfig({
+        repoPath: '/Users/demo/new-repo/',
+        importSources: ['custom-1'],
+      })
+    )
+
+    expect(result.success).toBe(true)
+    expect(ensureDir).toHaveBeenCalledWith('~/Documents/SkillManager/')
+    expect(writeConfig).toHaveBeenCalledTimes(2)
+    expect(writeConfig).toHaveBeenNthCalledWith(
+      1,
+      '/Users/demo/new-repo/.config.json',
+      expect.objectContaining({ repoPath: '/Users/demo/new-repo/', importSources: ['custom-1'] })
+    )
+    expect(writeConfig).toHaveBeenNthCalledWith(
+      2,
+      '~/Documents/SkillManager/.config.json',
+      expect.objectContaining({ repoPath: '/Users/demo/new-repo/', importSources: ['custom-1'] })
+    )
+  })
 })

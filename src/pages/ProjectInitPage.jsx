@@ -85,7 +85,7 @@ export default function ProjectInitPage() {
     rollback: null,
   })
   // Toast 提示消息
-  const [toastMessage, setToastMessage] = useState(null)
+  const [toast, setToast] = useState(null)
 
   /**
    * 当前勾选模板 key 列表
@@ -163,14 +163,14 @@ export default function ProjectInitPage() {
    */
   const handlePickFolder = async () => {
     if (!window.electronAPI?.selectFolder) {
-      setToastMessage('当前环境不支持路径浏览')
+      setToast({ message: '当前环境不支持路径浏览', type: 'warning' })
       return
     }
 
     try {
       const result = await window.electronAPI.selectFolder()
       if (!result.success) {
-        setToastMessage(result.error || '选择路径失败')
+        setToast({ message: result.error || '选择路径失败', type: 'error' })
         return
       }
       if (!result.canceled && result.path) {
@@ -178,7 +178,7 @@ export default function ProjectInitPage() {
       }
     } catch (error) {
       console.error('Error selecting target folder:', error)
-      setToastMessage('选择路径失败')
+      setToast({ message: '选择路径失败', type: 'error' })
     }
   }
 
@@ -315,7 +315,7 @@ export default function ProjectInitPage() {
     setValidationResult(null)
     setExecutionResult(null)
     setSuccessModalSummary(DEFAULT_SUCCESS_MODAL_SUMMARY)
-    setToastMessage('页面已重置，可以开始新的配置')
+    setToast({ message: '页面已重置，可以开始新的配置', type: 'info' })
   }
 
   /**
@@ -514,7 +514,7 @@ export default function ProjectInitPage() {
         onRetry={handleRetryErrorModal}
       />
 
-      {toastMessage && <Toast message={toastMessage} onClose={() => setToastMessage(null)} />}
+      {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
     </PageShell>
   )
 }

@@ -21,6 +21,7 @@ import {
   writeConfig,
   selectFolder,
   scanCustomPath,
+  compareSkillContent,
 } from './fs.js'
 import {
   normalizePathForCompare,
@@ -30,6 +31,8 @@ import {
 } from './services/pathService.js'
 import { createImportService } from './services/importService.js'
 import { createPushService } from './services/pushService.js'
+import { createTagService } from './services/tagService.js'
+import { createAutoSyncService } from './services/autoSyncService.js'
 
 // Tool definitions (paths only, skills will be scanned)
 export const toolDefinitions = [
@@ -72,6 +75,36 @@ let configCache = null
 
 // 添加自定义路径串行队列，避免双击确认导致并发写入重复路径
 let addCustomPathQueue = Promise.resolve()
+
+/**
+ * 规范化仓库路径（补齐末尾斜杠）
+ * @param {string} pathValue - 原始路径
+ * @returns {string}
+ */
+function normalizeRepoPath(pathValue) {
+  if (typeof pathValue !== 'string' || pathValue.length === 0) {
+    return DEFAULT_REPO_PATH
+  }
+  return pathValue.endsWith('/') ? pathValue : `${pathValue}/`
+}
+
+/**
+ * 获取默认配置对象
+ * @returns {Object}
+ */
+function createDefaultConfig() {
+  return {
+    version: '0.4',
+    repoPath: DEFAULT_REPO_PATH,
+    customPaths: [],
+    pushStatus: {},
+    pushTargets: [],
+    importSources: [],
+    firstEntryAfterImport: false,
+    tags: [],
+    skillTags: {},
+  }
+}
 
 /**
  * 获取配置文件完整路径（基于当前仓库路径）
@@ -198,37 +231,35 @@ export const dataStore = {
       return configCache
     }
 
-    const basePath = repoPath || DEFAULT_REPO_PATH
-    const configPath = getConfigPath(basePath)
-    const result = await readConfig(configPath)
-
-    let config
-    if (result && result.success) {
-      config = result.data
-    } else {
-      // Return default config if read fails
-      config = {
-        version: '0.4',
-        repoPath: DEFAULT_REPO_PATH,
-        customPaths: [],
-        pushStatus: {},
-        pushTargets: [],
-        importSources: [],
-        firstEntryAfterImport: false,
+    /**
+     * 读取并补齐配置
+     * @param {string} basePath - 配置所在目录
+     * @returns {Promise<Object>}
+     */
+    const readAndNormalizeConfig = async (basePath) => {
+      const configPath = getConfigPath(basePath)
+      const result = await readConfig(configPath)
+      const rawConfig = result && result.success ? result.data : createDefaultConfig()
+      const config = {
+        ...createDefaultConfig(),
+        ...(rawConfig || {}),
       }
+
+      config.repoPath = normalizeRepoPath(config.repoPath || basePath)
+      config.customPaths = dedupeCustomPaths(config.customPaths)
+      return config
     }
 
-    // Ensure required fields exist
-    if (!config.repoPath) config.repoPath = DEFAULT_REPO_PATH
-    if (!config.customPaths) config.customPaths = []
-    config.customPaths = dedupeCustomPaths(config.customPaths)
-    if (!config.pushStatus) config.pushStatus = {}
+    const normalizedDefaultPath = normalizeRepoPath(DEFAULT_REPO_PATH)
+    let config = await readAndNormalizeConfig(repoPath || normalizedDefaultPath)
 
-    // V0.4: 确保新字段存在（向后兼容）
-    if (!config.version) config.version = '0.4'
-    if (!config.pushTargets) config.pushTargets = []
-    if (!config.importSources) config.importSources = []
-    if (config.firstEntryAfterImport === undefined) config.firstEntryAfterImport = false
+    // 默认读取时，先从锚点拿 repoPath，再读取真实仓库配置，避免“默认文件和仓库文件”分裂
+    if (!repoPath) {
+      const normalizedRepoPath = normalizeRepoPath(config.repoPath)
+      if (normalizedRepoPath !== normalizedDefaultPath) {
+        config = await readAndNormalizeConfig(normalizedRepoPath)
+      }
+    }
 
     // Update cache
     if (!repoPath) {
@@ -245,15 +276,34 @@ export const dataStore = {
    * @returns {Promise<Object>} 保存结果
    */
   async saveConfig(config, repoPath = null) {
-    const basePath = repoPath || config.repoPath || DEFAULT_REPO_PATH
+    const basePath = normalizeRepoPath(repoPath || config.repoPath || DEFAULT_REPO_PATH)
     const configPath = getConfigPath(basePath)
+    const normalizedDefaultPath = normalizeRepoPath(DEFAULT_REPO_PATH)
 
     // Ensure version field (V0.4)
     if (!config.version) config.version = '0.4'
+    config.repoPath = normalizeRepoPath(config.repoPath || basePath)
 
     const result = await writeConfig(configPath, config)
     if (!result || typeof result.success !== 'boolean') {
       return { success: false, error: 'WRITE_FAILED' }
+    }
+
+    // 当中央仓库不在默认目录时，同步写回默认锚点文件，保证重启后仍能定位真实仓库配置
+    if (result.success && !repoPath && basePath !== normalizedDefaultPath) {
+      const ensureDefaultDirResult = await ensureDir(normalizedDefaultPath)
+      if (!ensureDefaultDirResult.success) {
+        return { success: false, error: ensureDefaultDirResult.error || 'DEFAULT_ANCHOR_DIR_FAILED' }
+      }
+
+      const defaultAnchorPath = getConfigPath(normalizedDefaultPath)
+      const defaultAnchorWriteResult = await writeConfig(defaultAnchorPath, config)
+      if (!defaultAnchorWriteResult || !defaultAnchorWriteResult.success) {
+        return {
+          success: false,
+          error: defaultAnchorWriteResult?.error || 'DEFAULT_ANCHOR_WRITE_FAILED',
+        }
+      }
     }
 
     // Update cache on success
@@ -322,6 +372,9 @@ export const dataStore = {
 
     // Update cache
     configCache = currentConfig
+
+    // 通知主进程重启文件监听
+    window.electronAPI?.restartRepoWatcher?.(normalizedPath).catch(() => {})
 
     return { success: true, error: null }
   },
@@ -792,6 +845,82 @@ export const dataStore = {
   getLastImportedToolIds() {
     return importService.getLastImportedToolIds()
   },
+
+  // ==================== 自动同步 (V0.14) ====================
+
+  /**
+   * 处理中央仓库变更事件（方向 1：中央→工具）
+   * @param {string[]} changedSkillNames - 变更的技能名列表
+   * @returns {Promise<{syncedCount: number, errors: string[]}>}
+   */
+  async handleCentralRepoChanged(changedSkillNames) {
+    return autoSyncService.handleCentralRepoChanged(changedSkillNames)
+  },
+
+  // ==================== 标签管理 (V0.13) ====================
+
+  /**
+   * 获取所有标签定义
+   * @returns {Promise<Array<{id: string, name: string}>>}
+   */
+  async getTags() {
+    return tagService.getTags()
+  },
+
+  /**
+   * 获取技能-标签映射
+   * @returns {Promise<Object>} { skillId: tagId }
+   */
+  async getSkillTags() {
+    return tagService.getSkillTags()
+  },
+
+  /**
+   * 创建新标签
+   * @param {string} name - 标签名称
+   * @returns {Promise<{success: boolean, tag?: Object, error?: string}>}
+   */
+  async createTag(name) {
+    return tagService.createTag(name)
+  },
+
+  /**
+   * 重命名标签
+   * @param {string} tagId - 标签 ID
+   * @param {string} newName - 新名称
+   * @returns {Promise<{success: boolean, error?: string}>}
+   */
+  async renameTag(tagId, newName) {
+    return tagService.renameTag(tagId, newName)
+  },
+
+  /**
+   * 删除标签（同时清理关联映射）
+   * @param {string} tagId - 标签 ID
+   * @returns {Promise<{success: boolean, error?: string}>}
+   */
+  async deleteTag(tagId) {
+    return tagService.deleteTag(tagId)
+  },
+
+  /**
+   * 给技能设置标签
+   * @param {string} skillId - 技能 ID
+   * @param {string} tagId - 标签 ID
+   * @returns {Promise<{success: boolean, error?: string}>}
+   */
+  async setSkillTag(skillId, tagId) {
+    return tagService.setSkillTag(skillId, tagId)
+  },
+
+  /**
+   * 移除技能的标签
+   * @param {string} skillId - 技能 ID
+   * @returns {Promise<{success: boolean, error?: string}>}
+   */
+  async removeSkillTag(skillId) {
+    return tagService.removeSkillTag(skillId)
+  },
 }
 
 const pushService = createPushService({
@@ -807,6 +936,11 @@ const pushService = createPushService({
   getCentralSkills: (...args) => dataStore.getCentralSkills(...args),
 })
 
+const tagService = createTagService({
+  getConfig: (...args) => dataStore.getConfig(...args),
+  saveConfig: (...args) => dataStore.saveConfig(...args),
+})
+
 const importService = createImportService({
   toolDefinitions,
   scanToolDirectory,
@@ -818,10 +952,18 @@ const importService = createImportService({
   getCentralSkillPath,
   getToolSkillPath,
   buildCustomToolPath,
+  compareSkillContent,
   getConfig: (...args) => dataStore.getConfig(...args),
   saveConfig: (...args) => dataStore.saveConfig(...args),
   getCentralSkills: (...args) => dataStore.getCentralSkills(...args),
   setFirstEntryAfterImport: (...args) => dataStore.setFirstEntryAfterImport(...args),
   clearPushStatusCache: () => dataStore.clearPushStatusCache(),
   DEFAULT_REPO_PATH,
+})
+
+const autoSyncService = createAutoSyncService({
+  getPushTargets: (...args) => dataStore.getPushTargets(...args),
+  getConfig: (...args) => dataStore.getConfig(...args),
+  pushSkills: (toolId, skillNames) => pushService.pushSkills(toolId, skillNames),
+  clearPushStatusCache: () => dataStore.clearPushStatusCache(),
 })

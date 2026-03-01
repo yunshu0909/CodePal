@@ -1,0 +1,543 @@
+/**
+ * TagManagementModal 组件样式
+ *
+ * 结构：.tag-modal-body > .tag-modal-left + .tag-modal-right
+ * 左侧：标签列表 + 新建表单
+ * 右侧：标签详情 / 成员列表 / 重命名 / 删除确认
+ */
+
+/* === 弹窗 body：左右双栏 === */
+.tag-modal-body {
+  display: flex;
+  min-height: 360px;
+  /* 覆盖 Modal.css 的默认 body padding */
+  margin: calc(-1 * var(--space-5)) calc(-1 * var(--space-6));
+}
+
+/* === 左侧面板 === */
+.tag-modal-left {
+  width: 180px;
+  border-right: 1px solid var(--border-light);
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+}
+
+.tag-modal-left-scroll {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--space-3);
+}
+
+.tag-modal-left-scroll::-webkit-scrollbar {
+  width: 3px;
+}
+
+.tag-modal-left-scroll::-webkit-scrollbar-thumb {
+  background: #ddd;
+  border-radius: 3px;
+}
+
+.tag-modal-left-empty {
+  padding: var(--space-5) var(--space-3);
+  font-size: var(--text-sm);
+  color: var(--text-tertiary);
+  text-align: center;
+}
+
+/* 标签列表项 */
+.tag-modal-tag-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  transition: all var(--transition-fast);
+  user-select: none;
+}
+
+.tag-modal-tag-item:hover {
+  background: var(--bg-muted);
+  color: var(--text-primary);
+}
+
+.tag-modal-tag-item.active {
+  background: var(--color-primary-light);
+  color: var(--color-primary);
+  font-weight: 500;
+}
+
+.tag-modal-tag-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tag-modal-tag-count {
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+  background: var(--bg-muted);
+  padding: 1px 7px;
+  border-radius: var(--radius-full);
+  flex-shrink: 0;
+  margin-left: var(--space-1);
+}
+
+.tag-modal-tag-count.active {
+  background: #dbeafe;
+  color: var(--color-primary);
+}
+
+/* 左侧底部 */
+.tag-modal-left-footer {
+  padding: var(--space-3);
+  border-top: 1px solid var(--border-light);
+  flex-shrink: 0;
+}
+
+/* 新建标签按钮 */
+.tag-modal-btn-new {
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  border: 1.5px dashed var(--border-strong);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+}
+
+.tag-modal-btn-new:hover {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+  background: var(--color-primary-light);
+}
+
+/* 新建标签表单 */
+.tag-modal-create-form {
+  overflow: hidden;
+}
+
+.tag-modal-create-input-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.tag-modal-create-input {
+  flex: 1;
+  min-width: 0;
+  padding: 5px 8px;
+  border-radius: var(--radius-md);
+  border: 1.5px solid var(--color-primary);
+  font-size: var(--text-sm);
+  font-family: inherit;
+  outline: none;
+  color: var(--text-primary);
+  background: var(--bg-base);
+}
+
+.tag-modal-create-confirm {
+  padding: 5px 8px;
+  border-radius: var(--radius-md);
+  border: none;
+  background: var(--color-primary);
+  color: #fff;
+  font-size: var(--text-xs);
+  font-weight: 500;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background var(--transition-fast);
+}
+
+.tag-modal-create-confirm:hover {
+  background: var(--color-primary-hover);
+}
+
+.tag-modal-create-confirm:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.tag-modal-create-cancel {
+  padding: 5px 6px;
+  border-radius: var(--radius-md);
+  border: none;
+  background: transparent;
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.tag-modal-create-cancel:hover {
+  background: var(--bg-muted);
+  color: var(--text-secondary);
+}
+
+/* 字符计数 + 错误 */
+.tag-modal-create-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: var(--space-1);
+  min-height: 16px;
+}
+
+.tag-modal-counter {
+  font-size: var(--text-2xs);
+}
+
+.tag-modal-counter--muted {
+  color: var(--text-tertiary);
+}
+
+.tag-modal-counter--warning {
+  color: var(--color-warning);
+}
+
+.tag-modal-counter--danger {
+  color: var(--color-danger);
+}
+
+.tag-modal-create-error {
+  font-size: var(--text-2xs);
+  color: var(--color-danger);
+}
+
+/* === 右侧面板 === */
+.tag-modal-right {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+/* 未选占位 */
+.tag-modal-placeholder {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-tertiary);
+  font-size: var(--text-sm);
+}
+
+/* 右侧 header */
+.tag-modal-right-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-4) var(--space-5) var(--space-3);
+  border-bottom: 1px solid var(--border-light);
+  flex-shrink: 0;
+  min-height: 52px;
+}
+
+.tag-modal-right-header-info {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.tag-modal-right-tag-name {
+  font-size: var(--text-md);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.tag-modal-right-skill-count {
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+}
+
+.tag-modal-right-actions {
+  display: flex;
+  gap: var(--space-2);
+  flex-shrink: 0;
+}
+
+/* 重命名/删除按钮 */
+.tag-modal-btn-rename {
+  padding: 5px 10px;
+  border-radius: var(--radius-md);
+  border: 1.5px solid var(--border-default);
+  background: var(--bg-base);
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.tag-modal-btn-rename:hover {
+  border-color: var(--border-strong);
+}
+
+.tag-modal-btn-delete {
+  padding: 5px 10px;
+  border-radius: var(--radius-md);
+  border: 1.5px solid transparent;
+  background: transparent;
+  color: var(--color-danger);
+  font-size: var(--text-xs);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.tag-modal-btn-delete:hover {
+  background: var(--color-danger-bg);
+  border-color: #fca5a5;
+}
+
+/* 重命名表单 */
+.tag-modal-rename-form {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex: 1;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.tag-modal-rename-input {
+  flex: 1;
+  min-width: 0;
+  padding: 5px 10px;
+  border-radius: var(--radius-md);
+  border: 1.5px solid var(--color-primary);
+  font-size: var(--text-md);
+  font-weight: 600;
+  font-family: inherit;
+  color: var(--text-primary);
+  background: var(--bg-base);
+  outline: none;
+}
+
+.tag-modal-rename-confirm {
+  padding: 5px 12px;
+  border-radius: var(--radius-md);
+  border: none;
+  background: var(--color-primary);
+  color: #fff;
+  font-size: var(--text-xs);
+  font-weight: 500;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background var(--transition-fast);
+}
+
+.tag-modal-rename-confirm:hover {
+  background: var(--color-primary-hover);
+}
+
+.tag-modal-rename-confirm:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.tag-modal-rename-cancel {
+  padding: 5px 10px;
+  border-radius: var(--radius-md);
+  border: 1.5px solid var(--border-default);
+  background: var(--bg-base);
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+  font-weight: 500;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: all var(--transition-fast);
+}
+
+.tag-modal-rename-cancel:hover {
+  border-color: var(--border-strong);
+}
+
+.tag-modal-rename-error {
+  font-size: var(--text-2xs);
+  color: var(--color-danger);
+  width: 100%;
+}
+
+/* 删除确认区 */
+.tag-modal-delete-confirm {
+  padding: var(--space-5);
+  background: var(--color-danger-bg);
+  border-bottom: 1px solid #fecaca;
+  flex-shrink: 0;
+}
+
+.tag-modal-delete-text {
+  font-size: var(--text-sm);
+  color: var(--text-primary);
+  margin-bottom: var(--space-4);
+  line-height: 1.6;
+}
+
+.tag-modal-delete-text strong {
+  color: var(--color-danger);
+}
+
+.tag-modal-delete-actions {
+  display: flex;
+  gap: var(--space-2);
+  justify-content: flex-end;
+}
+
+.tag-modal-btn-cancel-delete {
+  padding: 6px 14px;
+  border-radius: var(--radius-md);
+  border: 1.5px solid var(--border-default);
+  background: var(--bg-base);
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.tag-modal-btn-cancel-delete:hover {
+  border-color: var(--border-strong);
+}
+
+.tag-modal-btn-confirm-delete {
+  padding: 6px 14px;
+  border-radius: var(--radius-md);
+  border: none;
+  background: var(--color-danger);
+  color: #fff;
+  font-size: var(--text-xs);
+  font-weight: 500;
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+.tag-modal-btn-confirm-delete:hover {
+  background: #b91c1c;
+}
+
+.tag-modal-btn-confirm-delete:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* 技能列表 */
+.tag-modal-skill-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--space-3) var(--space-4);
+  transition: opacity var(--transition-fast);
+}
+
+.tag-modal-skill-list::-webkit-scrollbar {
+  width: 3px;
+}
+
+.tag-modal-skill-list::-webkit-scrollbar-thumb {
+  background: #ddd;
+  border-radius: 3px;
+}
+
+.tag-modal-skill-list.dimmed {
+  opacity: 0.4;
+  pointer-events: none;
+}
+
+/* 技能列表空态 */
+.tag-modal-skill-empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-tertiary);
+  font-size: var(--text-sm);
+  text-align: center;
+  padding: var(--space-8);
+  min-height: 200px;
+}
+
+.tag-modal-skill-empty-hint {
+  font-size: var(--text-xs);
+  color: var(--text-placeholder);
+  margin-top: var(--space-2);
+}
+
+/* 技能项 */
+.tag-modal-skill-item {
+  display: flex;
+  align-items: center;
+  padding: var(--space-3) var(--space-2);
+  border-radius: var(--radius-md);
+  border-bottom: 1px solid var(--border-light);
+  transition: background var(--transition-fast);
+}
+
+.tag-modal-skill-item:last-child {
+  border-bottom: none;
+}
+
+.tag-modal-skill-item:hover {
+  background: var(--bg-muted);
+}
+
+.tag-modal-skill-item:hover .tag-modal-btn-remove {
+  opacity: 1;
+}
+
+.tag-modal-skill-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.tag-modal-skill-name {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.tag-modal-skill-desc {
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+  margin-top: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 移出按钮 */
+.tag-modal-btn-remove {
+  opacity: 0;
+  padding: 4px 10px;
+  border-radius: var(--radius-sm);
+  border: 1.5px solid var(--border-default);
+  background: var(--bg-base);
+  color: var(--color-danger);
+  font-size: var(--text-xs);
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  white-space: nowrap;
+  flex-shrink: 0;
+  margin-left: var(--space-3);
+}
+
+.tag-modal-btn-remove:hover {
+  background: var(--color-danger-bg);
+  border-color: #fca5a5;
+}
+
+.tag-modal-btn-remove:disabled {
+  opacity: 0;
+  cursor: not-allowed;
+}

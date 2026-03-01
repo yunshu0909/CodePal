@@ -6,11 +6,12 @@
   "scripts": {
     "dev": "concurrently \"npm run dev:vite\" \"npm run dev:electron\"",
     "dev:vite": "vite",
-    "dev:electron": "wait-on http://localhost:5173 && electron .",
+    "dev:electron": "wait-on http://localhost:5173 && VITE_DEV_SERVER_URL=http://localhost:5173 electron .",
     "mcp:provider-registry": "node mcp/provider_registry_mcp.js",
     "mcp:provider-registry:smoke": "node mcp/provider_registry_mcp_smoke.js",
     "mcp:install-provider-registry:mvp": "node scripts/mcp/install_provider_registry_mvp.js",
     "build": "vite build",
+    "dist": "npm run build && electron-builder --mac --arm64",
     "preview": "vite preview",
     "test": "npm run test:v04 && npm run test:v05",
     "test:v04": "vitest run --config 自动化测试/V0.4/vitest.config.js",
@@ -58,8 +59,30 @@
   ],
   "author": "",
   "license": "ISC",
+  "build": {
+    "appId": "com.skillmanager.app",
+    "productName": "CodePal",
+    "mac": {
+      "target": {
+        "target": "dmg",
+        "arch": ["arm64"]
+      },
+      "category": "public.app-category.developer-tools"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "templates/**/*",
+      "mcp/**/*",
+      "!**/*.map"
+    ],
+    "directories": {
+      "output": "release"
+    }
+  },
   "dependencies": {
     "@iarna/toml": "^2.2.5",
+    "chokidar": "^4.0.3",
     "dotenv": "^17.3.1",
     "electron-store": "^11.0.2",
     "react": "^19.2.4",
@@ -75,6 +98,7 @@
     "@vitest/ui": "^4.0.18",
     "concurrently": "^9.2.1",
     "electron": "^40.2.1",
+    "electron-builder": "^26.8.1",
     "electron-mock": "^0.5.0",
     "happy-dom": "^20.6.1",
     "jsdom": "^28.0.0",

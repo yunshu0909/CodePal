@@ -135,6 +135,19 @@ export async function scanCustomPath(basePath) {
 }
 
 /**
+ * 比较两个技能目录的 SKILL.md 内容 hash
+ * @param {string} sourcePath - 来源技能目录路径
+ * @param {string} targetPath - 目标技能目录路径
+ * @returns {Promise<{success: boolean, isDifferent: boolean, sourceMtime: number}>}
+ */
+export async function compareSkillContent(sourcePath, targetPath) {
+  if (!window.electronAPI?.compareSkillContent) {
+    return { success: false, isDifferent: false, error: 'API_NOT_AVAILABLE' }
+  }
+  return window.electronAPI.compareSkillContent({ sourcePath, targetPath })
+}
+
+/**
  * 扫描日志文件
  * 扫描指定目录下的 .jsonl 日志文件，返回文件路径和内容行
  * @param {Object} params - 扫描参数
