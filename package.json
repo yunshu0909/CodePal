@@ -74,7 +74,9 @@
       "electron/**/*",
       "templates/**/*",
       "mcp/**/*",
-      "!**/*.map"
+      "!**/*.map",
+      "!.provider-manifests.json",
+      "!.provider-manifests.json.bak.*"
     ],
     "directories": {
       "output": "release"
