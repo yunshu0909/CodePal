@@ -22,6 +22,7 @@ jobs:
       - run: npm run dist
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CSC_IDENTITY_AUTO_DISCOVERY: false
 
       - uses: softprops/action-gh-release@v2
         with:
