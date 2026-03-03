@@ -328,8 +328,8 @@ export default function ClaudeCodePage({ isActive = true }) {
 
   return (
     <PageShell
-      title="Claude Code 管理"
-      subtitle="版本升级 · 认证管理 · 网络诊断"
+      title="Claude Code 环境检查"
+      subtitle="版本 · 认证 · 网络"
       className="page-shell--no-padding"
       actions={
         <Button

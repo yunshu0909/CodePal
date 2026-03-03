@@ -16,33 +16,13 @@ const { execFile } = require('child_process')
 const { promisify } = require('util')
 
 const execFileAsync = promisify(execFile)
-
-/**
- * 可用模板定义
- * key 用于前后端交互，sourceFile 用于定位模板源文件
- */
-const TEMPLATE_DEFINITIONS = Object.freeze({
-  agents: {
-    key: 'agents',
-    sourceFile: 'AGENTS.md',
-    targetSegments: ['AGENTS.md'],
-  },
-  claude: {
-    key: 'claude',
-    sourceFile: 'CLAUDE.md',
-    targetSegments: ['CLAUDE.md'],
-  },
-  design: {
-    key: 'design',
-    sourceFile: 'design-system.html',
-    targetSegments: ['design', 'design-system.html'],
-  },
-})
-
-const TEMPLATE_KEYS = Object.freeze(Object.keys(TEMPLATE_DEFINITIONS))
-const DEFAULT_TEMPLATE_KEYS = Object.freeze(['agents', 'claude', 'design'])
-const SUPPORTED_GIT_MODES = new Set(['root', 'code', 'none'])
-const PROJECT_NAME_INVALID_CHARS = /[\\/:*?"<>|]/
+const {
+  TEMPLATE_DEFINITIONS,
+  TEMPLATE_KEYS,
+  DEFAULT_TEMPLATE_KEYS,
+  SUPPORTED_GIT_MODES,
+  PROJECT_NAME_INVALID_CHARS,
+} = require('../config/projectInitConfig')
 
 /**
  * 归一化模板勾选输入

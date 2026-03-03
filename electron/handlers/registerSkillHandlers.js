@@ -11,6 +11,7 @@
 const fs = require('fs/promises')
 const path = require('path')
 const crypto = require('crypto')
+const { PRESET_TOOLS } = require('../services/skillScanService')
 
 /**
  * 注册技能管理相关 IPC handlers
@@ -19,10 +20,9 @@ const crypto = require('crypto')
  * @param {(filepath: string) => string} deps.expandHome - 家目录展开函数
  * @param {(filepath: string) => Promise<boolean>} deps.pathExists - 路径存在检查
  * @param {(content: string) => {name: string, desc: string}} deps.parseSkillMd - SKILL.md 解析函数
- * @param {Array} deps.PRESET_TOOLS - 预设工具定义
  * @param {(targetPath: string) => boolean} deps.isPathInAllowedDirs - 删除白名单校验
  */
-function registerSkillHandlers({ ipcMain, expandHome, pathExists, parseSkillMd, PRESET_TOOLS, isPathInAllowedDirs }) {
+function registerSkillHandlers({ ipcMain, expandHome, pathExists, parseSkillMd, isPathInAllowedDirs }) {
 /**
  * 执行导入操作
  * 将选中的来源 skills 去重合并到中央仓库

@@ -170,7 +170,12 @@ export default function App() {
   // 始终渲染 WorkbenchLayout；加载中时内容区显示 loading
   return (
     <div className="app">
-      <WorkbenchLayout activeModule={activeModule} onModuleChange={handleModuleChange}>
+      <WorkbenchLayout
+        activeModule={activeModule}
+        onModuleChange={handleModuleChange}
+        hasUpdate={false}
+        onUpdateClick={() => { /* TODO: 接入 GitHub 版本检查后实现 */ }}
+      >
         {activeModule === 'skills' && (
           initialSkillManagerPage === null
             ? <div className="manage-container"><div className="loading-state">加载中...</div></div>
@@ -181,12 +186,12 @@ export default function App() {
               />
         )}
         {(activeModule === 'mcp' || hasVisitedMcp) && (
-          <div style={{ display: activeModule === 'mcp' ? 'block' : 'none', height: '100%' }}>
+          <div className="keep-alive-wrapper" hidden={activeModule !== 'mcp'}>
             <McpPage isActive={activeModule === 'mcp'} />
           </div>
         )}
         {(activeModule === 'claude-code' || hasVisitedClaudeCode) && (
-          <div style={{ display: activeModule === 'claude-code' ? 'block' : 'none', height: '100%' }}>
+          <div className="keep-alive-wrapper" hidden={activeModule !== 'claude-code'}>
             <ClaudeCodePage isActive={activeModule === 'claude-code'} />
           </div>
         )}

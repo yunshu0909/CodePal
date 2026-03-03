@@ -24,7 +24,6 @@ import {
   compareSkillContent,
 } from './fs.js'
 import {
-  normalizePathForCompare,
   dedupeCustomPaths,
   getToolSkillPath,
   buildCustomToolPath,
@@ -33,6 +32,8 @@ import { createImportService } from './services/importService.js'
 import { createPushService } from './services/pushService.js'
 import { createTagService } from './services/tagService.js'
 import { createAutoSyncService } from './services/autoSyncService.js'
+import { createCustomPathManager } from './services/customPathManager.js'
+import { createRepoPathManager } from './services/repoPathManager.js'
 
 // Tool definitions (paths only, skills will be scanned)
 export const toolDefinitions = [
@@ -73,8 +74,26 @@ const CONFIG_FILE = '.config.json'
 // In-memory cache for config to avoid repeated reads
 let configCache = null
 
-// 添加自定义路径串行队列，避免双击确认导致并发写入重复路径
-let addCustomPathQueue = Promise.resolve()
+// 配置保存后的回调队列，用于自动清除依赖缓存（如 pushStatusCache）
+// 避免新代码路径遗漏手动调 clearXxxCache()
+const onConfigSavedCallbacks = []
+
+/**
+ * 注册配置保存后的回调（用于缓存联动失效）
+ * @param {() => void} callback
+ */
+function registerOnConfigSaved(callback) {
+  onConfigSavedCallbacks.push(callback)
+}
+
+/**
+ * 触发所有配置保存后的回调
+ */
+function fireOnConfigSaved() {
+  for (const cb of onConfigSavedCallbacks) {
+    try { cb() } catch (_) { /* 静默处理：回调不应阻断主流程 */ }
+  }
+}
 
 /**
  * 规范化仓库路径（补齐末尾斜杠）
@@ -306,9 +325,10 @@ export const dataStore = {
       }
     }
 
-    // Update cache on success
+    // Update cache on success, then notify dependent caches
     if (result.success && !repoPath) {
       configCache = config
+      fireOnConfigSaved()
     }
 
     return result
@@ -321,253 +341,52 @@ export const dataStore = {
     configCache = null
   },
 
-  // ==================== 中央仓库路径管理 ====================
+  // ==================== 中央仓库路径管理（委托 repoPathManager） ====================
 
-  /**
-   * 获取当前中央仓库路径
-   * @returns {Promise<string>} 中央仓库路径
-   */
   async getRepoPath() {
-    const config = await this.getConfig()
-    return config.repoPath || DEFAULT_REPO_PATH
+    return repoPathManager.getRepoPath()
   },
 
-  /**
-   * 设置中央仓库路径
-   * 迁移现有配置到新路径
-   * @param {string} newPath - 新仓库路径
-   * @returns {Promise<{success: boolean, error: string|null}>}
-   */
   async setRepoPath(newPath) {
-    if (!newPath || typeof newPath !== 'string') {
-      return { success: false, error: 'INVALID_PATH' }
+    const result = await repoPathManager.setRepoPath(newPath)
+    // 同步内存缓存
+    if (result.success) {
+      configCache = await this.getConfig()
     }
-
-    // Normalize path
-    const normalizedPath = newPath.endsWith('/') ? newPath : `${newPath}/`
-
-    // Get current config before changing path
-    const currentConfig = await this.getConfig()
-
-    // Update repo path in config
-    currentConfig.repoPath = normalizedPath
-
-    // Ensure new directory exists
-    const ensureResult = await ensureDir(normalizedPath)
-    if (!ensureResult.success) {
-      return { success: false, error: ensureResult.error }
-    }
-
-    // Save config to new location
-    const saveResult = await this.saveConfig(currentConfig, normalizedPath)
-    if (!saveResult.success) {
-      return { success: false, error: saveResult.error }
-    }
-
-    // 在默认路径也保存一份，重启时能通过默认路径找到新仓库位置
-    if (normalizedPath !== DEFAULT_REPO_PATH) {
-      await ensureDir(DEFAULT_REPO_PATH)
-      await this.saveConfig(currentConfig, DEFAULT_REPO_PATH)
-    }
-
-    // Update cache
-    configCache = currentConfig
-
-    // 通知主进程重启文件监听
-    window.electronAPI?.restartRepoWatcher?.(normalizedPath).catch(() => {})
-
-    return { success: true, error: null }
+    return result
   },
 
-  /**
-   * 选择文件夹对话框并设置为中央仓库
-   * @returns {Promise<{success: boolean, path: string|null, canceled: boolean, error: string|null}>}
-   */
   async selectAndSetRepoPath() {
-    const result = await selectFolder()
-
-    if (!result.success || result.canceled) {
-      return { success: false, path: null, canceled: true, error: result.error }
-    }
-
-    const setResult = await this.setRepoPath(result.path)
-
-    if (!setResult.success) {
-      return { success: false, path: null, canceled: false, error: setResult.error }
-    }
-
-    return { success: true, path: result.path, canceled: false, error: null }
+    return repoPathManager.selectAndSetRepoPath()
   },
 
-  // ==================== 自定义路径管理 ====================
+  // ==================== 自定义路径管理（委托 customPathManager） ====================
 
-  /**
-   * 获取所有自定义路径
-   * @returns {Promise<Array>} 自定义路径列表
-   */
   async getCustomPaths() {
-    const config = await this.getConfig()
-    return config.customPaths || []
+    return customPathManager.getCustomPaths()
   },
 
-  /**
-   * 扫描自定义路径中的 skills
-   * @param {string} basePath - 基础路径
-   * @returns {Promise<{success: boolean, skills: Object, error: string|null}>}
-   *   skills format: { claude: 5, codex: 3 }
-   */
   async scanCustomPath(basePath) {
-    return scanCustomPath(basePath)
+    return customPathManager.scanCustomPath(basePath)
   },
 
-  /**
-   * 添加自定义路径
-   * 扫描路径并保存到配置
-   * @param {string} path - 自定义路径
-   * @returns {Promise<{success: boolean, customPath: Object|null, error: string|null}>}
-   */
   async addCustomPath(path) {
-    const runAddCustomPath = async () => {
-      if (!path || typeof path !== 'string') {
-        return { success: false, customPath: null, error: 'INVALID_PATH' }
-      }
-
-      const config = await this.getConfig()
-      const normalizedPath = normalizePathForCompare(path)
-
-      // Check for duplicate path
-      config.customPaths = dedupeCustomPaths(config.customPaths)
-      const exists = config.customPaths.some(
-        (cp) => normalizePathForCompare(cp.path) === normalizedPath
-      )
-      if (exists) {
-        return { success: false, customPath: null, error: 'PATH_ALREADY_EXISTS' }
-      }
-
-      // Scan path for skills
-      const scanResult = await this.scanCustomPath(path)
-      if (!scanResult.success) {
-        return { success: false, customPath: null, error: scanResult.error }
-      }
-
-      // Check if any skills found
-      const skillEntries = Object.entries(scanResult.skills)
-      const totalSkills = skillEntries.reduce((sum, [, count]) => sum + count, 0)
-
-      if (totalSkills === 0) {
-        return { success: false, customPath: null, error: 'NO_SKILLS_FOUND' }
-      }
-
-      // 二次校验：并发场景下，扫描耗时期间该路径可能已被其他请求写入
-      config.customPaths = dedupeCustomPaths(config.customPaths)
-      const existsAfterScan = config.customPaths.some(
-        (cp) => normalizePathForCompare(cp.path) === normalizedPath
-      )
-      if (existsAfterScan) {
-        return { success: false, customPath: null, error: 'PATH_ALREADY_EXISTS' }
-      }
-
-      // Create custom path entry
-      const customPath = {
-        id: `custom-${Date.now()}`,
-        path: normalizedPath,
-        skills: scanResult.skills,
-      }
-
-      // Add to config
-      config.customPaths.push(customPath)
-
-      // Save config
-      const saveResult = await this.saveConfig(config)
-      if (!saveResult.success) {
-        return { success: false, customPath: null, error: saveResult.error }
-      }
-
-      return { success: true, customPath, error: null }
-    }
-
-    // 串行执行，确保同一时刻只有一个 addCustomPath 任务写配置
-    const queuedTask = addCustomPathQueue.then(runAddCustomPath, runAddCustomPath)
-    addCustomPathQueue = queuedTask.then(() => undefined, () => undefined)
-    return queuedTask
+    return customPathManager.addCustomPath(path)
   },
 
-  /**
-   * 删除自定义路径
-   * @param {string} customPathId - 自定义路径 ID
-   * @returns {Promise<{success: boolean, error: string|null}>}
-   */
   async deleteCustomPath(customPathId) {
-    if (!customPathId) {
-      return { success: false, error: 'INVALID_ID' }
-    }
-
-    const config = await this.getConfig()
-
-    const index = config.customPaths.findIndex((cp) => cp.id === customPathId)
-    if (index === -1) {
-      return { success: false, error: 'PATH_NOT_FOUND' }
-    }
-
-    // Remove from config
-    config.customPaths.splice(index, 1)
-
-    // Save config
-    const saveResult = await this.saveConfig(config)
-    if (!saveResult.success) {
-      return { success: false, error: saveResult.error }
-    }
-
-    return { success: true, error: null }
+    return customPathManager.deleteCustomPath(customPathId)
   },
 
-  /**
-   * 选择文件夹并添加为自定义路径
-   * @returns {Promise<{success: boolean, customPath: Object|null, canceled: boolean, error: string|null}>}
-   */
   async selectAndAddCustomPath() {
-    const result = await selectFolder()
-
-    if (!result.success || result.canceled) {
-      return { success: false, customPath: null, canceled: true, error: result.error }
-    }
-
-    const addResult = await this.addCustomPath(result.path)
-
-    return {
-      success: addResult.success,
-      customPath: addResult.customPath,
-      canceled: false,
-      error: addResult.error,
-    }
+    return customPathManager.selectAndAddCustomPath()
   },
 
-  /**
-   * 获取所有工具的推送状态
-   * @returns {Promise<Object>} 推送状态对象
-   */
-  async getToolStatus() {
-    return pushService.getToolStatus()
-  },
+  // ==================== 推送状态管理（委托 pushService） ====================
 
-  /**
-   * 检查技能是否已推送到指定工具（基于文件存在性检查）
-   * 使用内存缓存避免重复 IPC 调用
-   * @param {string} toolId - 工具 ID
-   * @param {string} skillName - 技能名称
-   * @returns {Promise<boolean>} 是否已推送
-   */
-  async isPushed(toolId, skillName) {
-    return pushService.isPushed(toolId, skillName)
-  },
-
-  /**
-   * 清除推送状态缓存
-   * 在操作完成后调用以刷新状态
-   */
-  clearPushStatusCache() {
-    pushService.clearPushStatusCache()
-  },
+  async getToolStatus() { return pushService.getToolStatus() },
+  async isPushed(toolId, skillName) { return pushService.isPushed(toolId, skillName) },
+  clearPushStatusCache() { pushService.clearPushStatusCache() },
 
   /**
    * 批量检查推送状态（带缓存优化）
@@ -589,36 +408,11 @@ export const dataStore = {
     return result
   },
 
-  /**
-   * 从选中的工具导入技能到中央仓库
-   * 如果技能已存在则强制覆盖
-   * @param {string[]} selectedToolIds - 选中的工具 ID 列表
-   * @param {string[]} selectedCustomPathIds - 选中的自定义路径 ID 列表（可选）
-   * @returns {Promise<{success: boolean, copiedCount: number, errors: Array|null}>} 导入结果
-   */
   async importSkills(selectedToolIds, selectedCustomPathIds = []) {
     return importService.importSkills(selectedToolIds, selectedCustomPathIds)
   },
-
-  /**
-   * 推送技能到指定工具（从中央仓库复制到工具目录）
-   * @param {string} toolId - 工具 ID
-   * @param {string[]} skillNames - 技能名称列表
-   * @returns {Promise<{success: boolean, pushedCount: number, errors: Array|null}>} 推送结果
-   */
-  async pushSkills(toolId, skillNames) {
-    return pushService.pushSkills(toolId, skillNames)
-  },
-
-  /**
-   * 取消推送技能从指定工具（从工具目录删除）
-   * @param {string} toolId - 工具 ID
-   * @param {string[]} skillNames - 技能名称列表
-   * @returns {Promise<{success: boolean, unpushedCount: number, errors: Array|null}>} 取消推送结果
-   */
-  async unpushSkills(toolId, skillNames) {
-    return pushService.unpushSkills(toolId, skillNames)
-  },
+  async pushSkills(toolId, skillNames) { return pushService.pushSkills(toolId, skillNames) },
+  async unpushSkills(toolId, skillNames) { return pushService.unpushSkills(toolId, skillNames) },
 
   /**
    * 获取指定工具的技能及其推送状态（用于管理页面）
@@ -923,6 +717,21 @@ export const dataStore = {
   },
 }
 
+const customPathManager = createCustomPathManager({
+  getConfig: (...args) => dataStore.getConfig(...args),
+  saveConfig: (...args) => dataStore.saveConfig(...args),
+  scanCustomPath,
+  selectFolder,
+})
+
+const repoPathManager = createRepoPathManager({
+  getConfig: (...args) => dataStore.getConfig(...args),
+  saveConfig: (...args) => dataStore.saveConfig(...args),
+  ensureDir,
+  selectFolder,
+  DEFAULT_REPO_PATH,
+})
+
 const pushService = createPushService({
   toolDefinitions,
   pathExists,
@@ -967,3 +776,7 @@ const autoSyncService = createAutoSyncService({
   pushSkills: (toolId, skillNames) => pushService.pushSkills(toolId, skillNames),
   clearPushStatusCache: () => dataStore.clearPushStatusCache(),
 })
+
+// 注册缓存联动：saveConfig 成功后自动清除 pushStatusCache
+// 作为安全网，即使新代码路径忘了手动 clear 也不会读到脏缓存
+registerOnConfigSaved(() => pushService.clearPushStatusCache())

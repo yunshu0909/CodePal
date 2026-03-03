@@ -7,25 +7,13 @@
  * - 运行 Doctor 健康检查
  * - 查询认证状态
  * - 发起登录流程
- * - 执行网络诊断脚本并解析结果
+ * - 执行网络环境诊断（内置 Node.js 模块）
  *
  * @module electron/handlers/registerClaudeCodeHandlers
  */
 
 const { exec, spawn } = require('child_process')
-const fs = require('fs/promises')
-const path = require('path')
-const os = require('os')
-const Store = require('electron-store').default
-
-/** @type {Store} 应用配置存储 */
-const store = new Store()
-
-/**
- * 默认诊断脚本路径
- * @type {string}
- */
-const DEFAULT_NETWORK_SCRIPT = '~/Documents/0109todo/scripts/claude_env_check.sh'
+const { runAllChecks } = require('../services/networkCheckService')
 
 /**
  * 各命令超时时间（毫秒）
@@ -38,18 +26,6 @@ const TIMEOUTS = {
   auth: 15_000,
   authLogin: 30_000,
   network: 30_000,
-}
-
-/**
- * 将 ~ 展开为用户主目录
- * @param {string} filepath - 原始路径
- * @returns {string} 展开后的绝对路径
- */
-function expandHomePath(filepath) {
-  if (filepath && filepath.startsWith('~/')) {
-    return path.join(os.homedir(), filepath.slice(2))
-  }
-  return filepath
 }
 
 /**
@@ -151,81 +127,6 @@ function parseAuthOutput(output, exitCode) {
   }
 
   return result
-}
-
-/**
- * 将脚本分段名映射为中文标签
- * @type {Object<string, string>}
- */
-const SECTION_NAME_MAP = {
-  'system proxy': '系统代理',
-  'tun and route': 'TUN 路由',
-  'egress country': '出口国家',
-  'anthropic reachability': 'API 连通',
-  'recent claude logs': '403 监测',
-}
-
-/**
- * 解析网络诊断脚本输出
- *
- * 执行步骤：
- * 1. 按 == section_name == 分段
- * 2. 每段提取最后一个 [PASS]/[WARN]/[FAIL] 标记及其详情
- * 3. 统计各状态计数，判定 overall
- *
- * @param {string} output - 脚本原始输出
- * @param {number} exitCode - 脚本退出码（1=有 FAIL）
- * @returns {{ overall: string, passCount: number, warnCount: number, failCount: number, checks: Array<{name: string, status: string, detail: string}> }}
- */
-function parseNetworkOutput(output, exitCode) {
-  const checks = []
-  let passCount = 0
-  let warnCount = 0
-  let failCount = 0
-
-  // 按 == section == 分段（忽略头部和 Result 段）
-  const sectionRegex = /==\s*(.+?)\s*==/g
-  const sections = []
-  let match
-
-  while ((match = sectionRegex.exec(output)) !== null) {
-    sections.push({ name: match[1], startIndex: match.index + match[0].length })
-  }
-
-  for (let i = 0; i < sections.length; i++) {
-    const section = sections[i]
-    const endIndex = i + 1 < sections.length ? sections[i + 1].startIndex - sections[i + 1].name.length - 6 : output.length
-    const content = output.slice(section.startIndex, endIndex)
-
-    // 跳过头部总览段和结果段
-    const nameLower = section.name.toLowerCase()
-    if (nameLower.includes('self-check') || nameLower === 'result') continue
-
-    // 提取最后一个 [PASS]/[WARN]/[FAIL] 行
-    const statusLines = content.match(/\[(PASS|WARN|FAIL)\]\s*(.*)/g)
-    if (!statusLines || statusLines.length === 0) continue
-
-    const lastLine = statusLines[statusLines.length - 1]
-    const statusMatch = lastLine.match(/\[(PASS|WARN|FAIL)\]\s*(.*)/)
-    if (!statusMatch) continue
-
-    const status = statusMatch[1].toLowerCase()
-    const detail = statusMatch[2].trim()
-    const displayName = SECTION_NAME_MAP[nameLower] || section.name
-
-    checks.push({ name: displayName, status, detail })
-
-    if (status === 'pass') passCount++
-    else if (status === 'warn') warnCount++
-    else if (status === 'fail') failCount++
-  }
-
-  // overall 判定：有 FAIL=fail，有 WARN=warn，否则 pass
-  let overall = 'pass'
-  if (failCount > 0) overall = 'fail'
-  else if (warnCount > 0) overall = 'warn'
-
-  return { overall, passCount, warnCount, failCount, checks }
 }
 
 /**
@@ -387,40 +288,14 @@ function registerClaudeCodeHandlers({ ipcMain }) {
   })
 
   /**
-   * 执行网络诊断脚本
-   * @returns {Promise<{success: boolean, overall?: string, passCount?: number, warnCount?: number, failCount?: number, checks?: Array, rawOutput?: string, errorCode?: string, error?: string}>}
+   * 执行网络环境诊断（内置 Node.js 模块，无需外部脚本）
+   * @returns {Promise<{success: boolean, overall?: string, passCount?: number, warnCount?: number, failCount?: number, checks?: Array, errorCode?: string, error?: string}>}
    */
   ipcMain.handle('claudeCode:networkCheck', async () => {
-    const configPath = store.get('claudeCode.networkCheckScript', DEFAULT_NETWORK_SCRIPT)
-    const scriptPath = expandHomePath(configPath)
-
-    // 检查脚本是否存在
     try {
-      await fs.access(scriptPath, fs.constants.F_OK)
-    } catch {
-      return { success: false, errorCode: 'SCRIPT_NOT_FOUND', error: `诊断脚本不存在: ${scriptPath}` }
-    }
-
-    // 检查执行权限
-    try {
-      await fs.access(scriptPath, fs.constants.X_OK)
-    } catch {
-      return { success: false, errorCode: 'PERMISSION_DENIED', error: '诊断脚本无执行权限，请运行 chmod +x' }
-    }
-
-    try {
-      const { stdout } = await execAsync(`bash "${scriptPath}"`, TIMEOUTS.network)
-      const result = parseNetworkOutput(stdout, 0)
-      return { success: true, ...result, rawOutput: stdout }
+      const result = await runAllChecks()
+      return { success: true, ...result }
     } catch (error) {
-      if (isTimeout(error)) {
-        return { success: false, errorCode: 'TIMEOUT', error: '网络诊断超时' }
-      }
-      // 脚本 FAIL 时 exit code=1，但 stdout 仍有有效输出
-      if (error.stdout) {
-        const result = parseNetworkOutput(error.stdout, error.code || 1)
-        return { success: true, ...result, rawOutput: error.stdout }
-      }
       return { success: false, errorCode: 'EXEC_ERROR', error: error.message }
     }
   })

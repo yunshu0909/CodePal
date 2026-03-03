@@ -24,7 +24,9 @@ dotenv.config({ path: ENV_FILE_PATH })
 const { scanLogFilesInRange } = require('./logScanner')
 const { handleScanLogFiles } = require('./scanLogFilesHandler')
 const { handleAggregateUsageRange } = require('./aggregateUsageRangeHandler')
+const { scanSkillDirectory, parseSkillMd } = require('./services/skillScanService')
 const { registerSkillHandlers } = require('./handlers/registerSkillHandlers')
+const { registerImportPageHandlers } = require('./handlers/registerImportPageHandlers')
 const { registerProviderHandlers } = require('./handlers/registerProviderHandlers')
 const { registerProjectInitHandlers } = require('./handlers/registerProjectInitHandlers')
 const { registerPermissionModeHandlers } = require('./handlers/permissionModeHandlers')
@@ -186,78 +188,7 @@ async function pathExists(filepath) {
   }
 }
 
-/**
- * 解析 SKILL.md 内容提取名称和描述
- * 优先从 YAML frontmatter 提取，如果没有则回退到 Markdown 标题
- * @param {string} content - SKILL.md 文件内容
- * @returns {{name: string, desc: string}} 提取的名称和描述
- */
-function parseSkillMd(content) {
-  let name = ''
-  let desc = ''
-
-  // Try to parse YAML frontmatter first
-  const frontmatterMatch = content.match(/^---\s*\n([\s\S]*?)\n---\s*\n/)
-  if (frontmatterMatch) {
-    const frontmatter = frontmatterMatch[1]
-
-    // Extract name from frontmatter
-    const nameMatch = frontmatter.match(/^name:\s*(.+)$/m)
-    if (nameMatch) {
-      name = nameMatch[1].trim()
-    }
-
-    // Extract description from frontmatter
-    const descMatch = frontmatter.match(/^description:\s*(.+)$/m)
-    if (descMatch) {
-      desc = descMatch[1].trim()
-    }
-
-    // If both found in frontmatter, return early
-    if (name && desc) {
-      return { name, desc }
-    }
-  }
-
-  // Fallback: parse Markdown content
-  const lines = content.split('\n')
-
-  // First line starting with # is the name (if not found in frontmatter)
-  if (!name) {
-    for (const line of lines) {
-      const trimmed = line.trim()
-      if (trimmed.startsWith('# ')) {
-        name = trimmed.slice(2).trim()
-        break
-      }
-    }
-  }
-
-  // First non-empty line after name that doesn't start with # is description (if not found in frontmatter)
-  if (!desc) {
-    let foundName = false
-    for (const line of lines) {
-      const trimmed = line.trim()
-      if (!foundName) {
-        if (trimmed.startsWith('# ')) {
-          foundName = true
-        }
-        continue
-      }
-      if (trimmed && !trimmed.startsWith('#')) {
-        desc = trimmed
-        break
-      }
-    }
-  }
-
-  // Fallback to folder name if no name found
-  if (!name) {
-    name = 'Unnamed Skill'
-  }
-
-  return { name, desc }
-}
+// parseSkillMd 已抽到 services/skillScanService.js（统一复用）
 
 // IPC handlers for data persistence (legacy - for backward compatibility)
 
@@ -297,63 +228,16 @@ ipcMain.handle('delete-store', (event, key) => {
 // IPC handlers for file system operations
 
 /**
- * 扫描工具目录获取技能列表
- * @param {Electron.IpcMainInvokeEvent} event - IPC 事件
- * @param {string} toolPath - 工具目录路径
- * @returns {Promise<{success: boolean, skills: Array, error: string|null}>} 扫描结果
+ * 扫描工具目录获取技能列表（委托给 skillScanService）
  */
 ipcMain.handle('scan-tool-directory', async (event, toolPath) => {
-  // IPC 参数类型校验
   if (typeof toolPath !== 'string' || toolPath.length === 0) {
     return { success: false, error: 'INVALID_PATH', skills: [] }
   }
 
   try {
     const expandedPath = expandHome(toolPath)
-
-    // Check if directory exists
-    const exists = await pathExists(expandedPath)
-    if (!exists) {
-      return { success: true, skills: [], error: 'DIRECTORY_NOT_FOUND' }
-    }
-
-    // Check if it's a directory
-    const stat = await fs.stat(expandedPath)
-    if (!stat.isDirectory()) {
-      return { success: false, error: 'NOT_A_DIRECTORY' }
-    }
-
-    // Read directory entries
-    const entries = await fs.readdir(expandedPath, { withFileTypes: true })
-    const skills = []
-
-    for (const entry of entries) {
-      if (entry.isDirectory()) {
-        const skillMdPath = path.join(expandedPath, entry.name, 'SKILL.md')
-        const skillMdExists = await pathExists(skillMdPath)
-
-        if (skillMdExists) {
-          try {
-            const content = await fs.readFile(skillMdPath, 'utf-8')
-            const { name, desc } = parseSkillMd(content)
-            skills.push({
-              name: entry.name,
-              displayName: name || entry.name,
-              desc: desc || ''
-            })
-          } catch (err) {
-            // If we can't read SKILL.md, still include the skill with folder name
-            skills.push({
-              name: entry.name,
-              displayName: entry.name,
-              desc: ''
-            })
-          }
-        }
-      }
-    }
-
-    return { success: true, skills, error: null }
+    return await scanSkillDirectory(expandedPath)
   } catch (error) {
     console.error('Error scanning tool directory:', error)
     if (error.code === 'EACCES' || error.code === 'EPERM') {
@@ -665,17 +549,6 @@ ipcMain.handle('write-config', async (event, configPath, data) => {
 // IPC handlers for V0.3 import page
 
 /**
- * 预设工具配置
- * 固定4个工具：Claude Code、CodeX、Cursor、Trae
- */
-const PRESET_TOOLS = [
-  { id: 'claude-code', name: 'Claude Code', icon: 'CC', iconClass: 'cc', path: '~/.claude/skills/' },
-  { id: 'codex', name: 'CodeX', icon: 'CX', iconClass: 'cx', path: '~/.codex/skills/' },
-  { id: 'cursor', name: 'Cursor', icon: 'CU', iconClass: 'cu', path: '~/.cursor/skills/' },
-  { id: 'trae', name: 'Trae', icon: 'TR', iconClass: 'tr', path: '~/.trae/skills/' }
-]
-
-/**
  * 打开文件夹选择对话框
  * @param {Electron.IpcMainInvokeEvent} event - IPC 事件
  * @returns {Promise<{success: boolean, path: string, canceled: boolean, error: string|null}>} 选择结果
@@ -699,232 +572,8 @@ ipcMain.handle('select-folder', async (event) => {
   }
 })
 
-/**
- * 扫描预设工具的 skills
- * 返回每个工具的技能数量和列表
- * @param {Electron.IpcMainInvokeEvent} event - IPC 事件
- * @returns {Promise<{success: boolean, tools: Array, error: string|null}>} 扫描结果
- */
-ipcMain.handle('scan-preset-tools', async (event) => {
-  try {
-    const tools = []
-
-    for (const tool of PRESET_TOOLS) {
-      const expandedPath = expandHome(tool.path)
-      const result = {
-        id: tool.id,
-        name: tool.name,
-        icon: tool.icon,
-        iconClass: tool.iconClass,
-        path: tool.path,
-        skills: 0
-      }
-
-      // 检查目录是否存在
-      const exists = await pathExists(expandedPath)
-      if (exists) {
-        try {
-          const entries = await fs.readdir(expandedPath, { withFileTypes: true })
-          let skillCount = 0
-
-          for (const entry of entries) {
-            if (entry.isDirectory()) {
-              const skillMdPath = path.join(expandedPath, entry.name, 'SKILL.md')
-              const skillMdExists = await pathExists(skillMdPath)
-              if (skillMdExists) {
-                skillCount++
-              }
-            }
-          }
-
-          result.skills = skillCount
-        } catch (err) {
-          // 静默处理：无法读取目录时视为0个skill
-          result.skills = 0
-        }
-      }
-
-      tools.push(result)
-    }
-
-    return { success: true, tools, error: null }
-  } catch (error) {
-    console.error('Error scanning preset tools:', error)
-    return { success: false, tools: [], error: error.message }
-  }
-})
-
-/**
- * 扫描自定义路径下的 skills 分布
- * 扫描 .claude/skills/、.codex/skills/、.cursor/skills/、.trae/skills/ 子目录
- * @param {Electron.IpcMainInvokeEvent} event - IPC 事件
- * @param {string} customPath - 自定义路径
- * @returns {Promise<{success: boolean, skills: Object, error: string|null}>} 扫描结果
- * skills 格式: { claude: 5, codex: 3, ... }
- */
-ipcMain.handle('scan-custom-path', async (event, customPath) => {
-  try {
-    const expandedPath = expandHome(customPath)
-
-    // 检查路径是否存在
-    const exists = await pathExists(expandedPath)
-    if (!exists) {
-      return { success: false, skills: {}, error: 'PATH_NOT_FOUND' }
-    }
-
-    // 检查是否为目录
-    const stat = await fs.stat(expandedPath)
-    if (!stat.isDirectory()) {
-      return { success: false, skills: {}, error: 'NOT_A_DIRECTORY' }
-    }
-
-    // 扫描各工具子目录（key 必须与 toolDefinitions 中的 id 一致）
-    const toolSubdirs = {
-      'claude-code': '.claude/skills',
-      'codex': '.codex/skills',
-      'cursor': '.cursor/skills',
-      'trae': '.trae/skills'
-    }
-
-    const skills = {}
-
-    for (const [toolId, subdir] of Object.entries(toolSubdirs)) {
-      const toolPath = path.join(expandedPath, subdir)
-      const toolExists = await pathExists(toolPath)
-
-      if (toolExists) {
-        try {
-          const entries = await fs.readdir(toolPath, { withFileTypes: true })
-          let skillCount = 0
-
-          for (const entry of entries) {
-            if (entry.isDirectory()) {
-              const skillMdPath = path.join(toolPath, entry.name, 'SKILL.md')
-              const skillMdExists = await pathExists(skillMdPath)
-              if (skillMdExists) {
-                skillCount++
-              }
-            }
-          }
-
-          if (skillCount > 0) {
-            skills[toolId] = skillCount
-          }
-        } catch (err) {
-          // 静默处理：无法读取时跳过该工具
-        }
-      }
-    }
-
-    return { success: true, skills, error: null }
-  } catch (error) {
-    console.error('Error scanning custom path:', error)
-    if (error.code === 'EACCES' || error.code === 'EPERM') {
-      return { success: false, skills: {}, error: 'PERMISSION_DENIED' }
-    }
-    return { success: false, skills: {}, error: error.message }
-  }
-})
-
-/**
- * 检查路径是否已存在于自定义路径列表中
- * @param {Electron.IpcMainInvokeEvent} event - IPC 事件
- * @param {string} checkPath - 要检查的路径
- * @param {string[]} existingPaths - 现有路径列表
- * @returns {Promise<{success: boolean, exists: boolean, error: string|null}>} 检查结果
- */
-ipcMain.handle('check-path-exists', async (event, checkPath, existingPaths = []) => {
-  try {
-    const expandedCheckPath = expandHome(checkPath)
-    const normalizedCheckPath = path.normalize(expandedCheckPath)
-
-    for (const existingPath of existingPaths) {
-      const expandedExistingPath = expandHome(existingPath)
-      const normalizedExistingPath = path.normalize(expandedExistingPath)
-
-      if (normalizedCheckPath === normalizedExistingPath) {
-        return { success: true, exists: true, error: null }
-      }
-    }
-
-    return { success: true, exists: false, error: null }
-  } catch (error) {
-    console.error('Error checking path exists:', error)
-    return { success: false, exists: false, error: error.message }
-  }
-})
-
-/**
- * 更改中央仓库位置
- * 验证新路径是否可写，并迁移现有数据
- * @param {Electron.IpcMainInvokeEvent} event - IPC 事件
- * @param {string} newPath - 新仓库路径
- * @param {string} currentPath - 当前仓库路径（用于数据迁移）
- * @returns {Promise<{success: boolean, path: string, error: string|null}>} 更改结果
- */
-ipcMain.handle('change-repo-path', async (event, newPath, currentPath = null) => {
-  try {
-    const expandedNewPath = expandHome(newPath)
-
-    // 检查新路径是否存在，不存在则创建
-    try {
-      await fs.mkdir(expandedNewPath, { recursive: true })
-    } catch (err) {
-      if (err.code === 'EACCES' || err.code === 'EPERM') {
-        return { success: false, path: null, error: 'PERMISSION_DENIED' }
-      }
-      throw err
-    }
-
-    // 验证目录是否可写（尝试创建一个临时文件）
-    const testFile = path.join(expandedNewPath, '.write-test')
-    try {
-      await fs.writeFile(testFile, '', 'utf-8')
-      await fs.unlink(testFile)
-    } catch (err) {
-      if (err.code === 'EACCES' || err.code === 'EPERM') {
-        return { success: false, path: null, error: 'PERMISSION_DENIED' }
-      }
-      return { success: false, path: null, error: 'DIRECTORY_NOT_WRITABLE' }
-    }
-
-    // 如果需要迁移数据
-    if (currentPath) {
-      const expandedCurrentPath = expandHome(currentPath)
-      const currentExists = await pathExists(expandedCurrentPath)
-
-      if (currentExists) {
-        try {
-          // 读取当前仓库的所有 skill 文件夹
-          const entries = await fs.readdir(expandedCurrentPath, { withFileTypes: true })
-
-          for (const entry of entries) {
-            if (entry.isDirectory()) {
-              const skillMdPath = path.join(expandedCurrentPath, entry.name, 'SKILL.md')
-              const skillMdExists = await pathExists(skillMdPath)
-
-              if (skillMdExists) {
-                const sourcePath = path.join(expandedCurrentPath, entry.name)
-                const targetPath = path.join(expandedNewPath, entry.name)
-
-                // 复制 skill 到新位置（覆盖已存在的）
-                await fs.cp(sourcePath, targetPath, { recursive: true, force: true })
-              }
-            }
-          }
-        } catch (err) {
-          console.error('Error migrating data:', err)
-          // 迁移失败但不阻止更改路径
-        }
-      }
-    }
-
-    return { success: true, path: newPath, error: null }
-  } catch (error) {
-    console.error('Error changing repo path:', error)
-    return { success: false, path: null, error: error.message }
-  }
-})
+// scan-preset-tools, scan-custom-path, check-path-exists, change-repo-path
+// 已迁移到 handlers/registerImportPageHandlers.js
 
 /**
  * 注册技能管理相关 IPC handlers
@@ -934,8 +583,16 @@ registerSkillHandlers({
   expandHome,
   pathExists,
   parseSkillMd,
-  PRESET_TOOLS,
   isPathInAllowedDirs,
+})
+
+/**
+ * 注册导入页面相关 IPC handlers（预设工具扫描、自定义路径、仓库迁移）
+ */
+registerImportPageHandlers({
+  ipcMain,
+  expandHome,
+  pathExists,
 })
 
 /**

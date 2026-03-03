@@ -14,13 +14,24 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { aggregateUsage } from '../store/usageAggregator';
 import { PieChart, Legend, DetailTable } from './usage/components/UsageDisplayComponents';
+import DatePickerModal from './usage/components/DatePickerModal';
+import {
+  getBeijingDateTimeParts,
+  getBeijingDayKey,
+  getBeijingRelativeDayKey,
+  getDailyRefreshKey,
+  formatDateDisplay,
+  mapRangeErrorToMessage,
+} from './usage/usageDateUtils';
+import {
+  readUsageCache,
+  writeUsageCache,
+  shouldRefreshPeriod,
+} from './usage/useUsageCache';
 import './usage.css';
 import PageShell from '../components/PageShell';
 
 const PERIODS = ['today', 'week', 'month', 'custom'];
-const TODAY_REFRESH_INTERVAL_MS = 5 * 60 * 1000;
-const DAILY_REFRESH_MINUTE = 5;
-const USAGE_CACHE_STORAGE_KEY = 'usage-monitor-cache-v3';
 
 const EMPTY_USAGE_DATA = {
   total: 0,
@@ -32,209 +43,6 @@ const EMPTY_USAGE_DATA = {
   isExtremeScenario: false,
   modelCount: 0
 };
-
-/**
- * 获取北京时间年月日时分
- * @param {Date} date - 参考时间
- * @returns {{year: string, month: string, day: string, hour: number, minute: number}}
- */
-function getBeijingDateTimeParts(date = new Date()) {
-  const formatter = new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Asia/Shanghai',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false
-  });
-
-  const parts = formatter.formatToParts(date);
-  const map = {};
-
-  for (const part of parts) {
-    if (part.type === 'year' || part.type === 'month' || part.type === 'day' || part.type === 'hour' || part.type === 'minute') {
-      map[part.type] = part.value;
-    }
-  }
-
-  return {
-    year: map.year,
-    month: map.month,
-    day: map.day,
-    hour: Number(map.hour),
-    minute: Number(map.minute)
-  };
-}
-
-/**
- * 获取北京时间日期 key（YYYY-MM-DD）
- * @param {Date} date - 参考时间
- * @returns {string}
- */
-function getBeijingDayKey(date = new Date()) {
-  const parts = getBeijingDateTimeParts(date);
-  return `${parts.year}-${parts.month}-${parts.day}`;
-}
-
-/**
- * 获取北京时间相对日期 key（YYYY-MM-DD）
- * @param {number} offsetDays - 相对今天的偏移天数（-1 表示昨天）
- * @param {Date} date - 参考时间
- * @returns {string}
- */
-function getBeijingRelativeDayKey(offsetDays, date = new Date()) {
-  const dayStart = getBeijingDayStart(date);
-  dayStart.setUTCDate(dayStart.getUTCDate() + offsetDays);
-  return getBeijingDayKey(dayStart);
-}
-
-/**
- * 获取北京时间当日 00:00 对应的 UTC Date
- * @param {Date} date - 参考时间
- * @returns {Date}
- */
-function getBeijingDayStart(date = new Date()) {
-  const parts = getBeijingDateTimeParts(date);
-  return new Date(`${parts.year}-${parts.month}-${parts.day}T00:00:00+08:00`);
-}
-
-/**
- * 获取“日批次刷新 key”
- * - 00:05 之前仍视为前一日批次
- * - 00:05 及之后视为当日批次
- * @param {Date} date - 参考时间
- * @returns {string}
- */
-function getDailyRefreshKey(date = new Date()) {
-  const parts = getBeijingDateTimeParts(date);
-  const dayStart = getBeijingDayStart(date);
-
-  // 00:05 前不应触发新一轮 7天/30天重算
-  if (parts.hour === 0 && parts.minute < DAILY_REFRESH_MINUTE) {
-    dayStart.setUTCDate(dayStart.getUTCDate() - 1);
-  }
-
-  return getBeijingDayKey(dayStart);
-}
-
-/**
- * 创建空缓存容器
- * @returns {{today: null|object, week: null|object, month: null|object}}
- */
-function createEmptyCache() {
-  return {
-    today: null,
-    week: null,
-    month: null
-  };
-}
-
-/**
- * 读取本地缓存
- * @returns {{today: null|object, week: null|object, month: null|object}}
- */
-function readUsageCache() {
-  try {
-    const raw = window.localStorage.getItem(USAGE_CACHE_STORAGE_KEY);
-    if (!raw) return createEmptyCache();
-
-    const parsed = JSON.parse(raw);
-    if (!parsed || typeof parsed !== 'object') return createEmptyCache();
-
-    return {
-      today: parsed.today || null,
-      week: parsed.week || null,
-      month: parsed.month || null
-    };
-  } catch {
-    return createEmptyCache();
-  }
-}
-
-/**
- * 写入本地缓存
- * @param {{today: null|object, week: null|object, month: null|object}} cache - 缓存数据
- */
-function writeUsageCache(cache) {
-  try {
-    window.localStorage.setItem(USAGE_CACHE_STORAGE_KEY, JSON.stringify(cache));
-  } catch {
-    // localStorage 写失败时静默，避免影响主流程
-  }
-}
-
-/**
- * 判断今日缓存是否新鲜
- * @param {object|null} entry - 周期缓存条目
- * @param {Date} now - 当前时间
- * @returns {boolean}
- */
-function isTodayCacheFresh(entry, now) {
-  if (!entry?.computedAt || !entry?.dayKey) return false;
-
-  // 跨日后即视为过期，避免沿用前一日数据
-  if (entry.dayKey !== getBeijingDayKey(now)) {
-    return false;
-  }
-
-  const computedAt = new Date(entry.computedAt);
-  if (Number.isNaN(computedAt.getTime())) return false;
-
-  return (now.getTime() - computedAt.getTime()) < TODAY_REFRESH_INTERVAL_MS;
-}
-
-/**
- * 判断 7天/30天缓存是否新鲜
- * @param {object|null} entry - 周期缓存条目
- * @param {Date} now - 当前时间
- * @returns {boolean}
- */
-function isRangeCacheFresh(entry, now) {
-  if (!entry?.dailyRefreshKey) return false;
-  return entry.dailyRefreshKey === getDailyRefreshKey(now);
-}
-
-/**
- * 判断周期是否需要重算
- * @param {'today'|'week'|'month'} period - 周期
- * @param {object|null} entry - 周期缓存条目
- * @param {Date} now - 当前时间
- * @returns {boolean}
- */
-function shouldRefreshPeriod(period, entry, now) {
-  if (!entry?.data) return true;
-
-  if (period === 'today') {
-    return !isTodayCacheFresh(entry, now);
-  }
-
-  return !isRangeCacheFresh(entry, now);
-}
-
-/**
- * 将后端错误码映射为用户可读文案
- * @param {string|undefined} errorCode - 后端错误码或错误消息
- * @returns {string}
- */
-function mapRangeErrorToMessage(errorCode) {
-  switch (errorCode) {
-    case 'INVALID_DATE_RANGE':
-      return '日期范围无效，请检查开始和结束日期'
-    case 'DATE_OUT_OF_RANGE':
-      return '结束日期不能为今天或未来日期'
-    case 'INVALID_TIMEZONE':
-      return '时区参数无效，仅支持北京时间'
-    case 'PERMISSION_DENIED':
-      return '无权限读取日志目录，请检查系统权限'
-    case 'RECOMPUTE_FAILED':
-    case 'RECOMPUTE_EMPTY':
-    case 'AGGREGATE_FAILED':
-      return '区间数据聚合失败，请稍后重试'
-    default:
-      return errorCode || '数据获取失败'
-  }
-}
 
 /**
  * 用量监测页面组件
@@ -331,7 +139,7 @@ export default function UsageMonitorPage() {
     const now = new Date();
     const cacheEntry = periodCacheRef.current[period];
 
-    // 只在“强制刷新”或“缓存过期”时重算
+    // 只在"强制刷新"或"缓存过期"时重算
     if (!force && !shouldRefreshPeriod(period, cacheEntry, now)) {
       return;
     }
@@ -469,17 +277,6 @@ export default function UsageMonitorPage() {
   }, []);
 
   /**
-   * 格式化日期显示为 M/D 格式
-   * @param {string} dateStr - YYYY-MM-DD 格式日期
-   * @returns {string}
-   */
-  const formatDateDisplay = (dateStr) => {
-    if (!dateStr) return '';
-    const [year, month, day] = dateStr.split('-');
-    return `${Number(month)}/${Number(day)}`;
-  };
-
-  /**
    * 获取自定义按钮文案
    * @returns {string}
    */
@@ -499,7 +296,6 @@ export default function UsageMonitorPage() {
   const validateCustomDateRange = useCallback(() => {
     const { startDate, endDate } = customDateRange;
 
-    // 1. 开始/结束必填
     if (!startDate || !endDate) {
       return { valid: false, error: '请选择开始日期和结束日期' };
     }
@@ -508,12 +304,11 @@ export default function UsageMonitorPage() {
     const end = new Date(endDate);
     const today = new Date(getTodayString());
 
-    // 2. 开始日期 <= 结束日期
     if (start > end) {
       return { valid: false, error: '开始日期不能晚于结束日期' };
     }
 
-    // 3. 结束日期 < 今天（今天和未来都不允许）
+    // 结束日期 < 今天（今天和未来都不允许）
     if (end >= today) {
       return { valid: false, error: '结束日期不能为今天或未来日期' };
     }
@@ -606,19 +401,16 @@ export default function UsageMonitorPage() {
    * 处理自定义日期确认
    */
   const handleCustomDateConfirm = async () => {
-    // 执行日期校验
     const validation = validateCustomDateRange();
 
     if (!validation.valid) {
-      // 校验失败：显示错误文案，不触发数据更新
       setCustomDateError(validation.error);
       return;
     }
 
-    // 校验通过：应用日期范围，关闭弹窗
     const newRange = { ...customDateRange };
 
-    // 首次切换自定义时，先复用当前已展示数据，避免出现“空白闪烁”
+    // 首次切换自定义时，先复用当前已展示数据，避免出现"空白闪烁"
     if (!customData) {
       const fallbackData =
         periodCacheRef.current[currentPeriodRef.current]?.data || EMPTY_USAGE_DATA;
@@ -631,21 +423,17 @@ export default function UsageMonitorPage() {
     setCustomDateError(null);
     setError(null);
 
-    // 开始加载自定义日期数据
     setCustomLoading(true);
 
     try {
       const result = await fetchCustomRangeData(newRange.startDate, newRange.endDate);
 
       if (result.success && result.data) {
-        // 成功：更新自定义数据，清除错误
         setCustomData(result.data);
         setError(null);
       } else if (result.success && result.skipped) {
-        // 后端未接入时仅完成交互，不展示错误
         setError(null);
       } else {
-        // 失败：保留上一次有效展示（如果有），显示错误提示
         const mappedError = mapRangeErrorToMessage(result.error);
         const hasFallback = Boolean(customData);
         setError(hasFallback
@@ -653,7 +441,6 @@ export default function UsageMonitorPage() {
           : mappedError);
       }
     } catch (err) {
-      // 异常：保留上一次有效展示，显示错误提示
       const mappedError = mapRangeErrorToMessage(err.message);
       const hasFallback = Boolean(customData);
       setError(hasFallback
@@ -670,7 +457,6 @@ export default function UsageMonitorPage() {
   const handleCustomDateCancel = () => {
     setShowCustomDateModal(false);
     setCustomDateError(null);
-    // 不修改当前周期和日期范围
   };
 
   // 点击外部关闭 dropdown 的 effect
@@ -765,64 +551,16 @@ export default function UsageMonitorPage() {
 
         {/* 自定义日期 dropdown */}
         {showCustomDateModal && (
-          <div
-            className="date-picker-dropdown"
-            style={{ left: `${datePickerPosition.left}px`, top: `${datePickerPosition.top}px` }}
-          >
-            {/* 日期输入区域：左右两个输入框 + 中间分隔符 */}
-            <div className="date-inputs">
-              <div className="date-input-wrapper">
-                <div className="date-input-label">开始日期</div>
-                <input
-                  type="date"
-                  className="date-input"
-                  value={customDateRange.startDate}
-                  max={getMaxSelectableDate()}
-                  onChange={(e) => {
-                    setCustomDateRange((prev) => ({
-                      ...prev,
-                      startDate: e.target.value
-                    }));
-                    // 用户修改时清除错误提示
-                    if (customDateError) setCustomDateError(null);
-                  }}
-                />
-              </div>
-              <div className="date-separator">~</div>
-              <div className="date-input-wrapper">
-                <div className="date-input-label">结束日期</div>
-                <input
-                  type="date"
-                  className="date-input"
-                  value={customDateRange.endDate}
-                  max={getMaxSelectableDate()}
-                  onChange={(e) => {
-                    setCustomDateRange((prev) => ({
-                      ...prev,
-                      endDate: e.target.value
-                    }));
-                    // 用户修改时清除错误提示
-                    if (customDateError) setCustomDateError(null);
-                  }}
-                />
-              </div>
-            </div>
-            {/* 错误提示 */}
-            {customDateError && (
-              <div className="date-picker-error">
-                <span>⚠️ {customDateError}</span>
-              </div>
-            )}
-            {/* 操作按钮区 */}
-            <div className="date-picker-actions">
-              <button className="btn btn--secondary" onClick={handleCustomDateCancel}>
-                取消
-              </button>
-              <button className="btn btn--primary" onClick={handleCustomDateConfirm}>
-                确定
-              </button>
-            </div>
-          </div>
+          <DatePickerModal
+            dateRange={customDateRange}
+            onDateRangeChange={setCustomDateRange}
+            error={customDateError}
+            onErrorChange={setCustomDateError}
+            maxDate={getMaxSelectableDate()}
+            position={datePickerPosition}
+            onConfirm={handleCustomDateConfirm}
+            onCancel={handleCustomDateCancel}
+          />
         )}
       </div>
 
