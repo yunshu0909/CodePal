@@ -1,6 +1,6 @@
 {
   "name": "skill-manager",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "管理和推送你的 Skills 到各个工具",
   "main": "electron/main.js",
   "scripts": {
@@ -71,6 +71,7 @@
     "appId": "com.skillmanager.app",
     "productName": "CodePal",
     "mac": {
+      "icon": "assets/app-icons/icon.icns",
       "target": {
         "target": "dmg",
         "arch": ["arm64"]
@@ -78,6 +79,7 @@
       "category": "public.app-category.developer-tools"
     },
     "win": {
+      "icon": "assets/app-icons/icon.ico",
       "target": {
         "target": "nsis",
         "arch": ["x64"]

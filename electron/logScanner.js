@@ -3,7 +3,7 @@
  *
  * 负责：
  * - 递归收集指定目录下的 `.jsonl` 日志文件
- * - 按文件修改时间筛选时间窗口（半开区间 `[start, end)`）
+ * - 按文件修改时间做下界预筛，减少无关旧文件读取
  * - 按修改时间倒序读取并限制文件数/行数，避免大目录拖垮进程
  *
  * @module electron/logScanner
@@ -13,7 +13,7 @@ const fs = require('fs/promises')
 const path = require('path')
 
 /**
- * 扫描并读取时间窗口内的日志文件
+ * 扫描并读取可能包含时间窗口记录的日志文件
  * @param {string} basePath - 扫描根目录（已展开）
  * @param {Date} startTime - 开始时间（包含）
  * @param {Date} endTime - 结束时间（不包含）
@@ -55,10 +55,10 @@ async function scanLogFilesInRange(basePath, startTime, endTime, options = {}) {
           const stat = await fs.stat(fullPath)
           const mtime = stat.mtime
 
-          // mtime 下界精确匹配；上界加 12h 缓冲，防止跨午夜对话的文件被漏掉
-          // （日志条目已在 scanClaudeLogs / scanCodexLogs 里按 timestamp 精确过滤）
-          const mtimeUpperBound = new Date(endTime.getTime() + 12 * 60 * 60 * 1000)
-          if (mtime < startTime || mtime >= mtimeUpperBound) {
+          // 这里只做下界预筛：只要文件在窗口开始后仍被写过，就可能包含窗口内记录。
+          // 不能依赖上界过滤，因为 Claude/Codex 的会话文件可能在窗口结束后的次日继续写入，
+          // 但文件内部仍保留窗口内的真实日志；真正的时间窗口应交给逐行 timestamp 精确裁剪。
+          if (mtime < startTime) {
             continue
           }
 
@@ -112,4 +112,3 @@ async function scanLogFilesInRange(basePath, startTime, endTime, options = {}) {
 module.exports = {
   scanLogFilesInRange
 }
-

@@ -14,6 +14,7 @@
 import React from 'react'
 import '../styles/workbench.css'
 import pkg from '../../package.json'
+import brandLogo from '../assets/codepal-logo.png'
 
 /**
  * 工作台布局组件
@@ -79,6 +80,7 @@ function WorkbenchLayout({ children, activeModule, onModuleChange, hasUpdate, on
                 ⬆ 新版可用
               </button>
             )}
+            <img className="footer-logo" src={brandLogo} alt="CodePal logo" />
             <div className="footer-line1">
               <span className="footer-brand">CodePal</span>
               <span className="footer-by">by</span>

@@ -127,6 +127,14 @@
   gap: 4px;
 }
 
+.footer-logo {
+  width: 52px;
+  height: 52px;
+  margin-bottom: 4px;
+  object-fit: contain;
+  filter: drop-shadow(0 6px 18px rgba(53, 117, 255, 0.18));
+}
+
 /**
  * 更新提醒 Pill 胶囊按钮（有新版本时显示）
  */
