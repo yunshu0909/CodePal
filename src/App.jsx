@@ -5,7 +5,7 @@
  * - 始终渲染 WorkbenchLayout（含侧边栏）
  * - 根据中央仓库状态决定 SkillManager 初始子页面（import/manage）
  * - 导入完成后初始化推送目标
- * - 管理活跃模块状态（技能管理/用量监测/API配置）
+ * - 管理活跃模块状态（技能管理/用量看板/API配置等）
  * - 工作台下定时执行自动增量刷新（每 5 分钟）
  *
  * @module App
@@ -19,23 +19,31 @@ import ApiConfigPage from './pages/ApiConfigPage'
 import ProjectInitPage from './pages/ProjectInitPage'
 import PermissionModePage from './pages/PermissionModePage'
 import McpPage from './pages/McpPage'
-import ClaudeCodePage from './pages/ClaudeCodePage'
 import Toast from './components/Toast'
 import { dataStore } from './store/data'
 
 const AUTO_INCREMENTAL_REFRESH_INTERVAL_MS = 5 * 60 * 1000
+const DEFAULT_ACTIVE_MODULE = 'usage'
+const VALID_ACTIVE_MODULES = new Set(['skills', 'mcp', 'usage', 'api', 'project-init', 'permission'])
+
+/**
+ * 读取上次访问的模块，并过滤已下线模块
+ * @returns {'skills'|'mcp'|'usage'|'api'|'project-init'|'permission'}
+ */
+function getInitialActiveModule() {
+  const storedModule = localStorage.getItem('codepal-active-module')
+  return VALID_ACTIVE_MODULES.has(storedModule) ? storedModule : DEFAULT_ACTIVE_MODULE
+}
 
 export default function App() {
   // SkillManager 初始子页面：null=加载中, 'manage'=管理页, 'import'=导入页
   const [initialSkillManagerPage, setInitialSkillManagerPage] = useState(null)
   // Toast 提示消息 { message, type }
   const [toast, setToast] = useState(null)
-  // 活跃模块：'skills' | 'mcp' | 'claude-code' | 'project-init' | 'usage' | 'api' | 'permission'
-  const [activeModule, setActiveModule] = useState('skills')
+  // 活跃模块：从 localStorage 恢复上次页面；已下线模块统一回落到用量看板
+  const [activeModule, setActiveModule] = useState(getInitialActiveModule)
   // MCP 页面是否已访问（已访问后保持挂载，支持切回时静默刷新）
   const [hasVisitedMcp, setHasVisitedMcp] = useState(false)
-  // Claude Code 管理页面是否已访问（keep-alive）
-  const [hasVisitedClaudeCode, setHasVisitedClaudeCode] = useState(false)
   // 技能模块刷新信号（自动增量导入新增 skill 后触发）
   const [skillsRefreshSignal, setSkillsRefreshSignal] = useState(0)
 
@@ -152,18 +160,17 @@ export default function App() {
 
   /**
    * 处理模块切换
+   * 同时持久化到 localStorage，下次打开恢复上次页面
    * @param {string} moduleId - 模块 ID
    */
   const handleModuleChange = (moduleId) => {
     setActiveModule(moduleId)
+    localStorage.setItem('codepal-active-module', moduleId)
   }
 
   useEffect(() => {
     if (activeModule === 'mcp') {
       setHasVisitedMcp(true)
-    }
-    if (activeModule === 'claude-code') {
-      setHasVisitedClaudeCode(true)
     }
   }, [activeModule])
 
@@ -188,11 +195,6 @@ export default function App() {
         {(activeModule === 'mcp' || hasVisitedMcp) && (
           <div className="keep-alive-wrapper" hidden={activeModule !== 'mcp'}>
             <McpPage isActive={activeModule === 'mcp'} />
-          </div>
-        )}
-        {(activeModule === 'claude-code' || hasVisitedClaudeCode) && (
-          <div className="keep-alive-wrapper" hidden={activeModule !== 'claude-code'}>
-            <ClaudeCodePage isActive={activeModule === 'claude-code'} />
           </div>
         )}
         {activeModule === 'usage' && <UsageMonitorModule />}

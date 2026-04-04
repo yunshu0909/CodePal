@@ -2,7 +2,7 @@
  * WorkbenchLayout 样式
  *
  * 包含：
- * - 全高侧边栏（品牌标题栏 + 导航 + 底部署名）
+ * - 全高侧边栏（品牌区 + 分组导航 + 底部署名）
  * - 内容区域布局（标题栏占位 + 主内容）
  */
 
@@ -51,16 +51,87 @@
   user-select: none;
 }
 
+/* ==================== 品牌区 ==================== */
+
+/**
+ * 品牌区：Logo + 名称 + 副标题
+ * 位于标题栏下方，导航上方
+ */
+.sidebar-brand {
+  padding: 14px 16px 12px;
+  border-bottom: 1px solid var(--border-default);
+  flex-shrink: 0;
+}
+
+.brand-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.brand-logo {
+  width: 32px;
+  height: 32px;
+  object-fit: contain;
+  flex-shrink: 0;
+  filter: drop-shadow(0 2px 8px rgba(37, 99, 235, 0.2));
+}
+
+.brand-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.brand-name {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: -0.2px;
+}
+
+.brand-subtitle {
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
+
 /* ==================== 导航区 ==================== */
 
 /**
  * 导航容器
+ * 支持分组，flex: 1 撑满中间区域
  */
 .sidebar-nav {
+  flex: 1;
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  padding: 8px 8px;
+  padding: 6px 8px;
+  overflow-y: auto;
+}
+
+/**
+ * 导航分组
+ */
+.nav-group {
+  margin-bottom: 4px;
+}
+
+/**
+ * 分组标题
+ * 小号灰色文字，视觉上区分层级
+ */
+.nav-group-label {
+  font-size: 11px;
+  color: var(--text-placeholder);
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  padding: 10px 12px 4px;
+}
+
+.nav-group-items {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
 }
 
 /**
@@ -103,11 +174,37 @@
   text-align: center;
 }
 
+/**
+ * 导航文字
+ * flex: 1 撑满剩余空间，Beta 标记靠右
+ */
+.nav-label {
+  flex: 1;
+}
+
+/**
+ * Beta 标记 — 极淡灰底药丸
+ */
+.nav-badge-beta {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 6px;
+  border-radius: 9999px;
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.2px;
+  line-height: 16px;
+  flex-shrink: 0;
+  background: rgba(0, 0, 0, 0.04);
+  color: #8b919a;
+}
+
 /* ==================== 底部署名区 ==================== */
 
 /**
  * 底部署名容器
  * margin-top: auto 将其推至侧边栏底部
+ * 竖排居中：更新按钮 + 署名 + 版本号
  */
 .sidebar-footer {
   margin-top: auto;
@@ -125,14 +222,6 @@
   flex-direction: column;
   align-items: center;
   gap: 4px;
-}
-
-.footer-logo {
-  width: 52px;
-  height: 52px;
-  margin-bottom: 4px;
-  object-fit: contain;
-  filter: drop-shadow(0 6px 18px rgba(53, 117, 255, 0.18));
 }
 
 /**

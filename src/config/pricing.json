@@ -22,6 +22,41 @@
       "cacheRead": 0.10,
       "cacheWrite": 1.25
     },
+    "gpt-5": {
+      "displayName": "GPT-5",
+      "input": 1.25,
+      "output": 10.00,
+      "cacheRead": 0.125,
+      "cacheWrite": 0
+    },
+    "gpt-5-codex": {
+      "displayName": "GPT-5-Codex",
+      "input": 1.25,
+      "output": 10.00,
+      "cacheRead": 0.125,
+      "cacheWrite": 0
+    },
+    "gpt-5-mini": {
+      "displayName": "GPT-5 mini",
+      "input": 0.25,
+      "output": 2.00,
+      "cacheRead": 0.025,
+      "cacheWrite": 0
+    },
+    "gpt-5-2": {
+      "displayName": "GPT-5.2",
+      "input": 1.75,
+      "output": 14.00,
+      "cacheRead": 0.175,
+      "cacheWrite": 0
+    },
+    "gpt-5-2-codex": {
+      "displayName": "GPT-5.2-Codex",
+      "input": 1.75,
+      "output": 14.00,
+      "cacheRead": 0.175,
+      "cacheWrite": 0
+    },
     "gpt-5-3-codex": {
       "displayName": "GPT-5.3 Codex",
       "input": 1.75,
@@ -34,6 +69,13 @@
       "input": 2.50,
       "output": 15.00,
       "cacheRead": 0.25,
+      "cacheWrite": 0
+    },
+    "gpt-5-4-mini": {
+      "displayName": "GPT-5.4 mini",
+      "input": 0.75,
+      "output": 4.50,
+      "cacheRead": 0.075,
       "cacheWrite": 0
     },
     "kimi-k2-5": {

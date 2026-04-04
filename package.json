@@ -1,6 +1,6 @@
 {
   "name": "skill-manager",
-  "version": "1.2.1",
+  "version": "1.2.2",
   "description": "管理和推送你的 Skills 到各个工具",
   "main": "electron/main.js",
   "scripts": {

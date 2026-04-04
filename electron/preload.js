@@ -433,46 +433,5 @@ contextBridge.exposeInMainWorld('electronAPI', {
      * @returns {Promise<{success: boolean, toolsInstalled: Object, error: string|null}>}
      */
     checkToolsInstalled: () => ipcRenderer.invoke('mcp:checkToolsInstalled')
-  },
-
-  /**
-   * V0.15 Claude Code 管理 APIs
-   */
-  claudeCode: {
-    /**
-     * 获取 Claude Code 版本号
-     * @returns {Promise<{success: boolean, version?: string, errorCode?: string, error?: string}>}
-     */
-    getVersion: () => ipcRenderer.invoke('claudeCode:getVersion'),
-
-    /**
-     * 执行 Claude Code 更新
-     * @returns {Promise<{success: boolean, updated?: boolean, newVersion?: string, alreadyLatest?: boolean, errorCode?: string, error?: string}>}
-     */
-    checkUpdate: () => ipcRenderer.invoke('claudeCode:checkUpdate'),
-
-    /**
-     * 执行 Doctor 健康检查
-     * @returns {Promise<{success: boolean, healthy?: boolean, details?: string, errorCode?: string, error?: string}>}
-     */
-    doctor: () => ipcRenderer.invoke('claudeCode:doctor'),
-
-    /**
-     * 查询认证状态
-     * @returns {Promise<{success: boolean, loggedIn?: boolean, authMethod?: string, plan?: string, rawOutput?: string, errorCode?: string, error?: string}>}
-     */
-    authStatus: () => ipcRenderer.invoke('claudeCode:authStatus'),
-
-    /**
-     * 发起登录流程（打开浏览器）
-     * @returns {Promise<{success: boolean, error?: string}>}
-     */
-    authLogin: () => ipcRenderer.invoke('claudeCode:authLogin'),
-
-    /**
-     * 执行网络诊断脚本
-     * @returns {Promise<{success: boolean, overall?: string, passCount?: number, warnCount?: number, failCount?: number, checks?: Array, rawOutput?: string, errorCode?: string, error?: string}>}
-     */
-    networkCheck: () => ipcRenderer.invoke('claudeCode:networkCheck'),
   }
 })

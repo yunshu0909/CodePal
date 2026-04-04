@@ -28,17 +28,32 @@ import brandLogo from '../assets/codepal-logo.png'
  */
 function WorkbenchLayout({ children, activeModule, onModuleChange, hasUpdate, onUpdateClick }) {
   /**
-   * 导航项配置
-   * @type {Array<{id: string, label: string, icon: string}>}
+   * 分组导航配置
+   * 按功能性质分为三组：工具设置 → 用量看板 → 技能中心
+   * @type {Array<{label: string, items: Array<{id: string, label: string, icon: string}>}>}
    */
-  const navItems = [
-    { id: 'skills', label: 'Skills 管理', icon: '🛠️' },
-    { id: 'mcp', label: 'MCP 管理', icon: '📡' },
-    { id: 'project-init', label: '新建项目', icon: '🚀' },
-    { id: 'claude-code', label: '环境检查', icon: '💻' },
-    { id: 'usage', label: '用量监测', icon: '📊' },
-    { id: 'api', label: 'API 配置', icon: '🔌' },
-    { id: 'permission', label: '启动模式', icon: '🛡️' }
+  const navGroups = [
+    {
+      label: '工具设置',
+      items: [
+        { id: 'api', label: 'API 配置', icon: '🔌' },
+        { id: 'permission', label: '启动模式', icon: '🛡️' },
+        { id: 'project-init', label: '新建项目', icon: '🚀' }
+      ]
+    },
+    {
+      label: '用量看板',
+      items: [
+        { id: 'usage', label: '用量监测', icon: '📊' }
+      ]
+    },
+    {
+      label: '技能中心',
+      items: [
+        { id: 'skills', label: 'Skills 管理', icon: '🛠️', beta: true },
+        { id: 'mcp', label: 'MCP 管理', icon: '📡', beta: true }
+      ]
+    }
   ]
 
   /**
@@ -58,29 +73,47 @@ function WorkbenchLayout({ children, activeModule, onModuleChange, hasUpdate, on
         {/* 标题栏区域：与 macOS 红绿灯同层，可拖拽 */}
         <div className="sidebar-titlebar" />
 
+        {/* 品牌区：Logo + 名称 + 副标题 */}
+        <div className="sidebar-brand">
+          <div className="brand-row">
+            <img className="brand-logo" src={brandLogo} alt="CodePal logo" />
+            <div className="brand-text">
+              <div className="brand-name">CodePal</div>
+              <div className="brand-subtitle">AI 编程助手</div>
+            </div>
+          </div>
+        </div>
+
+        {/* 分组导航 */}
         <nav className="sidebar-nav">
-          {navItems.map((item) => (
-            <button
-              key={item.id}
-              className={`nav-item ${activeModule === item.id ? 'active' : ''}`}
-              onClick={() => handleNavClick(item.id)}
-            >
-              <span className="nav-icon">{item.icon}</span>
-              <span className="nav-label">{item.label}</span>
-            </button>
+          {navGroups.map((group) => (
+            <div key={group.label} className="nav-group">
+              <div className="nav-group-label">{group.label}</div>
+              <div className="nav-group-items">
+                {group.items.map((item) => (
+                  <button
+                    key={item.id}
+                    className={`nav-item ${activeModule === item.id ? 'active' : ''}`}
+                    onClick={() => handleNavClick(item.id)}
+                  >
+                    <span className="nav-icon">{item.icon}</span>
+                    <span className="nav-label">{item.label}</span>
+                    {item.beta && <span className="nav-badge-beta">Beta</span>}
+                  </button>
+                ))}
+              </div>
+            </div>
           ))}
         </nav>
 
-        {/* 底部署名区 */}
+        {/* 底部：更新提醒 + 署名 + 版本号 */}
         <div className="sidebar-footer">
           <div className="footer-content">
-            {/* 有新版本时显示 Pill 胶囊按钮 */}
             {hasUpdate && (
               <button className="sidebar-update-pill" onClick={onUpdateClick}>
                 ⬆ 新版可用
               </button>
             )}
-            <img className="footer-logo" src={brandLogo} alt="CodePal logo" />
             <div className="footer-line1">
               <span className="footer-brand">CodePal</span>
               <span className="footer-by">by</span>

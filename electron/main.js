@@ -33,7 +33,6 @@ const { registerPermissionModeHandlers } = require('./handlers/permissionModeHan
 const { registerModelConfigHandlers } = require('./handlers/modelConfigHandlers')
 const { registerMcpHandlers } = require('./handlers/registerMcpHandlers')
 const { registerRepoWatcherHandlers } = require('./handlers/registerRepoWatcherHandlers')
-const { registerClaudeCodeHandlers } = require('./handlers/registerClaudeCodeHandlers')
 const { resolveProviderRegistryFilePath } = require('./services/providerRegistryPathService')
 const { ensureBuiltinProviderRegistryInstalled } = require('./services/builtinMcpInstallerService')
 
@@ -675,12 +674,5 @@ registerModelConfigHandlers({
  * 注册 MCP 管理相关 IPC handlers
  */
 registerMcpHandlers({
-  ipcMain,
-})
-
-/**
- * 注册 V0.15 Claude Code 管理相关 IPC handlers
- */
-registerClaudeCodeHandlers({
   ipcMain,
 })

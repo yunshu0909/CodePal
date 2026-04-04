@@ -144,7 +144,9 @@ async function scanClaudeLogs(start, end) {
         // 半开区间 [start, end)，避免边界重复计数
         if (record && record.timestamp >= start && record.timestamp < end) {
           streamOrder += 1;
-          // Claude 同一 message.id 可能写入中间态与最终态，按“最新快照”保留才能避免重复累计。
+          // Claude 同一 message.id 可能写入中间态与最终态，按”最新快照”保留才能避免重复累计。
+          // 从文件路径中提取项目名
+          record.project = extractProjectName(file.path);
           const messageId = record.messageId || `${file.path || 'unknown-file'}:${index}`;
           const incoming = {
             record,
@@ -205,14 +207,24 @@ async function scanCodexLogs(start, end) {
     // 解析每个文件
     for (const file of result.files) {
       const sessionId = extractCodexSessionId(file.path);
-      const state = sessionSnapshots.get(sessionId) || { beforeWindow: null, inWindow: null, model: null };
+      const state = sessionSnapshots.get(sessionId) || {
+        beforeWindow: null,
+        inWindow: null,
+        model: null,
+        cwd: null
+      };
 
       for (const line of file.lines) {
         // 从 turn_context 事件提取模型名称（token_count 自身不带 model）
         try {
           const parsed = JSON.parse(line);
-          if (parsed.type === 'turn_context' && parsed.payload?.model) {
-            state.model = parsed.payload.model;
+          if (parsed.type === 'turn_context' && parsed.payload) {
+            if (parsed.payload.model) {
+              state.model = parsed.payload.model;
+            }
+            if (parsed.payload.cwd) {
+              state.cwd = parsed.payload.cwd;
+            }
           }
         } catch { /* ignore */ }
 
@@ -265,6 +277,7 @@ async function scanCodexLogs(start, end) {
       records.push({
         timestamp: state.inWindow.timestamp,
         model: state.model || 'codex',
+        project: extractProjectNameFromCwd(state.cwd),
         input: deltaNonCachedInput,
         output: deltaOutput,
         cacheRead: deltaCacheRead,
@@ -378,6 +391,99 @@ function aggregateByModel(records) {
   return aggregated;
 }
 
+// 项目颜色表（循环分配）
+const PROJECT_COLORS = ['#16a34a', '#f59e0b', '#06b6d4', '#8b5cf6', '#ec4899', '#94a3b8'];
+
+/**
+ * 从日志文件路径中提取项目名
+ * 路径格式：~/.claude/projects/-Users-username-Documents-project-name/session.jsonl
+ * 提取最后一个有意义的目录名段
+ * @param {string} filePath - 文件路径
+ * @returns {string} 项目名
+ */
+function extractProjectName(filePath) {
+  if (!filePath || typeof filePath !== 'string') return '未知项目';
+
+  try {
+    // 取 projects/ 后面的第一段路径
+    const projectsIdx = filePath.indexOf('projects/');
+    if (projectsIdx === -1) return '未知项目';
+
+    const afterProjects = filePath.substring(projectsIdx + 'projects/'.length);
+    const projectDir = afterProjects.split('/')[0];
+    if (!projectDir) return '未知项目';
+
+    // 目录名格式如 -Users-yunshu-Documents-trae-projects-skills
+    // 取最后一个有意义的段
+    const segments = projectDir.split('-').filter(Boolean);
+    if (segments.length === 0) return '未知项目';
+
+    // 取最后一个非空段作为项目名
+    return segments[segments.length - 1];
+  } catch {
+    return '未知项目';
+  }
+}
+
+/**
+ * 从 Codex 的 cwd 中提取项目名
+ * 优先识别 `/trae_projects/<project>` 这类工作区根目录，避免把子目录误识别成项目名。
+ * 若不在约定工作区下，则回退到 cwd 最后一段目录名。
+ * @param {string|null|undefined} cwdPath - turn_context 中的当前工作目录
+ * @returns {string} 项目名
+ */
+function extractProjectNameFromCwd(cwdPath) {
+  if (!cwdPath || typeof cwdPath !== 'string') return '未知项目';
+
+  try {
+    const normalized = cwdPath
+      .replace(/\\/g, '/')
+      .replace(/\/+$/, '');
+
+    const workspaceMarker = '/trae_projects/';
+    const workspaceIdx = normalized.indexOf(workspaceMarker);
+    if (workspaceIdx !== -1) {
+      const afterWorkspace = normalized.substring(workspaceIdx + workspaceMarker.length);
+      const projectDir = afterWorkspace.split('/')[0];
+      if (projectDir) {
+        return projectDir;
+      }
+    }
+
+    const segments = normalized.split('/').filter(Boolean);
+    if (segments.length === 0) return '未知项目';
+
+    return segments[segments.length - 1];
+  } catch {
+    return '未知项目';
+  }
+}
+
+/**
+ * 按项目聚合 Token 使用量
+ * @param {Array} records - 解析后的记录列表
+ * @returns {Array<{name: string, value: number, color: string}>} 按项目分布数据
+ */
+function aggregateByProject(records) {
+  const aggregated = new Map();
+
+  for (const record of records) {
+    const project = record.project || '未知项目';
+    const tokens = calculateTotalTokens(record);
+    const current = aggregated.get(project) || 0;
+    aggregated.set(project, current + tokens);
+  }
+
+  // 转为数组、排序、分配颜色
+  return Array.from(aggregated.entries())
+    .map(([name, value], idx) => ({
+      name,
+      value,
+      color: PROJECT_COLORS[idx % PROJECT_COLORS.length]
+    }))
+    .sort((a, b) => b.value - a.value);
+}
+
 /**
  * 获取模型颜色
  * @param {string} model - 模型名称
@@ -439,6 +545,7 @@ function generateViewData(aggregated) {
     // ≤5 个模型：全部单独展示
     distribution = modelsWithPercent.map(model => ({
       name: model.name,
+      value: model.total,
       percent: model.percent,
       displayPercent: formatPercentDisplay(model.percent, model.total, total),
       color: model.color,
@@ -451,6 +558,7 @@ function generateViewData(aggregated) {
 
     distribution = topModels.map(model => ({
       name: model.name,
+      value: model.total,
       percent: model.percent,
       displayPercent: formatPercentDisplay(model.percent, model.total, total),
       color: model.color,
@@ -466,6 +574,7 @@ function generateViewData(aggregated) {
     if (otherModels.length > 0) {
       distribution.push({
         name: `其他 (${otherModels.length}个模型)`,
+        value: othersTotal,
         percent: othersPercent,
         displayPercent: formatPercentDisplay(othersPercent, othersTotal, total),
         color: MODEL_COLORS.default,
@@ -576,13 +685,17 @@ export async function aggregateUsage(period) {
     // 3. 按模型聚合
     const aggregated = aggregateByModel(allRecords);
 
-    // 4. 生成视图数据
+    // 4. 按项目聚合
+    const projectDistribution = aggregateByProject(allRecords);
+
+    // 5. 生成视图数据
     const viewData = generateViewData(aggregated);
 
     return {
       success: true,
       data: {
         ...viewData,
+        projectDistribution,
         period,
         startTime: start.toISOString(),
         endTime: end.toISOString(),
