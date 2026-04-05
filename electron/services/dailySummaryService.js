@@ -13,12 +13,14 @@
 const fs = require('fs/promises')
 const path = require('path')
 const os = require('os')
-const { toSafeInt, scanClaudeLogs, scanCodexLogs, aggregateByModel } = require('./usageLogScanService')
+const { toSafeInt, scanClaudeLogs, scanCodexLogs, aggregateByModel, aggregateByProject } = require('./usageLogScanService')
 
 // 日汇总缓存 schema 版本号：
 // - v1：旧口径（Claude 未按 message.id 最终态去重）
 // - v2：新口径（Claude 按 message.id 最终态去重）
-const DAILY_SUMMARY_SCHEMA_VERSION = 2
+// - v3：补充 projects 维度，并与实时页保持相同字段口径
+// - v4：Codex 子 agent 回放去重（forked session 的历史回放 token 不再重复计入）
+const DAILY_SUMMARY_SCHEMA_VERSION = 4
 
 /**
  * 校验日期 key 是否为 YYYY-MM-DD 且可解析
@@ -82,6 +84,29 @@ function normalizeSummaryModels(models) {
 }
 
 /**
+ * 归一化日汇总项目对象
+ * @param {Record<string, any>} projects - 原始项目对象
+ * @returns {Record<string, {value:number}>}
+ */
+function normalizeSummaryProjects(projects) {
+  const result = {}
+
+  if (!projects || typeof projects !== 'object') {
+    return result
+  }
+
+  for (const [projectName, projectData] of Object.entries(projects)) {
+    if (!projectData || typeof projectData !== 'object') continue
+
+    result[projectName] = {
+      value: toSafeInt(projectData.value)
+    }
+  }
+
+  return result
+}
+
+/**
  * 归一化日汇总数据
  * @param {object} raw - 原始日汇总 JSON
  * @param {string} expectedDateKey - 期望日期 key
@@ -103,6 +128,7 @@ function normalizeDailySummary(raw, expectedDateKey) {
   }
 
   const models = normalizeSummaryModels(raw.models)
+  const projects = normalizeSummaryProjects(raw.projects)
 
   const total = Object.values(models).reduce((sum, model) => sum + model.total, 0)
   const input = Object.values(models).reduce((sum, model) => sum + model.input, 0)
@@ -114,6 +140,7 @@ function normalizeDailySummary(raw, expectedDateKey) {
     date,
     generatedAt: typeof raw.generatedAt === 'string' ? raw.generatedAt : new Date().toISOString(),
     models,
+    projects,
     summary: {
       total: toSafeInt(raw.summary?.total) || total,
       input: toSafeInt(raw.summary?.input) || input,
@@ -172,12 +199,14 @@ async function writeDailySummary(dateKey, summary, deps = {}) {
 /**
  * 将聚合 Map 转为日汇总文件结构
  * @param {string} dateKey - 日期 key
- * @param {Map<string, object>} aggregated - 聚合 Map
+ * @param {Map<string, object>} aggregated - 模型聚合 Map
+ * @param {Map<string, {name: string, value: number}>} projectAggregated - 项目聚合 Map
  * @param {Date} generatedAt - 生成时间
  * @returns {object}
  */
-function buildDailySummary(dateKey, aggregated, generatedAt = new Date()) {
+function buildDailySummary(dateKey, aggregated, projectAggregated = new Map(), generatedAt = new Date()) {
   const models = {}
+  const projects = {}
 
   for (const [modelName, modelData] of aggregated.entries()) {
     if (modelData.total <= 0) continue
@@ -187,6 +216,13 @@ function buildDailySummary(dateKey, aggregated, generatedAt = new Date()) {
       cacheRead: modelData.cacheRead,
       cacheCreate: modelData.cacheCreate,
       total: modelData.total
+    }
+  }
+
+  for (const [projectName, projectData] of projectAggregated.entries()) {
+    if (projectData.value <= 0) continue
+    projects[projectName] = {
+      value: projectData.value
     }
   }
 
@@ -202,6 +238,7 @@ function buildDailySummary(dateKey, aggregated, generatedAt = new Date()) {
     date: dateKey,
     generatedAt: generatedAt.toISOString(),
     models,
+    projects,
     summary
   }
 }
@@ -224,17 +261,19 @@ async function recomputeDailySummary(dateKey, deps = {}) {
 
   const allRecords = [...claudeRecords, ...codexRecords]
   const aggregated = aggregateByModel(allRecords)
+  const projectAggregated = aggregateByProject(allRecords)
 
-  return buildDailySummary(dateKey, aggregated, deps.nowFn ? deps.nowFn() : new Date())
+  return buildDailySummary(dateKey, aggregated, projectAggregated, deps.nowFn ? deps.nowFn() : new Date())
 }
 
 /**
  * 将日汇总列表合并为模型聚合 Map
  * @param {Array<object>} dailySummaries - 日汇总数组
- * @returns {Map<string, object>}
+ * @returns {{models: Map<string, object>, projects: Map<string, {name: string, value: number}>}}
  */
 function mergeDailySummaries(dailySummaries) {
   const aggregated = new Map()
+  const aggregatedProjects = new Map()
 
   for (const dailySummary of dailySummaries) {
     for (const [modelName, modelData] of Object.entries(dailySummary.models || {})) {
@@ -253,9 +292,24 @@ function mergeDailySummaries(dailySummaries) {
       acc.total += toSafeInt(modelData.total)
       acc.count += 1
     }
+
+    for (const [projectName, projectData] of Object.entries(dailySummary.projects || {})) {
+      if (!aggregatedProjects.has(projectName)) {
+        aggregatedProjects.set(projectName, {
+          name: projectName,
+          value: 0
+        })
+      }
+
+      const acc = aggregatedProjects.get(projectName)
+      acc.value += toSafeInt(projectData.value)
+    }
   }
 
-  return aggregated
+  return {
+    models: aggregated,
+    projects: aggregatedProjects
+  }
 }
 
 module.exports = {
@@ -264,6 +318,7 @@ module.exports = {
   getBeijingDayStartByKey,
   getDailySummaryFilePath,
   normalizeSummaryModels,
+  normalizeSummaryProjects,
   normalizeDailySummary,
   readDailySummary,
   writeDailySummary,

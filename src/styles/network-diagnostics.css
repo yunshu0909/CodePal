@@ -1,0 +1,387 @@
+/**
+ * 网络诊断页面样式
+ *
+ * 使用 Cool Steel design tokens
+ *
+ * @module styles/network-diagnostics
+ */
+
+/* ============================================================
+   左右分栏布局
+   ============================================================ */
+.nd-layout {
+  display: flex;
+  gap: var(--space-5, 20px);
+  padding: 0 var(--space-8, 32px) var(--space-8, 32px);
+  min-height: 0;
+}
+
+.nd-left,
+.nd-right {
+  flex: 1;
+  min-width: 0;
+}
+
+/* ============================================================
+   卡片通用
+   ============================================================ */
+.nd-card {
+  background: var(--bg-subtle, #f8f9fb);
+  border: 1px solid var(--border-light, #f0f1f4);
+  border-radius: var(--radius-xl, 12px);
+  padding: var(--space-5, 20px);
+  height: 100%;
+}
+
+.nd-card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-bottom: var(--space-4, 16px);
+}
+
+.nd-card-title-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2, 8px);
+  font-size: var(--text-md, 15px);
+  font-weight: 600;
+  color: var(--text-primary, #1a1d23);
+}
+
+.nd-card-title-icon {
+  width: 18px;
+  height: 18px;
+  color: var(--text-tertiary, #8b919a);
+  flex-shrink: 0;
+}
+
+.nd-card-desc {
+  font-size: var(--text-xs, 12px);
+  color: var(--text-tertiary, #8b919a);
+  margin-top: 2px;
+  line-height: 1.5;
+}
+
+.nd-card-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3, 12px);
+  flex-shrink: 0;
+}
+
+/* ============================================================
+   状态徽标
+   ============================================================ */
+.nd-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border-radius: var(--radius-full, 9999px);
+  font-size: var(--text-xs, 12px);
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.nd-badge--success { background: var(--color-success-bg, #f0fdf4); color: var(--color-success, #16a34a); }
+.nd-badge--danger  { background: var(--color-danger-bg, #fef2f2);  color: var(--color-danger, #dc2626); }
+.nd-badge--warning { background: var(--color-warning-bg, #fffbeb); color: var(--color-warning, #d97706); }
+.nd-badge--idle    { background: var(--bg-muted, #eef0f4); color: var(--text-tertiary, #8b919a); }
+.nd-badge--loading { background: var(--color-primary-light, #eff6ff); color: var(--color-primary, #2563eb); }
+
+.nd-badge-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.nd-badge-dot--pulse {
+  animation: nd-pulse 2s ease-in-out infinite;
+}
+
+@keyframes nd-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+/* ============================================================
+   开关按钮
+   ============================================================ */
+.nd-toggle {
+  position: relative;
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.nd-toggle-track {
+  display: block;
+  width: 36px;
+  height: 20px;
+  border-radius: 10px;
+  background: var(--border-strong, #cbd0d8);
+  transition: background 150ms ease;
+  position: relative;
+}
+
+.nd-toggle-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.15);
+  transition: transform 150ms ease;
+}
+
+.nd-toggle--on .nd-toggle-track {
+  background: var(--color-primary, #2563eb);
+}
+
+.nd-toggle--on .nd-toggle-thumb {
+  transform: translateX(16px);
+}
+
+/* ============================================================
+   公网 IP 卡片
+   ============================================================ */
+.nd-ip-current {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3, 12px);
+  margin-bottom: var(--space-5, 20px);
+  padding: var(--space-4, 16px);
+  background: var(--bg-base, #fff);
+  border-radius: var(--radius-lg, 10px);
+  border: 1px solid var(--border-light, #f0f1f4);
+}
+
+.nd-ip-address {
+  font-size: var(--text-lg, 18px);
+  font-weight: 600;
+  font-family: var(--font-mono, monospace);
+  color: var(--text-primary, #1a1d23);
+  letter-spacing: -0.3px;
+}
+
+.nd-ip-address--fail {
+  color: var(--color-danger, #dc2626);
+}
+
+.nd-ip-address--placeholder {
+  color: var(--text-placeholder, #aab0ba);
+}
+
+.nd-ip-source {
+  font-size: var(--text-2xs, 11px);
+  color: var(--text-placeholder, #aab0ba);
+  margin-left: auto;
+}
+
+/* IP 指标网格 */
+.nd-ip-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--space-3, 12px);
+  margin-bottom: var(--space-5, 20px);
+}
+
+.nd-metric-item {
+  padding: var(--space-3, 12px);
+  background: var(--bg-base, #fff);
+  border-radius: var(--radius-md, 8px);
+  border: 1px solid var(--border-light, #f0f1f4);
+}
+
+.nd-metric-label {
+  font-size: var(--text-2xs, 11px);
+  color: var(--text-tertiary, #8b919a);
+  margin-bottom: 2px;
+}
+
+.nd-metric-value {
+  font-size: var(--text-md, 15px);
+  font-weight: 600;
+  color: var(--text-primary, #1a1d23);
+}
+
+.nd-metric-value--warning { color: var(--color-warning, #d97706); }
+.nd-metric-value--danger  { color: var(--color-danger, #dc2626); }
+
+/* IP 时间线 */
+.nd-timeline-title {
+  font-size: var(--text-xs, 12px);
+  color: var(--text-tertiary, #8b919a);
+  margin-bottom: var(--space-2, 8px);
+}
+
+.nd-timeline {
+  display: flex;
+  gap: 3px;
+  align-items: flex-end;
+  height: 32px;
+}
+
+.nd-timeline-dot {
+  flex: 1;
+  min-width: 4px;
+  max-width: 12px;
+  height: 100%;
+  border-radius: 2px;
+  background: var(--color-success, #16a34a);
+  opacity: 0.7;
+  transition: opacity 150ms ease;
+}
+
+.nd-timeline-dot:hover { opacity: 1; }
+.nd-timeline-dot--switch { background: var(--color-warning, #d97706); }
+.nd-timeline-dot--fail   { background: var(--color-danger, #dc2626); }
+
+/* 底栏 */
+.nd-running-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: var(--space-4, 16px);
+  padding-top: var(--space-3, 12px);
+  border-top: 1px solid var(--border-light, #f0f1f4);
+}
+
+.nd-running-text {
+  font-size: var(--text-xs, 12px);
+  color: var(--text-tertiary, #8b919a);
+}
+
+.nd-running-text strong {
+  color: var(--text-secondary, #5a6070);
+  font-weight: 500;
+}
+
+.nd-running-text--danger {
+  color: var(--color-danger, #dc2626);
+}
+
+/* ============================================================
+   API 连通性卡片
+   ============================================================ */
+.nd-api-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3, 12px);
+}
+
+.nd-api-item {
+  padding: var(--space-4, 16px);
+  background: var(--bg-base, #fff);
+  border-radius: var(--radius-lg, 10px);
+  border: 1px solid var(--border-light, #f0f1f4);
+}
+
+.nd-api-item--error {
+  border-color: #fecaca;
+}
+
+.nd-api-item-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-2, 8px);
+}
+
+.nd-api-item-name {
+  font-size: var(--text-base, 14px);
+  font-weight: 600;
+  color: var(--text-primary, #1a1d23);
+}
+
+.nd-api-item-metrics {
+  display: flex;
+  gap: var(--space-4, 16px);
+  flex-wrap: wrap;
+}
+
+.nd-api-metric {
+  font-size: var(--text-xs, 12px);
+  color: var(--text-tertiary, #8b919a);
+}
+
+.nd-api-metric-value {
+  font-weight: 500;
+  color: var(--text-secondary, #5a6070);
+}
+
+.nd-api-metric-value--success { color: var(--color-success, #16a34a); }
+.nd-api-metric-value--danger  { color: var(--color-danger, #dc2626); }
+
+.nd-api-item-error {
+  font-size: var(--text-xs, 12px);
+  color: var(--color-danger, #dc2626);
+  margin-top: var(--space-2, 8px);
+}
+
+/* 检测按钮 */
+.nd-btn-detect {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  font-size: var(--text-sm, 13px);
+  font-weight: 500;
+  color: var(--color-primary, #2563eb);
+  background: var(--color-primary-light, #eff6ff);
+  border: 1px solid transparent;
+  border-radius: var(--radius-md, 8px);
+  cursor: pointer;
+  transition: all 150ms ease;
+  white-space: nowrap;
+}
+
+.nd-btn-detect:hover {
+  background: var(--color-primary, #2563eb);
+  color: #fff;
+}
+
+.nd-btn-detect:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.nd-btn-detect:disabled:hover {
+  background: var(--color-primary-light, #eff6ff);
+  color: var(--color-primary, #2563eb);
+}
+
+.nd-btn-detect svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* spinner 动画 */
+@keyframes nd-spin {
+  to { transform: rotate(360deg); }
+}
+
+.nd-spinner {
+  animation: nd-spin 1s linear infinite;
+}
+
+/* 上次检测时间 */
+.nd-last-checked {
+  font-size: var(--text-2xs, 11px);
+  color: var(--text-placeholder, #aab0ba);
+  margin-top: var(--space-3, 12px);
+}
+
+/* 空态引导 */
+.nd-empty-hint {
+  text-align: center;
+  padding: var(--space-6, 24px) var(--space-4, 16px);
+  color: var(--text-placeholder, #aab0ba);
+  font-size: var(--text-sm, 13px);
+}

@@ -65,9 +65,69 @@ function normalizeModelName(model) {
 }
 
 /**
+ * 从 Claude 归档目录路径中提取项目名
+ * 仅作为旧日志缺失 cwd 时的兜底策略。
+ * @param {string} filePath - 日志文件路径
+ * @returns {string|null}
+ */
+function extractProjectNameFromClaudePath(filePath) {
+  if (!filePath || typeof filePath !== 'string') return null
+
+  try {
+    const normalized = filePath.replace(/\\/g, '/')
+    const projectsIdx = normalized.indexOf('projects/')
+    if (projectsIdx === -1) return null
+
+    const afterProjects = normalized.substring(projectsIdx + 'projects/'.length)
+    const projectDir = afterProjects.split('/')[0]
+    if (!projectDir) return null
+
+    const segments = projectDir.split('-').filter(Boolean)
+    if (segments.length === 0) return null
+
+    return segments[segments.length - 1]
+  } catch {
+    return null
+  }
+}
+
+/**
+ * 从真实工作目录中提取项目名
+ * 优先识别 `/trae_projects/<project>` 这类工作区根目录，避免把子目录误识别成项目名。
+ * @param {string|null|undefined} cwdPath - 当前工作目录
+ * @returns {string|null}
+ */
+function extractProjectNameFromCwd(cwdPath) {
+  if (!cwdPath || typeof cwdPath !== 'string') return null
+
+  try {
+    const normalized = cwdPath
+      .replace(/\\/g, '/')
+      .replace(/\/+$/, '')
+
+    const workspaceMarker = '/trae_projects/'
+    const workspaceIdx = normalized.indexOf(workspaceMarker)
+    if (workspaceIdx !== -1) {
+      const afterWorkspace = normalized.substring(workspaceIdx + workspaceMarker.length)
+      const projectDir = afterWorkspace.split('/')[0]
+      if (projectDir) {
+        return projectDir
+      }
+    }
+
+    const segments = normalized.split('/').filter(Boolean)
+    if (segments.length === 0) return null
+
+    return segments[segments.length - 1]
+  } catch {
+    return null
+  }
+}
+
+/**
  * 解析 Claude 日志行
  * @param {string} line - JSONL 行
- * @returns {{timestamp: Date|null, model: string, messageId: string|null, input: number, output: number, cacheRead: number, cacheCreate: number}|null}
+ * @returns {{timestamp: Date|null, model: string, messageId: string|null, cwdPath: string|null, input: number, output: number, cacheRead: number, cacheCreate: number}|null}
  */
 function parseClaudeLog(line) {
   try {
@@ -86,6 +146,7 @@ function parseClaudeLog(line) {
       timestamp: timestamp ? new Date(timestamp) : null,
       model,
       messageId,
+      cwdPath: typeof data.cwd === 'string' ? data.cwd : null,
       input: toSafeInt(usage.input_tokens),
       output: toSafeInt(usage.output_tokens),
       cacheRead: toSafeInt(usage.cache_read_input_tokens || usage.cache_read_tokens),
@@ -214,6 +275,7 @@ async function scanClaudeLogs(start, end, deps = {}) {
       const record = parseClaudeLog(line)
       if (record?.timestamp && record.timestamp >= start && record.timestamp < end) {
         streamOrder += 1
+        record.project = extractProjectNameFromCwd(record.cwdPath) || extractProjectNameFromClaudePath(file.path) || '未知项目'
         // Claude 同一 message.id 可能写入中间态与最终态，按"最新快照"保留才能避免重复累计
         const messageId = record.messageId || `${file.path || 'unknown-file'}:${index}`
         const incoming = { record, order: streamOrder }
@@ -228,6 +290,11 @@ async function scanClaudeLogs(start, end, deps = {}) {
 
   return Array.from(latestByMessage.values(), (item) => item.record)
 }
+
+// Codex 子 agent（subagent）回放检测阈值：
+// 子 agent 启动时会回放父对话历史，产生密集的 token 快照（数百个快照在 <1 秒内完成）。
+// 5 秒足够覆盖任意长度的回放，同时不会误吞真正的新工作（新工作快照间隔通常 > 5 秒）。
+const CODEX_REPLAY_WINDOW_MS = 5000
 
 /**
  * 扫描 Codex 日志并提取窗口增量记录
@@ -253,19 +320,40 @@ async function scanCodexLogs(start, end, deps = {}) {
 
   for (const file of scanResult.files || []) {
     const sessionId = extractCodexSessionId(file.path)
-    const state = sessionSnapshots.get(sessionId) || { beforeWindow: null, inWindow: null, model: null }
+    const state = sessionSnapshots.get(sessionId) || {
+      beforeWindow: null,
+      inWindow: null,
+      model: null,
+      cwd: null,
+      forkedFromId: null,
+      firstSnapshotTs: null,
+      replayBaseline: null
+    }
 
     for (const line of file.lines || []) {
-      // 从 turn_context 事件提取模型名称（token_count 自身不带 model）
       try {
         const parsed = JSON.parse(line)
-        if (parsed.type === 'turn_context' && parsed.payload?.model) {
-          state.model = parsed.payload.model
+        if (parsed.type === 'turn_context' && parsed.payload) {
+          if (parsed.payload.model) {
+            state.model = parsed.payload.model
+          }
+          if (parsed.payload.cwd) {
+            state.cwd = parsed.payload.cwd
+          }
+        }
+        // 检测子 agent：session_meta 中带 forked_from_id 表示从父 session fork 而来
+        if (parsed.type === 'session_meta' && parsed.payload?.forked_from_id) {
+          state.forkedFromId = parsed.payload.forked_from_id
         }
       } catch { /* ignore */ }
 
       const snapshot = parseCodexTokenSnapshot(line)
       if (!snapshot?.timestamp) continue
+
+      // 记录首个快照时间戳，用于回放阶段检测
+      if (!state.firstSnapshotTs) {
+        state.firstSnapshotTs = snapshot.timestamp
+      }
 
       if (snapshot.timestamp < start) {
         state.beforeWindow = pickCodexMaxSnapshot(state.beforeWindow, snapshot)
@@ -274,6 +362,13 @@ async function scanCodexLogs(start, end, deps = {}) {
 
       if (snapshot.timestamp >= start && snapshot.timestamp < end) {
         state.inWindow = pickCodexMaxSnapshot(state.inWindow, snapshot)
+
+        // 子 agent 回放阶段：首个快照后 5 秒内的快照属于父对话历史回放，
+        // 其累计值包含已在父 session 中统计过的 token，不应重复计入。
+        if (state.forkedFromId && state.firstSnapshotTs &&
+            (snapshot.timestamp.getTime() - state.firstSnapshotTs.getTime()) < CODEX_REPLAY_WINDOW_MS) {
+          state.replayBaseline = pickCodexMaxSnapshot(state.replayBaseline, snapshot)
+        }
       }
     }
 
@@ -285,12 +380,15 @@ async function scanCodexLogs(start, end, deps = {}) {
   for (const state of sessionSnapshots.values()) {
     if (!state.inWindow) continue
 
-    const before = state.beforeWindow || {
-      inputTotal: 0,
-      outputTotal: 0,
-      cacheReadTotal: 0,
-      totalTokens: 0
-    }
+    // 子 agent 用回放基线作为起点，只计新工作增量；普通 session 用窗口前快照或零值
+    const before = (state.forkedFromId && state.replayBaseline)
+      ? state.replayBaseline
+      : state.beforeWindow || {
+          inputTotal: 0,
+          outputTotal: 0,
+          cacheReadTotal: 0,
+          totalTokens: 0
+        }
 
     const deltaInputTotal = Math.max(0, state.inWindow.inputTotal - before.inputTotal)
     const deltaOutput = Math.max(0, state.inWindow.outputTotal - before.outputTotal)
@@ -305,6 +403,7 @@ async function scanCodexLogs(start, end, deps = {}) {
     records.push({
       timestamp: state.inWindow.timestamp,
       model: state.model || 'codex',
+      project: extractProjectNameFromCwd(state.cwd) || '未知项目',
       input: deltaNonCachedInput,
       output: deltaOutput,
       cacheRead: deltaCacheRead,
@@ -345,6 +444,24 @@ function aggregateByModel(records) {
   return aggregated
 }
 
+/**
+ * 按项目聚合记录
+ * @param {Array<object>} records - 原始记录
+ * @returns {Map<string, {name: string, value: number}>}
+ */
+function aggregateByProject(records) {
+  const aggregated = new Map()
+
+  for (const record of records) {
+    const projectName = record.project || '未知项目'
+    const current = aggregated.get(projectName) || { name: projectName, value: 0 }
+    current.value += (record.input || 0) + (record.output || 0) + (record.cacheRead || 0) + (record.cacheCreate || 0)
+    aggregated.set(projectName, current)
+  }
+
+  return aggregated
+}
+
 module.exports = {
   toSafeInt,
   normalizeModelName,
@@ -356,5 +473,6 @@ module.exports = {
   scanClaudeLogs,
   scanCodexLogs,
   aggregateByModel,
+  aggregateByProject,
   pathExists,
 }

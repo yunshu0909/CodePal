@@ -41,6 +41,14 @@ const icons = {
   ),
 }
 
+// 按类型区分自动消失时长：成功短、警告/错误长
+const DURATION_BY_TYPE = {
+  info: 3000,
+  success: 2000,
+  warning: 4000,
+  error: 4000,
+}
+
 /**
  * Toast 提示组件
  * @param {Object} props - 组件属性
@@ -55,12 +63,13 @@ export default function Toast({ message, onClose, type = 'info' }) {
 
   useEffect(() => {
     requestAnimationFrame(() => setShow(true))
+    const duration = DURATION_BY_TYPE[type] || 3000
     const timer = setTimeout(() => {
       setShow(false)
       setTimeout(onClose, 300)
-    }, 3000)
+    }, duration)
     return () => clearTimeout(timer)
-  }, [onClose])
+  }, [onClose, type])
 
   const icon = icons[type] || icons.info
 

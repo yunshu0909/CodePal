@@ -32,6 +32,8 @@ const { registerProjectInitHandlers } = require('./handlers/registerProjectInitH
 const { registerPermissionModeHandlers } = require('./handlers/permissionModeHandlers')
 const { registerModelConfigHandlers } = require('./handlers/modelConfigHandlers')
 const { registerMcpHandlers } = require('./handlers/registerMcpHandlers')
+const { registerNetworkDiagnosticsHandlers } = require('./handlers/registerNetworkDiagnosticsHandlers')
+const { startIpMonitor } = require('./services/networkDiagnosticsService')
 const { registerRepoWatcherHandlers } = require('./handlers/registerRepoWatcherHandlers')
 const { resolveProviderRegistryFilePath } = require('./services/providerRegistryPathService')
 const { ensureBuiltinProviderRegistryInstalled } = require('./services/builtinMcpInstallerService')
@@ -129,6 +131,9 @@ app.whenReady().then(async () => {
   }
 
   createWindow()
+
+  // 启动 IP 后台监控（应用启动即运行，30 秒采样）
+  startIpMonitor(() => mainWindow)
 
   // 启动中央仓库文件监听（方向 1：中央→工具自动推送）
   let initialRepoPath = '~/Documents/SkillManager/'
@@ -602,7 +607,7 @@ registerProjectInitHandlers({
   ipcMain,
   expandHome,
   pathExists,
-  templateBaseDir: path.resolve(__dirname, '..', 'templates', 'project-init-v0.9'),
+  templateBaseDir: path.resolve(__dirname, '..', 'templates', 'project-init-v1.2.5'),
 })
 
 // IPC handlers for V0.6 usage monitoring
@@ -674,5 +679,9 @@ registerModelConfigHandlers({
  * 注册 MCP 管理相关 IPC handlers
  */
 registerMcpHandlers({
+  ipcMain,
+})
+
+registerNetworkDiagnosticsHandlers({
   ipcMain,
 })

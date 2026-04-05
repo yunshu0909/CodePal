@@ -337,6 +337,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
    */
   executeProjectInit: (params) => ipcRenderer.invoke('project-init-execute', params),
 
+  /**
+   * 检测 Git 是否可用
+   * @returns {Promise<{success: boolean, data: {available: boolean, version: string|null}}>}
+   */
+  checkGitAvailable: () => ipcRenderer.invoke('project-init-check-git'),
+
   // V0.12 权限模式（启动模式）APIs
 
   /**
@@ -433,5 +439,44 @@ contextBridge.exposeInMainWorld('electronAPI', {
      * @returns {Promise<{success: boolean, toolsInstalled: Object, error: string|null}>}
      */
     checkToolsInstalled: () => ipcRenderer.invoke('mcp:checkToolsInstalled')
-  }
+  },
+
+  // V1.2.4 网络诊断 APIs
+
+  /**
+   * 获取 IP 监控当前状态（含历史时间线）
+   * @returns {Promise<{success: boolean, data: Object}>}
+   */
+  getIpMonitorState: () => ipcRenderer.invoke('network:getIpMonitorState'),
+
+  /**
+   * 切换 IP 采样频率（页面打开=快速5秒，离开=后台30秒）
+   * @param {boolean} fast
+   * @returns {Promise<{success: boolean}>}
+   */
+  setIpMonitorFastMode: (fast) => ipcRenderer.invoke('network:setIpMonitorFastMode', fast),
+
+  /**
+   * 暂停/恢复 IP 监控
+   * @param {boolean} enabled
+   * @returns {Promise<{success: boolean, data: Object}>}
+   */
+  toggleIpMonitor: (enabled) => ipcRenderer.invoke('network:toggleIpMonitor', enabled),
+
+  /**
+   * 监听 IP 监控状态实时更新（主进程推送）
+   * @param {(state: Object) => void} callback
+   * @returns {() => void} 取消监听函数
+   */
+  onIpStateUpdate: (callback) => {
+    const handler = (_event, state) => callback(state)
+    ipcRenderer.on('network:ipStateUpdate', handler)
+    return () => ipcRenderer.removeListener('network:ipStateUpdate', handler)
+  },
+
+  /**
+   * 并行检测所有 API 端点连通性（OpenAI + Anthropic）
+   * @returns {Promise<{success: boolean, data: Array, error: string|null}>}
+   */
+  probeEndpoints: () => ipcRenderer.invoke('network:probeEndpoints'),
 })

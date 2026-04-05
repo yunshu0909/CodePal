@@ -144,9 +144,9 @@ async function scanClaudeLogs(start, end) {
         // 半开区间 [start, end)，避免边界重复计数
         if (record && record.timestamp >= start && record.timestamp < end) {
           streamOrder += 1;
-          // Claude 同一 message.id 可能写入中间态与最终态，按”最新快照”保留才能避免重复累计。
-          // 从文件路径中提取项目名
-          record.project = extractProjectName(file.path);
+          // Claude 日志行本身带 cwd，优先用真实工作目录取项目名；
+          // 只有缺失时才回退到历史的文件路径解析，兼容旧日志格式。
+          record.project = extractProjectNameFromCwd(record.cwdPath) || extractProjectName(file.path);
           const messageId = record.messageId || `${file.path || 'unknown-file'}:${index}`;
           const incoming = {
             record,
@@ -166,6 +166,11 @@ async function scanClaudeLogs(start, end) {
 
   return Array.from(latestByMessage.values(), item => item.record);
 }
+
+// Codex 子 agent 回放检测阈值（毫秒）：
+// 子 agent 启动时回放父对话历史，数百个 token 快照在 <1 秒内密集产生。
+// 5 秒足够覆盖回放，不会误吞间隔更长的真实工作。
+const CODEX_REPLAY_WINDOW_MS = 5000;
 
 /**
  * 扫描 Codex 日志文件
@@ -193,14 +198,13 @@ async function scanCodexLogs(start, end) {
       return records;
     }
     if (result.truncated) {
-      // 告警而不阻断：提醒当前统计可能因超大日志目录被截断
       console.warn('Codex log scan truncated:', {
         totalMatched: result.totalMatched,
         scannedCount: result.scannedCount
       });
     }
 
-    // 按 session 维护“窗口前最大累计值”和“窗口内最大累计值”
+    // 按 session 维护”窗口前最大累计值”和”窗口内最大累计值”
     // 目的：避免同一累计快照重复上报导致的双重计数
     const sessionSnapshots = new Map();
 
@@ -211,11 +215,13 @@ async function scanCodexLogs(start, end) {
         beforeWindow: null,
         inWindow: null,
         model: null,
-        cwd: null
+        cwd: null,
+        forkedFromId: null,
+        firstSnapshotTs: null,
+        replayBaseline: null
       };
 
       for (const line of file.lines) {
-        // 从 turn_context 事件提取模型名称（token_count 自身不带 model）
         try {
           const parsed = JSON.parse(line);
           if (parsed.type === 'turn_context' && parsed.payload) {
@@ -226,11 +232,20 @@ async function scanCodexLogs(start, end) {
               state.cwd = parsed.payload.cwd;
             }
           }
+          // 检测子 agent：session_meta 中带 forked_from_id 表示从父 session fork 而来
+          if (parsed.type === 'session_meta' && parsed.payload?.forked_from_id) {
+            state.forkedFromId = parsed.payload.forked_from_id;
+          }
         } catch { /* ignore */ }
 
         const snapshot = parseCodexTokenSnapshot(line);
         if (!snapshot?.timestamp) {
           continue;
+        }
+
+        // 记录首个快照时间戳，用于回放阶段检测
+        if (!state.firstSnapshotTs) {
+          state.firstSnapshotTs = snapshot.timestamp;
         }
 
         if (snapshot.timestamp < start) {
@@ -241,24 +256,34 @@ async function scanCodexLogs(start, end) {
         // 半开区间 [start, end)，避免边界重复计数
         if (snapshot.timestamp >= start && snapshot.timestamp < end) {
           state.inWindow = pickCodexMaxSnapshot(state.inWindow, snapshot);
+
+          // 子 agent 回放阶段：首个快照后 5 秒内的快照属于父对话历史回放，
+          // 其累计值包含已在父 session 中统计过的 token，不应重复计入。
+          if (state.forkedFromId && state.firstSnapshotTs &&
+              (snapshot.timestamp.getTime() - state.firstSnapshotTs.getTime()) < CODEX_REPLAY_WINDOW_MS) {
+            state.replayBaseline = pickCodexMaxSnapshot(state.replayBaseline, snapshot);
+          }
         }
       }
 
       sessionSnapshots.set(sessionId, state);
     }
 
-    // 使用“窗口内最大累计值 - 窗口前最大累计值”得到 session 真实增量
+    // 使用”窗口内最大累计值 - 窗口前最大累计值”得到 session 真实增量
+    // 子 agent 用回放基线作为起点，只计新工作增量
     for (const state of sessionSnapshots.values()) {
       if (!state.inWindow) {
         continue;
       }
 
-      const before = state.beforeWindow || {
-        inputTotal: 0,
-        outputTotal: 0,
-        cacheReadTotal: 0,
-        totalTokens: 0
-      };
+      const before = (state.forkedFromId && state.replayBaseline)
+        ? state.replayBaseline
+        : state.beforeWindow || {
+            inputTotal: 0,
+            outputTotal: 0,
+            cacheReadTotal: 0,
+            totalTokens: 0
+          };
 
       const deltaInputTotal = Math.max(0, state.inWindow.inputTotal - before.inputTotal);
       const deltaOutput = Math.max(0, state.inWindow.outputTotal - before.outputTotal);
@@ -405,11 +430,13 @@ function extractProjectName(filePath) {
   if (!filePath || typeof filePath !== 'string') return '未知项目';
 
   try {
+    const normalized = filePath.replace(/\\/g, '/');
+
     // 取 projects/ 后面的第一段路径
-    const projectsIdx = filePath.indexOf('projects/');
+    const projectsIdx = normalized.indexOf('projects/');
     if (projectsIdx === -1) return '未知项目';
 
-    const afterProjects = filePath.substring(projectsIdx + 'projects/'.length);
+    const afterProjects = normalized.substring(projectsIdx + 'projects/'.length);
     const projectDir = afterProjects.split('/')[0];
     if (!projectDir) return '未知项目';
 
@@ -433,7 +460,7 @@ function extractProjectName(filePath) {
  * @returns {string} 项目名
  */
 function extractProjectNameFromCwd(cwdPath) {
-  if (!cwdPath || typeof cwdPath !== 'string') return '未知项目';
+  if (!cwdPath || typeof cwdPath !== 'string') return null;
 
   try {
     const normalized = cwdPath
@@ -451,11 +478,11 @@ function extractProjectNameFromCwd(cwdPath) {
     }
 
     const segments = normalized.split('/').filter(Boolean);
-    if (segments.length === 0) return '未知项目';
+    if (segments.length === 0) return null;
 
     return segments[segments.length - 1];
   } catch {
-    return '未知项目';
+    return null;
   }
 }
 

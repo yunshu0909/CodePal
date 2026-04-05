@@ -175,54 +175,120 @@
   margin-top: 2px;
 }
 
-.pi-checkbox-inline {
+/* ---- Template List (竖向列表卡片) ---- */
+
+.pi-template-list {
   display: flex;
-  gap: 12px;
-  flex-wrap: wrap;
+  flex-direction: column;
+  gap: 8px;
 }
 
-.pi-checkbox-pill {
+.pi-template-item {
   display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 14px;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 16px;
   border: 1.5px solid var(--pi-border-default);
-  border-radius: var(--pi-radius-full);
+  border-radius: var(--pi-radius-xl);
   cursor: pointer;
   transition: all var(--pi-transition-fast);
-  font-size: 13px;
   background: transparent;
-  color: var(--pi-text-secondary);
+  text-align: left;
+  width: 100%;
 }
 
-.pi-checkbox-pill:hover {
+.pi-template-item:hover:not(.disabled) {
   border-color: var(--pi-border-strong);
+  background: var(--pi-bg-subtle);
 }
 
-.pi-checkbox-pill.selected {
+.pi-template-item.selected {
   border-color: var(--pi-color-primary);
   background: var(--pi-color-primary-light);
-  color: var(--pi-color-primary);
 }
 
-.pi-checkbox-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--pi-border-strong);
+.pi-template-item.disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  pointer-events: none;
 }
 
-.pi-checkbox-pill.selected .pi-checkbox-dot {
-  background: var(--pi-color-primary);
-}
-
-.pi-checkbox-row {
+.pi-template-checkbox {
+  width: 18px;
+  height: 18px;
+  border-radius: 5px;
+  border: 1.5px solid var(--pi-border-strong);
   display: flex;
   align-items: center;
-  gap: 8px;
+  justify-content: center;
+  flex-shrink: 0;
+  margin-top: 1px;
+  transition: all var(--pi-transition-fast);
+}
+
+.pi-template-item.selected .pi-template-checkbox {
+  background: var(--pi-color-primary);
+  border-color: var(--pi-color-primary);
+}
+
+.pi-template-checkbox-tick {
+  display: none;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.pi-template-item.selected .pi-template-checkbox-tick {
+  display: block;
+}
+
+.pi-template-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.pi-template-name {
   font-size: 13px;
-  color: var(--pi-text-secondary);
-  margin-bottom: 8px;
+  font-weight: 600;
+  color: var(--pi-text-primary);
+  line-height: 1.4;
+}
+
+.pi-template-desc {
+  font-size: 12px;
+  color: var(--pi-text-tertiary);
+  margin-top: 2px;
+  line-height: 1.5;
+}
+
+.pi-template-dep {
+  font-size: 11px;
+  color: #d97706;
+  margin-top: 4px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* ---- Section Hint (Git 未安装等) ---- */
+
+.pi-section-hint {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  font-size: 11px;
+  color: #d97706;
+  line-height: 1.5;
+}
+
+/* ---- Radio Card disabled ---- */
+
+.pi-radio-card.disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  pointer-events: none;
 }
 
 .pi-preview-panel {
@@ -290,15 +356,6 @@
   }
 }
 
-.pi-preview-content {
-  flex: 1;
-  background: var(--pi-bg-subtle);
-  border-radius: var(--pi-radius-xl);
-  padding: 16px;
-  border: 1.5px solid var(--pi-border-default);
-  overflow: auto;
-}
-
 .pi-tree {
   font-family: var(--pi-font-mono);
   font-size: 12px;
@@ -336,6 +393,13 @@
 
 .pi-tree-indent-2 {
   margin-left: 40px;
+}
+
+.pi-tree-annotation {
+  font-family: var(--pi-font-mono);
+  font-size: 11px;
+  color: var(--pi-text-tertiary);
+  margin-left: 8px;
 }
 
 .pi-tree-connector::before {

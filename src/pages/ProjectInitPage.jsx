@@ -2,8 +2,10 @@
  * 新建项目页面
  *
  * 负责：
- * - 收集项目初始化参数（名称、路径、Git、模板）
- * - 实时预览将创建的目录结构
+ * - 收集项目初始化参数（名称、路径、Git、模板、记忆系统）
+ * - Git 可用性预检
+ * - 模板依赖联动（记忆系统依赖指引文件）
+ * - 实时预览将创建的目录结构（含文件注释）
  * - 调用主进程 validate/execute 完成初始化闭环
  * - 展示校验结果、失败详情与成功确认弹窗
  *
@@ -29,9 +31,25 @@ const DEFAULT_SUCCESS_MODAL_SUMMARY = Object.freeze({
 })
 
 const TEMPLATE_OPTIONS = [
-  { key: 'agents', label: 'AGENTS.md' },
-  { key: 'claude', label: 'CLAUDE.md' },
-  { key: 'design', label: 'design-system' },
+  {
+    key: 'agents',
+    label: 'AGENTS.md',
+    desc: 'Codex 项目指引文件 — 包含编程规范、注释标准、文件体量红线，让 Codex 按统一标准写代码',
+    isGuideFile: true,
+  },
+  {
+    key: 'claude',
+    label: 'CLAUDE.md',
+    desc: 'Claude Code 项目指引文件 — 包含编程规范、注释标准、文件体量红线，让 Claude Code 按统一标准写代码',
+    isGuideFile: true,
+  },
+  {
+    key: 'memory',
+    label: '记忆系统',
+    desc: '生成 MEMORY.md + memory/ 目录，让 AI 跨对话记住项目上下文、工作偏好和关键决策。首次对话时 AI 会自动引导你完成初始化',
+    depHint: '需要至少启用一个指引文件（AGENTS.md 或 CLAUDE.md）',
+    isGuideFile: false,
+  },
 ]
 
 const GIT_MODES = [
@@ -40,43 +58,52 @@ const GIT_MODES = [
   { key: 'none', icon: '🚫', title: '跳过 Git', desc: '稍后手动执行 git init' },
 ]
 
+// 预览区文件注释
+const TREE_ANNOTATIONS = {
+  '.git/': '版本控制',
+  'AGENTS.md': 'Codex 指引',
+  'CLAUDE.md': 'Claude Code 指引',
+  'MEMORY.md': '长期记忆',
+  'memory/': '每日记忆',
+  'docs/': 'PRD + 设计文档',
+  'code/': '项目代码',
+}
+
 /**
  * 新建项目页面组件
  * @returns {JSX.Element}
  */
 export default function ProjectInitPage() {
-  // 项目名称输入值（用于创建根目录名）
+  // 项目名称输入值
   const [projectName, setProjectName] = useState('')
-  // 目标路径输入值（用于计算项目落盘位置）
+  // 目标路径输入值
   const [targetPath, setTargetPath] = useState(DEFAULT_TARGET_PATH)
-  // Git 模式选择（root/code/none）
+  // Git 模式选择
   const [gitMode, setGitMode] = useState('root')
-  // 模板勾选状态（控制复制哪些模板）
+  // Git 是否可用（预检结果）
+  const [gitAvailable, setGitAvailable] = useState(true)
+  // 模板勾选状态
   const [templateSelection, setTemplateSelection] = useState({
     agents: true,
     claude: true,
-    design: true,
+    memory: true,
   })
-  // 预览是否展开（小屏默认收起，大屏默认展开）
+  // 预览是否展开
   const [isPreviewExpanded, setIsPreviewExpanded] = useState(() => {
-    if (typeof window === 'undefined' || !window.matchMedia) {
-      return true
-    }
+    if (typeof window === 'undefined' || !window.matchMedia) return true
     return !window.matchMedia(PREVIEW_MEDIA_QUERY).matches
   })
-  // 是否正在提交创建请求（用于防重复点击）
+  // 是否正在提交
   const [isSubmitting, setIsSubmitting] = useState(false)
   // 最近一次校验结果
   const [validationResult, setValidationResult] = useState(null)
   // 最近一次执行结果
   const [executionResult, setExecutionResult] = useState(null)
-  // 成功弹窗是否可见
+  // 成功弹窗
   const [isSuccessModalVisible, setIsSuccessModalVisible] = useState(false)
-  // 成功弹窗摘要信息
   const [successModalSummary, setSuccessModalSummary] = useState(DEFAULT_SUCCESS_MODAL_SUMMARY)
-  // 失败弹窗是否可见
+  // 失败弹窗
   const [isErrorModalVisible, setIsErrorModalVisible] = useState(false)
-  // 失败弹窗信息
   const [errorModalData, setErrorModalData] = useState({
     errorTitle: '',
     errorMessage: '',
@@ -84,33 +111,28 @@ export default function ProjectInitPage() {
     failedSteps: [],
     rollback: null,
   })
-  // Toast 提示消息
+  // Toast
   const [toast, setToast] = useState(null)
 
-  /**
-   * 当前勾选模板 key 列表
-   */
+  // 是否有指引文件被勾选（记忆系统的依赖条件）
+  const hasGuideFile = templateSelection.agents || templateSelection.claude
+
+  // 当前勾选的模板 key 列表
   const selectedTemplates = useMemo(
     () => TEMPLATE_OPTIONS.filter((item) => templateSelection[item.key]).map((item) => item.key),
     [templateSelection]
   )
 
-  /**
-   * 预览根目录名
-   */
+  // 预览根目录名
   const previewProjectName = useMemo(
     () => (projectName.trim().length > 0 ? projectName.trim() : 'my-awesome-project'),
     [projectName]
   )
 
-  /**
-   * 项目名称是否为空（用于禁用按钮，不显示错误）
-   */
+  // 项目名称是否为空
   const isProjectNameEmpty = useMemo(() => projectName.trim().length === 0, [projectName])
 
-  /**
-   * 项目名错误提示（仅非法字符，空值不算错误）
-   */
+  // 项目名错误提示
   const projectNameError = useMemo(() => {
     const trimmedName = projectName.trim()
     if (trimmedName === '.' || trimmedName === '..' || PROJECT_NAME_INVALID_CHARS.test(trimmedName)) {
@@ -119,19 +141,31 @@ export default function ProjectInitPage() {
     return ''
   }, [projectName])
 
-  /**
-   * 创建按钮是否可用
-   */
+  // 创建按钮是否可用
   const canCreate = !isProjectNameEmpty && !projectNameError && !isSubmitting && !isSuccessModalVisible
 
+  // Git 预检
   useEffect(() => {
-    if (typeof window === 'undefined' || !window.matchMedia) {
-      return undefined
-    }
+    if (!window.electronAPI?.checkGitAvailable) return
+
+    window.electronAPI.checkGitAvailable().then((result) => {
+      if (result?.success && result.data) {
+        const available = result.data.available
+        setGitAvailable(available)
+        if (!available) {
+          setGitMode('none')
+        }
+      }
+    }).catch(() => {
+      // 检测失败不阻塞页面，保持默认可用
+    })
+  }, [])
+
+  // 响应式预览展开
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.matchMedia) return undefined
 
     const mediaQueryList = window.matchMedia(PREVIEW_MEDIA_QUERY)
-
-    // 与断点保持一致，避免窗口尺寸切换后展开状态和布局语义不一致。
     const syncPreviewExpandedByViewport = (event) => {
       setIsPreviewExpanded(!event.matches)
     }
@@ -148,14 +182,26 @@ export default function ProjectInitPage() {
   }, [])
 
   /**
-   * 切换模板勾选
-   * @param {string} templateKey - 模板 key
+   * 切换模板勾选（含记忆依赖逻辑）
    */
   const handleToggleTemplate = (templateKey) => {
-    setTemplateSelection((prev) => ({
-      ...prev,
-      [templateKey]: !prev[templateKey],
-    }))
+    setTemplateSelection((prev) => {
+      const next = { ...prev, [templateKey]: !prev[templateKey] }
+
+      // 如果取消的是指引文件，检查记忆依赖
+      const option = TEMPLATE_OPTIONS.find((o) => o.key === templateKey)
+      if (option?.isGuideFile && !next[templateKey]) {
+        const stillHasGuide = TEMPLATE_OPTIONS
+          .filter((o) => o.isGuideFile && o.key !== templateKey)
+          .some((o) => next[o.key])
+
+        if (!stillHasGuide) {
+          next.memory = false
+        }
+      }
+
+      return next
+    })
   }
 
   /**
@@ -183,11 +229,10 @@ export default function ProjectInitPage() {
   }
 
   /**
-   * 执行创建流程：先 validate，再 execute
+   * 执行创建流程
    */
   const handleCreateProject = async () => {
     if (!window.electronAPI?.validateProjectInit || !window.electronAPI?.executeProjectInit) {
-      // 显示弹窗
       setErrorModalData({
         errorTitle: '功能不可用',
         errorMessage: '当前版本未接入项目初始化 IPC',
@@ -218,7 +263,6 @@ export default function ProjectInitPage() {
       setValidationResult(validateResponse)
 
       if (!validateResponse.success) {
-        // 校验异常，显示弹窗
         setErrorModalData({
           errorTitle: '创建前校验异常',
           errorMessage: validateResponse.error || '校验过程发生错误',
@@ -231,21 +275,15 @@ export default function ProjectInitPage() {
       }
 
       if (!validateResponse.valid) {
-        // 校验失败，显示弹窗
         const errors = validateResponse.data?.errors || []
         const firstError = errors[0]
-
         setErrorModalData({
           errorTitle: '创建前校验未通过',
           errorMessage: firstError?.message || '参数校验失败',
           errorHint: firstError?.code === 'TARGET_CONFLICT'
             ? '请更换项目名称或删除现有目录后重试'
             : '请检查输入参数后重试',
-          failedSteps: errors.map(e => ({
-            step: e.code || '校验',
-            status: 'failed',
-            message: e.message,
-          })),
+          failedSteps: errors.map((e) => ({ step: e.code || '校验', status: 'failed', message: e.message })),
           rollback: null,
         })
         setIsErrorModalVisible(true)
@@ -269,11 +307,9 @@ export default function ProjectInitPage() {
         })
         setIsSuccessModalVisible(true)
       } else {
-        // 显示失败弹窗
         const steps = executeResponse.data?.steps || []
-        const failedSteps = steps.filter(s => s.status === 'failed' || s.status === 'error')
+        const failedSteps = steps.filter((s) => s.status === 'failed' || s.status === 'error')
         const rollback = executeResponse.data?.rollback
-
         setErrorModalData({
           errorTitle: '项目创建失败',
           errorMessage: executeResponse.error || '初始化过程中发生错误',
@@ -285,7 +321,6 @@ export default function ProjectInitPage() {
       }
     } catch (error) {
       console.error('Error creating project:', error)
-      // 异常显示弹窗
       setErrorModalData({
         errorTitle: '项目初始化失败',
         errorMessage: error?.message || '未知错误',
@@ -300,48 +335,52 @@ export default function ProjectInitPage() {
   }
 
   /**
-   * 成功弹窗确认：关闭弹窗并重置表单状态
+   * 成功弹窗确认：关闭并重置
    */
   const handleConfirmSuccessModal = () => {
     setIsSuccessModalVisible(false)
     setProjectName('')
     setTargetPath(DEFAULT_TARGET_PATH)
-    setGitMode('root')
-    setTemplateSelection({
-      agents: true,
-      claude: true,
-      design: true,
-    })
+    setGitMode(gitAvailable ? 'root' : 'none')
+    setTemplateSelection({ agents: true, claude: true, memory: true })
     setValidationResult(null)
     setExecutionResult(null)
     setSuccessModalSummary(DEFAULT_SUCCESS_MODAL_SUMMARY)
     setToast({ message: '页面已重置，可以开始新的配置', type: 'info' })
   }
 
-  /**
-   * 失败弹窗关闭
-   */
-  const handleCloseErrorModal = () => {
-    setIsErrorModalVisible(false)
-  }
+  const handleCloseErrorModal = () => setIsErrorModalVisible(false)
 
-  /**
-   * 失败弹窗重试
-   */
   const handleRetryErrorModal = () => {
     setIsErrorModalVisible(false)
-    // 重新执行创建
     handleCreateProject()
   }
 
+  /**
+   * 渲染预览区树形节点
+   */
+  const renderTreeItem = (name, icon, indent, extraClass = '', visible = true) => {
+    if (!visible) return null
+    const indentClass = indent === 2 ? 'pi-tree-indent-2' : indent === 1 ? 'pi-tree-indent' : ''
+    return (
+      <div className={`pi-tree-item ${indentClass} ${indent > 0 ? 'pi-tree-connector' : ''} ${extraClass}`}>
+        <span className={icon === '📁' ? 'pi-tree-folder' : 'pi-tree-file'}>{icon}</span>
+        {name}
+        {TREE_ANNOTATIONS[name] && (
+          <span className="pi-tree-annotation">{TREE_ANNOTATIONS[name]}</span>
+        )}
+      </div>
+    )
+  }
 
   return (
-    <PageShell title="新建项目" subtitle="一键初始化项目结构" className="page-shell--no-padding" divider data-testid="project-init-page">
+    <PageShell title="新建项目" subtitle="一键初始化 AI 编程项目结构" className="page-shell--no-padding" divider data-testid="project-init-page">
       <div className="pi-two-column" data-testid="project-init-two-column">
         <section className="pi-form-panel" data-testid="project-init-form-panel">
 
+          {/* 基本信息 */}
           <div className="pi-form-section">
-            <div className="pi-section-title">📁 基本信息</div>
+            <div className="pi-section-title">基本信息</div>
             <div className="pi-form-group">
               <label className="pi-form-label">项目名称</label>
               <input
@@ -350,6 +389,7 @@ export default function ProjectInitPage() {
                 value={projectName}
                 placeholder="请输入项目名称（必填）"
                 onChange={(event) => setProjectName(event.target.value)}
+                disabled={isSubmitting}
                 data-testid="project-name-input"
               />
               {projectNameError && (
@@ -368,16 +408,17 @@ export default function ProjectInitPage() {
             />
           </div>
 
+          {/* Git 模式 */}
           <div className="pi-form-section">
-            <div className="pi-section-title">🌿 Git 模式</div>
+            <div className="pi-section-title">Git 模式</div>
             <div className="pi-radio-cards">
               {GIT_MODES.map((mode) => (
                 <button
                   key={mode.key}
                   type="button"
-                  className={`pi-radio-card ${gitMode === mode.key ? 'selected' : ''}`}
+                  className={`pi-radio-card ${gitMode === mode.key ? 'selected' : ''} ${!gitAvailable && mode.key !== 'none' ? 'disabled' : ''}`}
                   onClick={() => setGitMode(mode.key)}
-                  disabled={isSubmitting}
+                  disabled={isSubmitting || (!gitAvailable && mode.key !== 'none')}
                   data-testid={`git-mode-${mode.key}`}
                 >
                   <div className="pi-radio-card__icon">{mode.icon}</div>
@@ -386,29 +427,50 @@ export default function ProjectInitPage() {
                 </button>
               ))}
             </div>
+            {!gitAvailable && (
+              <div className="pi-section-hint" data-testid="git-not-available-hint">
+                未检测到 Git，已自动选择"跳过 Git"。安装 Git 后重新打开此页面即可使用。
+              </div>
+            )}
           </div>
 
+          {/* 初始化内容 */}
           <div className="pi-form-section">
-            <div className="pi-section-title">📄 初始化模板</div>
-            <div className="pi-checkbox-inline">
-              {TEMPLATE_OPTIONS.map((template) => (
-                <button
-                  key={template.key}
-                  type="button"
-                  className={`pi-checkbox-pill ${templateSelection[template.key] ? 'selected' : ''}`}
-                  onClick={() => handleToggleTemplate(template.key)}
-                  disabled={isSubmitting}
-                  data-testid={`template-pill-${template.key}`}
-                >
-                  <span className="pi-checkbox-dot" />
-                  <span>{template.label}</span>
-                </button>
-              ))}
+            <div className="pi-section-title">初始化内容</div>
+            <div className="pi-template-list">
+              {TEMPLATE_OPTIONS.map((template) => {
+                const isMemoryDisabled = template.key === 'memory' && !hasGuideFile
+                const isSelected = templateSelection[template.key]
+                const isDisabled = isSubmitting || isMemoryDisabled
+
+                return (
+                  <button
+                    key={template.key}
+                    type="button"
+                    className={`pi-template-item ${isSelected ? 'selected' : ''} ${isDisabled ? 'disabled' : ''}`}
+                    onClick={() => handleToggleTemplate(template.key)}
+                    disabled={isDisabled}
+                    data-testid={`template-item-${template.key}`}
+                  >
+                    <div className="pi-template-checkbox">
+                      <span className="pi-template-checkbox-tick">&#10003;</span>
+                    </div>
+                    <div className="pi-template-info">
+                      <div className="pi-template-name">{template.label}</div>
+                      <div className="pi-template-desc">{template.desc}</div>
+                      {template.depHint && isMemoryDisabled && (
+                        <div className="pi-template-dep">{template.depHint}</div>
+                      )}
+                    </div>
+                  </button>
+                )
+              })}
             </div>
           </div>
 
         </section>
 
+        {/* 预览区 */}
         <section
           className={`pi-preview-panel ${isPreviewExpanded ? 'expanded' : 'collapsed'}`}
           data-testid="project-init-preview-panel"
@@ -426,56 +488,74 @@ export default function ProjectInitPage() {
               <div className="pi-tree">
                 <div className="pi-tree-item root" data-testid="project-tree-root">
                   <span className="pi-tree-folder">📁</span>
-                  <span>{previewProjectName}</span>/
+                  <span>{previewProjectName}</span> /
                 </div>
 
+                {/* .git/ */}
                 {gitMode === 'root' && (
                   <div className="pi-tree-item pi-tree-indent pi-tree-connector">
                     <span className="pi-tree-folder pi-tree-success">📁</span>
-                    <span className="pi-tree-success" data-testid="project-tree-git-root">.git/</span>
+                    <span className="pi-tree-success">.git/</span>
+                    <span className="pi-tree-annotation">{TREE_ANNOTATIONS['.git/']}</span>
                   </div>
                 )}
 
+                {/* AGENTS.md */}
                 {templateSelection.agents && (
                   <div className="pi-tree-item pi-tree-indent pi-tree-connector" data-testid="project-tree-agents">
                     <span className="pi-tree-file">📄</span>
                     AGENTS.md
+                    <span className="pi-tree-annotation">{TREE_ANNOTATIONS['AGENTS.md']}</span>
                   </div>
                 )}
 
+                {/* CLAUDE.md */}
                 {templateSelection.claude && (
                   <div className="pi-tree-item pi-tree-indent pi-tree-connector" data-testid="project-tree-claude">
                     <span className="pi-tree-file">📄</span>
                     CLAUDE.md
+                    <span className="pi-tree-annotation">{TREE_ANNOTATIONS['CLAUDE.md']}</span>
                   </div>
                 )}
 
-                <div className="pi-tree-item pi-tree-indent pi-tree-connector">
-                  <span className="pi-tree-folder">📁</span>
-                  prd/
-                </div>
-
-                <div className="pi-tree-item pi-tree-indent pi-tree-connector">
-                  <span className="pi-tree-folder">📁</span>
-                  design/
-                </div>
-
-                {templateSelection.design && (
-                  <div className="pi-tree-item pi-tree-indent-2 pi-tree-connector" data-testid="project-tree-design-system">
+                {/* MEMORY.md */}
+                {templateSelection.memory && (
+                  <div className="pi-tree-item pi-tree-indent pi-tree-connector" data-testid="project-tree-memory">
                     <span className="pi-tree-file">📄</span>
-                    design-system.html
+                    MEMORY.md
+                    <span className="pi-tree-annotation">{TREE_ANNOTATIONS['MEMORY.md']}</span>
                   </div>
                 )}
 
+                {/* memory/ */}
+                {templateSelection.memory && (
+                  <div className="pi-tree-item pi-tree-indent pi-tree-connector" data-testid="project-tree-memory-dir">
+                    <span className="pi-tree-folder">📁</span>
+                    memory/
+                    <span className="pi-tree-annotation">{TREE_ANNOTATIONS['memory/']}</span>
+                  </div>
+                )}
+
+                {/* docs/ */}
+                <div className="pi-tree-item pi-tree-indent pi-tree-connector">
+                  <span className="pi-tree-folder">📁</span>
+                  docs/
+                  <span className="pi-tree-annotation">{TREE_ANNOTATIONS['docs/']}</span>
+                </div>
+
+                {/* code/ */}
                 <div className="pi-tree-item pi-tree-indent pi-tree-connector">
                   <span className="pi-tree-folder">📁</span>
                   code/
+                  <span className="pi-tree-annotation">{TREE_ANNOTATIONS['code/']}</span>
                 </div>
 
+                {/* code/.git/ */}
                 {gitMode === 'code' && (
                   <div className="pi-tree-item pi-tree-indent-2 pi-tree-connector">
                     <span className="pi-tree-folder pi-tree-success">📁</span>
-                    <span className="pi-tree-success" data-testid="project-tree-git-code">.git/</span>
+                    <span className="pi-tree-success">.git/</span>
+                    <span className="pi-tree-annotation">{TREE_ANNOTATIONS['.git/']}</span>
                   </div>
                 )}
               </div>
@@ -483,6 +563,7 @@ export default function ProjectInitPage() {
           )}
         </section>
 
+        {/* Footer */}
         <div className="pi-card-footer" data-testid="project-init-footer">
           <Button
             variant="primary"

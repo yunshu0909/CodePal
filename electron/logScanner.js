@@ -28,6 +28,24 @@ async function scanLogFilesInRange(basePath, startTime, endTime, options = {}) {
   const files = []
 
   /**
+   * 截取日志文件末尾的最近 N 行
+   * 用量记录天然更关注“最新写入”，读取文件头部会漏掉最近会话的 token_count。
+   * @param {string[]} lines - 原始行数组
+   * @returns {string[]} 截断后的行数组
+   */
+  function takeRecentLines(lines) {
+    if (!Array.isArray(lines) || maxLinesPerFile <= 0) {
+      return []
+    }
+
+    if (lines.length <= maxLinesPerFile) {
+      return lines
+    }
+
+    return lines.slice(-maxLinesPerFile)
+  }
+
+  /**
    * 递归收集候选日志文件
    * @param {string} currentPath - 当前扫描目录
    * @param {number} depth - 当前递归深度
@@ -86,10 +104,10 @@ async function scanLogFilesInRange(basePath, startTime, endTime, options = {}) {
   for (const candidate of selectedCandidates) {
     try {
       const content = await fs.readFile(candidate.path, 'utf-8')
-      const lines = content
+      const rawLines = content
         .split('\n')
         .filter(line => line.trim())
-        .slice(0, maxLinesPerFile)
+      const lines = takeRecentLines(rawLines)
 
       files.push({
         path: candidate.path,

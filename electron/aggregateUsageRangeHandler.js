@@ -4,6 +4,7 @@
  * 负责：
  * - 校验自定义日期区间参数（开始/结束/北京时间边界）
  * - 按模型聚合记录并生成展示数据
+ * - 生成与实时页一致的项目分布 / 缓存字段 / 图表字段
  * - 调度日汇总读取/补算/合并流程
  *
  * @module electron/aggregateUsageRangeHandler
@@ -41,6 +42,8 @@ const MODEL_COLORS = {
   codex: '#3b82f6',
   default: '#8b919a'
 }
+
+const PROJECT_COLORS = ['#16a34a', '#f59e0b', '#06b6d4', '#8b5cf6', '#ec4899', '#94a3b8']
 
 /**
  * 获取北京时间日期 key（YYYY-MM-DD）
@@ -156,7 +159,7 @@ function formatPercentDisplay(percent, modelTotal, grandTotal) {
 /**
  * 从模型聚合 Map 生成展示数据
  * @param {Map<string, object>} aggregated - 模型聚合 Map
- * @returns {{total:number,input:number,output:number,cache:number,models:Array,distribution:Array,isExtremeScenario:boolean,modelCount:number}}
+ * @returns {{total:number,input:number,output:number,cacheRead:number,cacheCreate:number,models:Array,distribution:Array,isExtremeScenario:boolean,modelCount:number}}
  */
 function generateViewData(aggregated) {
   const nonZeroModels = Array.from(aggregated.values())
@@ -169,7 +172,8 @@ function generateViewData(aggregated) {
   const total = models.reduce((sum, model) => sum + model.total, 0)
   const totalInput = models.reduce((sum, model) => sum + model.input, 0)
   const totalOutput = models.reduce((sum, model) => sum + model.output, 0)
-  const totalCache = models.reduce((sum, model) => sum + model.cacheRead + model.cacheCreate, 0)
+  const totalCacheRead = models.reduce((sum, model) => sum + model.cacheRead, 0)
+  const totalCacheCreate = models.reduce((sum, model) => sum + model.cacheCreate, 0)
 
   const modelsWithPercent = calculatePercentagesWithLargestRemainder(models, total)
 
@@ -179,6 +183,7 @@ function generateViewData(aggregated) {
   if (!isExtremeScenario) {
     distribution = modelsWithPercent.map((model) => ({
       name: model.name,
+      value: model.total,
       percent: model.percent,
       displayPercent: formatPercentDisplay(model.percent, model.total, total),
       color: model.color,
@@ -190,6 +195,7 @@ function generateViewData(aggregated) {
 
     distribution = topModels.map((model) => ({
       name: model.name,
+      value: model.total,
       percent: model.percent,
       displayPercent: formatPercentDisplay(model.percent, model.total, total),
       color: model.color,
@@ -204,6 +210,7 @@ function generateViewData(aggregated) {
     if (otherModels.length > 0) {
       distribution.push({
         name: `其他 (${otherModels.length}个模型)`,
+        value: othersTotal,
         percent: othersPercent,
         displayPercent: formatPercentDisplay(othersPercent, othersTotal, total),
         color: MODEL_COLORS.default,
@@ -216,12 +223,28 @@ function generateViewData(aggregated) {
     total,
     input: totalInput,
     output: totalOutput,
-    cache: totalCache,
+    cacheRead: totalCacheRead,
+    cacheCreate: totalCacheCreate,
     models,
     distribution,
     isExtremeScenario,
     modelCount: models.length
   }
+}
+
+/**
+ * 将项目聚合 Map 转为前端需要的分布数组
+ * @param {Map<string, {name: string, value: number}>} aggregatedProjects - 项目聚合结果
+ * @returns {Array<{name: string, value: number, color: string}>}
+ */
+function generateProjectDistribution(aggregatedProjects) {
+  return Array.from(aggregatedProjects.values())
+    .map((item, idx) => ({
+      name: item.name,
+      value: item.value,
+      color: PROJECT_COLORS[idx % PROJECT_COLORS.length]
+    }))
+    .sort((a, b) => b.value - a.value)
 }
 
 /**
@@ -311,12 +334,14 @@ async function handleAggregateUsageRange(params, deps = {}) {
   }
 
   const merged = mergeDailySummaries(collectedSummaries)
-  const viewData = generateViewData(merged)
+  const viewData = generateViewData(merged.models)
+  const projectDistribution = generateProjectDistribution(merged.projects)
 
   return {
     success: true,
     data: {
       ...viewData,
+      projectDistribution,
       period: 'custom',
       startDate,
       endDate
