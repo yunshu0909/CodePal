@@ -83,7 +83,7 @@ export default function UsageMonitorPage() {
   // 用量目标管理
   const {
     hasGoal, dismissed, goal, dailyTarget, weeklyTarget, monthlyTarget,
-    saveGoal, dismissGoal,
+    saveGoal, dismissGoal, ready: goalReady,
   } = useUsageGoal();
 
   // 目标设定弹窗
@@ -535,10 +535,10 @@ export default function UsageMonitorPage() {
         </button>
       }
     >
-      {/* 预算进度圆环 */}
+      {/* 预算进度圆环：等 electron-store 读完再渲染，避免闪出空态 */}
       <BudgetProgress
         hasGoal={hasGoal}
-        dismissed={dismissed}
+        dismissed={dismissed || !goalReady}
         dailyTarget={dailyTarget}
         weeklyTarget={weeklyTarget}
         monthlyTarget={monthlyTarget}
