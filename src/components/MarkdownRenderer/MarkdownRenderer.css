@@ -1,0 +1,315 @@
+/**
+ * 统一 Markdown 渲染样式
+ *
+ * 覆盖元素：
+ * - 标题 h1–h6
+ * - 段落、加粗、斜体、删除线
+ * - 链接
+ * - 代码块（语法高亮）、行内代码
+ * - 引用块
+ * - 有序/无序/任务列表
+ * - 表格（GFM）
+ * - 分隔线
+ * - 图片
+ *
+ * 命名空间：.md-renderer 内限定，不污染全局
+ */
+
+/* ── 基础排版 ─────────────────────────────────────── */
+.md-renderer {
+  font-size: var(--text-sm, 13px);
+  line-height: 1.7;
+  color: var(--text-primary, #1a1d23);
+  word-break: break-word;
+}
+
+.md-renderer > *:first-child {
+  margin-top: 0;
+}
+
+.md-renderer > *:last-child {
+  margin-bottom: 0;
+}
+
+/* ── 标题 ─────────────────────────────────────────── */
+.md-renderer h1 {
+  font-size: var(--text-lg, 18px);
+  font-weight: 600;
+  margin: 20px 0 10px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border-light, #f0f1f4);
+  color: var(--text-primary);
+  letter-spacing: -0.3px;
+}
+
+.md-renderer h2 {
+  font-size: 16px;
+  font-weight: 600;
+  margin: 18px 0 8px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--border-light, #f0f1f4);
+  color: var(--text-primary);
+}
+
+.md-renderer h3 {
+  font-size: var(--text-md, 15px);
+  font-weight: 600;
+  margin: 16px 0 6px;
+  color: var(--text-primary);
+}
+
+.md-renderer h4 {
+  font-size: var(--text-base, 14px);
+  font-weight: 600;
+  margin: 14px 0 4px;
+  color: var(--text-primary);
+}
+
+.md-renderer h5,
+.md-renderer h6 {
+  font-size: var(--text-sm, 13px);
+  font-weight: 600;
+  margin: 12px 0 4px;
+  color: var(--text-secondary, #5a6070);
+}
+
+/* ── 段落 ─────────────────────────────────────────── */
+.md-renderer p {
+  margin: 8px 0;
+}
+
+/* ── 加粗、斜体、删除线 ──────────────────────────── */
+.md-renderer strong {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.md-renderer em {
+  font-style: italic;
+}
+
+.md-renderer del {
+  text-decoration: line-through;
+  color: var(--text-tertiary, #8b919a);
+}
+
+/* ── 链接 ─────────────────────────────────────────── */
+.md-renderer a {
+  color: var(--color-primary, #2563eb);
+  text-decoration: none;
+}
+
+.md-renderer a:hover {
+  text-decoration: underline;
+}
+
+/* ── 行内代码 ─────────────────────────────────────── */
+.md-renderer code:not(pre code) {
+  font-family: var(--font-mono, 'SF Mono', 'Menlo', monospace);
+  font-size: 0.9em;
+  background: var(--bg-muted, #eef0f4);
+  color: #c7254e;
+  padding: 1px 5px;
+  border-radius: var(--radius-sm, 4px);
+  word-break: break-word;
+}
+
+/* ── 代码块 ───────────────────────────────────────── */
+.md-renderer pre {
+  margin: 12px 0;
+  padding: 14px 16px;
+  background: #1e1e2e;
+  border-radius: var(--radius-md, 8px);
+  overflow-x: auto;
+  line-height: 1.5;
+}
+
+.md-renderer pre code {
+  font-family: var(--font-mono, 'SF Mono', 'Menlo', monospace);
+  font-size: 12px;
+  color: #cdd6f4;
+  background: transparent;
+  padding: 0;
+  border-radius: 0;
+  white-space: pre;
+  word-break: normal;
+}
+
+/* ── highlight.js 内联主题（Catppuccin-inspired 暗色） */
+.md-renderer pre code.hljs {
+  background: transparent;
+  padding: 0;
+}
+
+.md-renderer .hljs-keyword,
+.md-renderer .hljs-selector-tag,
+.md-renderer .hljs-built_in {
+  color: #cba6f7;
+}
+
+.md-renderer .hljs-string,
+.md-renderer .hljs-addition {
+  color: #a6e3a1;
+}
+
+.md-renderer .hljs-comment,
+.md-renderer .hljs-quote {
+  color: #6c7086;
+  font-style: italic;
+}
+
+.md-renderer .hljs-number,
+.md-renderer .hljs-literal {
+  color: #fab387;
+}
+
+.md-renderer .hljs-function .hljs-title,
+.md-renderer .hljs-title {
+  color: #89b4fa;
+}
+
+.md-renderer .hljs-variable,
+.md-renderer .hljs-attr,
+.md-renderer .hljs-params {
+  color: #f2cdcd;
+}
+
+.md-renderer .hljs-type,
+.md-renderer .hljs-class .hljs-title {
+  color: #f9e2af;
+}
+
+.md-renderer .hljs-meta,
+.md-renderer .hljs-meta .hljs-keyword {
+  color: #f38ba8;
+}
+
+.md-renderer .hljs-symbol,
+.md-renderer .hljs-bullet {
+  color: #f5c2e7;
+}
+
+.md-renderer .hljs-regexp {
+  color: #f5e0dc;
+}
+
+.md-renderer .hljs-deletion {
+  color: #f38ba8;
+}
+
+.md-renderer .hljs-selector-class,
+.md-renderer .hljs-selector-id {
+  color: #94e2d5;
+}
+
+.md-renderer .hljs-tag {
+  color: #89dceb;
+}
+
+.md-renderer .hljs-name {
+  color: #89b4fa;
+}
+
+.md-renderer .hljs-attribute {
+  color: #f9e2af;
+}
+
+/* ── 引用块 ───────────────────────────────────────── */
+.md-renderer blockquote {
+  margin: 10px 0;
+  padding: 8px 16px;
+  border-left: 3px solid var(--color-primary, #2563eb);
+  background: var(--color-primary-light, #eff6ff);
+  border-radius: 0 var(--radius-sm, 6px) var(--radius-sm, 6px) 0;
+  color: var(--text-secondary, #5a6070);
+}
+
+.md-renderer blockquote p {
+  margin: 4px 0;
+}
+
+/* 嵌套引用 */
+.md-renderer blockquote blockquote {
+  margin-top: 6px;
+  border-left-color: var(--border-strong, #cbd0d8);
+  background: rgba(0, 0, 0, 0.02);
+}
+
+/* ── 列表 ─────────────────────────────────────────── */
+.md-renderer ul,
+.md-renderer ol {
+  margin: 8px 0;
+  padding-left: 24px;
+}
+
+.md-renderer li {
+  margin: 3px 0;
+}
+
+.md-renderer li > p {
+  margin: 2px 0;
+}
+
+/* 嵌套列表紧凑 */
+.md-renderer li > ul,
+.md-renderer li > ol {
+  margin: 2px 0;
+}
+
+/* GFM 任务列表 */
+.md-renderer li.task-list-item {
+  list-style: none;
+  margin-left: -20px;
+}
+
+.md-renderer input[type='checkbox'] {
+  margin-right: 6px;
+  vertical-align: middle;
+  accent-color: var(--color-primary, #2563eb);
+}
+
+/* ── 表格 ─────────────────────────────────────────── */
+.md-renderer table {
+  width: 100%;
+  margin: 12px 0;
+  border-collapse: collapse;
+  font-size: var(--text-xs, 12px);
+}
+
+.md-renderer th {
+  padding: 8px 12px;
+  text-align: left;
+  font-weight: 600;
+  color: var(--text-secondary, #5a6070);
+  background: var(--bg-subtle, #f8f9fb);
+  border-bottom: 2px solid var(--border-default, #e2e5ea);
+}
+
+.md-renderer td {
+  padding: 7px 12px;
+  border-bottom: 1px solid var(--border-light, #f0f1f4);
+  color: var(--text-primary);
+}
+
+.md-renderer tr:last-child td {
+  border-bottom: none;
+}
+
+.md-renderer tr:hover td {
+  background: var(--bg-subtle, #f8f9fb);
+}
+
+/* ── 分隔线 ───────────────────────────────────────── */
+.md-renderer hr {
+  margin: 16px 0;
+  border: none;
+  height: 1px;
+  background: var(--border-default, #e2e5ea);
+}
+
+/* ── 图片 ─────────────────────────────────────────── */
+.md-renderer img {
+  max-width: 100%;
+  border-radius: var(--radius-md, 8px);
+  margin: 8px 0;
+}

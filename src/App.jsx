@@ -20,12 +20,13 @@ import ProjectInitPage from './pages/ProjectInitPage'
 import PermissionModePage from './pages/PermissionModePage'
 import McpPage from './pages/McpPage'
 import NetworkDiagnosticsPage from './pages/NetworkDiagnosticsPage'
+import SessionBrowserPage from './pages/SessionBrowserPage'
 import Toast from './components/Toast'
 import { dataStore } from './store/data'
 
 const AUTO_INCREMENTAL_REFRESH_INTERVAL_MS = 5 * 60 * 1000
 const DEFAULT_ACTIVE_MODULE = 'usage'
-const VALID_ACTIVE_MODULES = new Set(['skills', 'mcp', 'usage', 'api', 'project-init', 'permission', 'network'])
+const VALID_ACTIVE_MODULES = new Set(['skills', 'mcp', 'usage', 'api', 'project-init', 'permission', 'network', 'sessions'])
 
 /**
  * 读取上次访问的模块，并过滤已下线模块
@@ -203,6 +204,7 @@ export default function App() {
         {activeModule === 'project-init' && <ProjectInitPage />}
         {activeModule === 'permission' && <PermissionModePage />}
         {activeModule === 'network' && <NetworkDiagnosticsPage />}
+        {activeModule === 'sessions' && <SessionBrowserPage />}
       </WorkbenchLayout>
 
       {/* Toast */}

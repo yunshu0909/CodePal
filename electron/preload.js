@@ -479,4 +479,34 @@ contextBridge.exposeInMainWorld('electronAPI', {
    * @returns {Promise<{success: boolean, data: Array, error: string|null}>}
    */
   probeEndpoints: () => ipcRenderer.invoke('network:probeEndpoints'),
+
+  // Session 浏览 APIs
+
+  /**
+   * 获取所有项目列表
+   * @returns {Promise<{success: boolean, data: Array, error: string|null}>}
+   */
+  listSessionProjects: () => ipcRenderer.invoke('session:listProjects'),
+
+  /**
+   * 获取指定项目的 session 列表
+   * @param {string} projectId - 编码后的项目目录名
+   * @returns {Promise<{success: boolean, data: Array, error: string|null}>}
+   */
+  listSessions: (projectId) => ipcRenderer.invoke('session:listSessions', projectId),
+
+  /**
+   * 读取 session 对话内容
+   * @param {string} projectId - 项目目录名
+   * @param {string} sessionId - session UUID
+   * @returns {Promise<{success: boolean, data: Array, error: string|null}>}
+   */
+  readSession: (projectId, sessionId) => ipcRenderer.invoke('session:readSession', projectId, sessionId),
+
+  /**
+   * 全文搜索对话内容
+   * @param {string} keyword - 搜索关键词
+   * @returns {Promise<{success: boolean, data: Array, error: string|null}>}
+   */
+  searchSessions: (keyword) => ipcRenderer.invoke('session:search', keyword),
 })

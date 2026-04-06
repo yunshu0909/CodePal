@@ -33,6 +33,7 @@ const { registerPermissionModeHandlers } = require('./handlers/permissionModeHan
 const { registerModelConfigHandlers } = require('./handlers/modelConfigHandlers')
 const { registerMcpHandlers } = require('./handlers/registerMcpHandlers')
 const { registerNetworkDiagnosticsHandlers } = require('./handlers/registerNetworkDiagnosticsHandlers')
+const { registerSessionBrowserHandlers } = require('./handlers/registerSessionBrowserHandlers')
 const { startIpMonitor } = require('./services/networkDiagnosticsService')
 const { registerRepoWatcherHandlers } = require('./handlers/registerRepoWatcherHandlers')
 const { resolveProviderRegistryFilePath } = require('./services/providerRegistryPathService')
@@ -683,5 +684,9 @@ registerMcpHandlers({
 })
 
 registerNetworkDiagnosticsHandlers({
+  ipcMain,
+})
+
+registerSessionBrowserHandlers({
   ipcMain,
 })

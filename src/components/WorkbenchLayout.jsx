@@ -45,7 +45,8 @@ function WorkbenchLayout({ children, activeModule, onModuleChange, hasUpdate, on
     {
       label: '用量看板',
       items: [
-        { id: 'usage', label: '用量监测', icon: '📊' }
+        { id: 'usage', label: '用量监测', icon: '📊' },
+        { id: 'sessions', label: '对话回顾', icon: '💬' }
       ]
     },
     {
