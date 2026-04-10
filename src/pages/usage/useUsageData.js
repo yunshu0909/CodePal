@@ -107,6 +107,12 @@ export default function useUsageData() {
   // 自定义日期请求中标志
   const [customLoading, setCustomLoading] = useState(false);
 
+  // 累计至今数据（首次加载后常驻内存）
+  const [allTimeData, setAllTimeData] = useState(null);
+
+  // 累计至今请求中标志
+  const [allTimeLoading, setAllTimeLoading] = useState(false);
+
   // ---- Refs ----
 
   // 自动刷新定时器
@@ -120,6 +126,9 @@ export default function useUsageData() {
 
   // 防止同周期并发重算
   const refreshingSetRef = useRef(new Set());
+
+  // 防止累计至今并发请求
+  const fetchingAllTimeRef = useRef(false);
 
   // dropdown 容器 ref，用于点击外部检测
   const dropdownRef = useRef(null);
@@ -369,6 +378,36 @@ export default function useUsageData() {
     }
   }, []);
 
+  /**
+   * 获取累计至今数据（从 2020-01-01 到当前时刻的全部历史记录）
+   *
+   * 走前端单次扫描路径（aggregateUsage）而非 aggregateUsageRange：
+   * 后者会逐日调用 recomputeDailySummary，每天都要全量扫描日志目录，
+   * 对数年跨度来说会导致数千次目录扫描，卡死 UI。
+   *
+   * - 防并发：通过 ref 保证同时只有一个请求
+   * - 无历史日志时降级为空态，不报错
+   */
+  const fetchAllTimeData = useCallback(async () => {
+    if (fetchingAllTimeRef.current) return;
+    fetchingAllTimeRef.current = true;
+    setAllTimeLoading(true);
+    try {
+      const result = await aggregateUsage('allTime');
+      if (result.success) {
+        setAllTimeData(result.data || EMPTY_USAGE_DATA);
+        setError(null);
+      } else {
+        setError(result.error || '加载失败');
+      }
+    } catch (err) {
+      setError(err.message || '未知错误');
+    } finally {
+      fetchingAllTimeRef.current = false;
+      setAllTimeLoading(false);
+    }
+  }, []);
+
   // ---- 交互处理 ----
 
   /**
@@ -391,7 +430,12 @@ export default function useUsageData() {
     setShowCustomDateModal(false);
     setCurrentPeriod(period);
     setError(null);
-  }, [currentPeriod, updateDatePickerPosition]);
+
+    // 累计至今：首次点击时懒加载（已有数据则跳过）
+    if (period === 'allTime' && !allTimeData) {
+      fetchAllTimeData();
+    }
+  }, [currentPeriod, updateDatePickerPosition, fetchAllTimeData, allTimeData]);
 
   /**
    * 处理自定义日期确认
@@ -459,8 +503,15 @@ export default function useUsageData() {
    * 手动刷新
    */
   const handleRefresh = useCallback(() => {
+    if (currentPeriod === 'allTime') {
+      // 请求进行中时跳过，避免先清空数据却无后续请求导致 UI 卡空白
+      if (fetchingAllTimeRef.current) return;
+      setAllTimeData(null);
+      fetchAllTimeData();
+      return;
+    }
     refreshPeriodData(currentPeriod, { force: true, showLoading: true });
-  }, [currentPeriod, refreshPeriodData]);
+  }, [currentPeriod, refreshPeriodData, fetchAllTimeData]);
 
   // 点击外部关闭 dropdown
   useEffect(() => {
@@ -490,7 +541,9 @@ export default function useUsageData() {
   // 当前周期显示数据
   const displayData = currentPeriod === 'custom'
     ? (customData || EMPTY_USAGE_DATA)
-    : (periodCache[currentPeriod]?.data || EMPTY_USAGE_DATA);
+    : currentPeriod === 'allTime'
+      ? (allTimeData || EMPTY_USAGE_DATA)
+      : (periodCache[currentPeriod]?.data || EMPTY_USAGE_DATA);
 
   // 各模型预估费用
   const costData = useMemo(() => calculateCosts(displayData.models), [displayData.models]);
@@ -516,6 +569,7 @@ export default function useUsageData() {
     loading,
     error,
     customLoading,
+    allTimeLoading,
 
     // 周期切换
     handlePeriodChange,

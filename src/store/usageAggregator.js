@@ -74,6 +74,15 @@ function getBeijingDateParts(date = new Date()) {
  */
 function getBeijingTimeWindow(period) {
   const now = new Date();
+
+  // 累计至今：从 2020-01-01 到当前时刻，单次扫描所有历史日志
+  if (period === 'allTime') {
+    return {
+      start: new Date('2020-01-01T00:00:00+08:00'),
+      end: new Date(now)
+    };
+  }
+
   const { year, month, day } = getBeijingDateParts(now);
   const todayStart = new Date(`${year}-${month}-${day}T00:00:00+08:00`);
 
@@ -687,13 +696,13 @@ function formatPercentDisplay(percent, modelTotal, grandTotal) {
 /**
  * 聚合用量数据
  * 主入口函数
- * @param {string} period - 周期：'today' | 'week' | 'month'
+ * @param {string} period - 周期：'today' | 'week' | 'month' | 'allTime'
  * @returns {Promise<{success: boolean, data?: object, error?: string}>}
  */
 export async function aggregateUsage(period) {
   try {
     // 参数校验
-    if (!['today', 'week', 'month'].includes(period)) {
+    if (!['today', 'week', 'month', 'allTime'].includes(period)) {
       return { success: false, error: 'INVALID_PERIOD' };
     }
 
