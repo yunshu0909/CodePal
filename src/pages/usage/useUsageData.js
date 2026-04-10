@@ -379,7 +379,10 @@ export default function useUsageData() {
   }, []);
 
   /**
-   * 获取累计至今数据（从 2020-01-01 到当前时刻的全部历史记录）
+   * 获取累计至今数据（从 2020-01-01 到今日 00:00 的全部历史，不含今日）
+   *
+   * 口径说明：与 week/month 保持一致——"今日"tab 已经单独展示今天数据，
+   * 其他时间段都不重复包含今天，避免同一天的消耗在两个 tab 里被重复计算。
    *
    * 走前端单次扫描路径（aggregateUsage）而非 aggregateUsageRange：
    * 后者会逐日调用 recomputeDailySummary，每天都要全量扫描日志目录，

@@ -74,17 +74,17 @@ function getBeijingDateParts(date = new Date()) {
  */
 function getBeijingTimeWindow(period) {
   const now = new Date();
+  const { year, month, day } = getBeijingDateParts(now);
+  const todayStart = new Date(`${year}-${month}-${day}T00:00:00+08:00`);
 
-  // 累计至今：从 2020-01-01 到当前时刻，单次扫描所有历史日志
+  // 累计至今：从 2020-01-01 到今日 00:00，不含今日
+  // 口径与 week/month 保持一致：除"今日"tab 外，其他时间段都不重复包含今天
   if (period === 'allTime') {
     return {
       start: new Date('2020-01-01T00:00:00+08:00'),
-      end: new Date(now)
+      end: new Date(todayStart)
     };
   }
-
-  const { year, month, day } = getBeijingDateParts(now);
-  const todayStart = new Date(`${year}-${month}-${day}T00:00:00+08:00`);
 
   const start = new Date(todayStart);
   let end = new Date(now);
