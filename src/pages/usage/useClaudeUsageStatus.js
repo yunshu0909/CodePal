@@ -61,6 +61,11 @@ export default function useClaudeUsageStatus() {
           })
         }
         setError(null)
+
+        // 磁盘脚本版本落后时自动重写，用户无感
+        if (result.scriptOutdated && window.electronAPI?.ensureClaudeUsageStatusInstalled) {
+          window.electronAPI.ensureClaudeUsageStatusInstalled({ force: true }).catch(() => {})
+        }
       } else {
         // IPC 返回但 success=false:清掉 statusState,让 Card 进 read_error 态
         setStatusState(null)

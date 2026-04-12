@@ -27,6 +27,10 @@ const STATUS_SNAPSHOT_PATH = path.join(CLAUDE_DIR, 'codepal-usage-status-snapsho
 const MANAGED_STATUS_COMMAND = `bash "${STATUS_SCRIPT_PATH}"`
 const LEGACY_MANAGED_STATUS_COMMAND = `bash ${STATUS_SCRIPT_PATH}`
 
+// 脚本版本号：每次修改 buildStatusScriptContent() 时递增，
+// 页面加载时自动检测版本不匹配就重写磁盘脚本。
+const SCRIPT_VERSION = 2
+
 const VALID_DISPLAY_MODES = ['always', 'threshold', 'off']
 const DEFAULT_STATUS_CONFIG = Object.freeze({
   displayMode: 'always',
@@ -79,6 +83,7 @@ function normalizeStatusConfig(source) {
  */
 function buildStatusScriptContent() {
   return `#!/usr/bin/env bash
+# codepal-script-version: ${SCRIPT_VERSION}
 # CodePal-managed Claude Code usage status line.
 # Reads Claude Code's JSON stdin, writes a local snapshot, and prints
 # a single status line based on the user's display mode.
@@ -196,6 +201,11 @@ model = get_value(payload, "model", "display_name", default="Claude Code")
 five_pct = get_value(payload, "rate_limits", "five_hour", "used_percentage")
 week_pct = get_value(payload, "rate_limits", "seven_day", "used_percentage")
 resets_at = get_value(payload, "rate_limits", "five_hour", "resets_at")
+
+# 初次启动：payload 里没有 rate_limits 字段，说明还没产生过真实 API 响应，
+# 不写快照、不输出状态行，静默退出等待首次对话。
+if "rate_limits" not in payload and five_pct is None and week_pct is None:
+    raise SystemExit(0)
 
 snapshot = {
     "source": "codepal-claude-statusline",
@@ -347,6 +357,20 @@ function createClaudeUsageStatusService({ pathExists, claudeSettingsService }) {
   }
 
   /**
+   * 读取磁盘脚本的版本号
+   * @returns {Promise<number>} 版本号，读取失败返回 0
+   */
+  async function readDeployedScriptVersion() {
+    try {
+      const content = await fs.readFile(STATUS_SCRIPT_PATH, 'utf-8')
+      const match = content.match(/^# codepal-script-version:\s*(\d+)/m)
+      return match ? parseInt(match[1], 10) : 1
+    } catch {
+      return 0
+    }
+  }
+
+  /**
    * 汇总前端展示所需状态
    * @returns {Promise<object>}
    */
@@ -406,6 +430,7 @@ function createClaudeUsageStatusService({ pathExists, claudeSettingsService }) {
         message: 'Claude Code 已安装，但尚未接入会员额度状态。',
         config,
         snapshot,
+        scriptOutdated: false,
         settingsPath: CLAUDE_SETTINGS_PATH,
         scriptPath: STATUS_SCRIPT_PATH,
         configPath: STATUS_CONFIG_PATH,
@@ -413,6 +438,10 @@ function createClaudeUsageStatusService({ pathExists, claudeSettingsService }) {
         ...ownership,
       }
     }
+
+    // 检测磁盘脚本版本，落后于当前代码版本时标记为过期
+    const deployedVersion = await readDeployedScriptVersion()
+    const scriptOutdated = deployedVersion < SCRIPT_VERSION
 
     if (!snapshot?.hasRateLimits) {
       return {
@@ -422,6 +451,7 @@ function createClaudeUsageStatusService({ pathExists, claudeSettingsService }) {
         message: '已接入，等待 Claude Code 返回首个额度快照。',
         config,
         snapshot,
+        scriptOutdated,
         settingsPath: CLAUDE_SETTINGS_PATH,
         scriptPath: STATUS_SCRIPT_PATH,
         configPath: STATUS_CONFIG_PATH,
@@ -437,6 +467,7 @@ function createClaudeUsageStatusService({ pathExists, claudeSettingsService }) {
       message: 'Claude Code 会员额度状态已接入。',
       config,
       snapshot,
+      scriptOutdated,
       settingsPath: CLAUDE_SETTINGS_PATH,
       scriptPath: STATUS_SCRIPT_PATH,
       configPath: STATUS_CONFIG_PATH,
@@ -580,6 +611,7 @@ module.exports = {
   LEGACY_MANAGED_STATUS_COMMAND,
   DEFAULT_STATUS_CONFIG,
   VALID_DISPLAY_MODES,
+  SCRIPT_VERSION,
   normalizeStatusConfig,
   createClaudeUsageStatusService,
 }
