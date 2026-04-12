@@ -57,11 +57,19 @@ function formatResetTime(unixSeconds) {
     remaining = `${minutes}m`
   }
 
-  const absolute = date.toLocaleTimeString('zh-CN', {
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-  })
+  // 超过 1 天时显示星期+时间（如"周三 08:00"），否则只显示时间
+  const absolute = days > 0
+    ? date.toLocaleString('zh-CN', {
+        weekday: 'short',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false,
+      })
+    : date.toLocaleTimeString('zh-CN', {
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false,
+      })
 
   return { remaining, absolute }
 }
@@ -209,7 +217,7 @@ function DataBody({ snapshot }) {
       <UsageRow
         label="7 天额度"
         pct={snapshot?.sevenDayUsedPercentage}
-        resetsAt={snapshot?.resetsAt}
+        resetsAt={snapshot?.sevenDayResetsAt}
       />
     </div>
   )

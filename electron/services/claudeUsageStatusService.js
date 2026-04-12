@@ -29,7 +29,7 @@ const LEGACY_MANAGED_STATUS_COMMAND = `bash ${STATUS_SCRIPT_PATH}`
 
 // 脚本版本号：每次修改 buildStatusScriptContent() 时递增，
 // 页面加载时自动检测版本不匹配就重写磁盘脚本。
-const SCRIPT_VERSION = 2
+const SCRIPT_VERSION = 3
 
 const VALID_DISPLAY_MODES = ['always', 'threshold', 'off']
 const DEFAULT_STATUS_CONFIG = Object.freeze({
@@ -201,6 +201,7 @@ model = get_value(payload, "model", "display_name", default="Claude Code")
 five_pct = get_value(payload, "rate_limits", "five_hour", "used_percentage")
 week_pct = get_value(payload, "rate_limits", "seven_day", "used_percentage")
 resets_at = get_value(payload, "rate_limits", "five_hour", "resets_at")
+week_resets_at = get_value(payload, "rate_limits", "seven_day", "resets_at")
 
 # 初次启动：payload 里没有 rate_limits 字段，说明还没产生过真实 API 响应，
 # 不写快照、不输出状态行，静默退出等待首次对话。
@@ -213,6 +214,7 @@ snapshot = {
     "fiveHourUsedPercentage": five_pct,
     "sevenDayUsedPercentage": week_pct,
     "resetsAt": resets_at,
+    "sevenDayResetsAt": week_resets_at,
     "displayMode": config["displayMode"],
     "fiveHourThreshold": config["fiveHourThreshold"],
     "sevenDayThreshold": config["sevenDayThreshold"],
