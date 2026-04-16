@@ -19,6 +19,7 @@ release-*/
 # 测试相关
 test-results/
 coverage/
+tests/report/
 
 # 操作系统文件
 .DS_Store

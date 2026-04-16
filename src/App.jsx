@@ -28,7 +28,7 @@ import Toast from './components/Toast'
 import { dataStore } from './store/data'
 
 const AUTO_INCREMENTAL_REFRESH_INTERVAL_MS = 5 * 60 * 1000
-const DEFAULT_ACTIVE_MODULE = 'usage'
+const DEFAULT_ACTIVE_MODULE = 'permission'
 const VALID_ACTIVE_MODULES = new Set(['skills', 'mcp', 'usage', 'claude-usage', 'api', 'project-init', 'permission', 'network', 'sessions', 'doc-browser'])
 const INITIAL_APP_UPDATE_STATE = Object.freeze({
   checked: false,
@@ -55,10 +55,12 @@ export default function App() {
   const [initialSkillManagerPage, setInitialSkillManagerPage] = useState(null)
   // Toast 提示消息 { message, type }
   const [toast, setToast] = useState(null)
-  // 活跃模块：从 localStorage 恢复上次页面；已下线模块统一回落到用量看板
+  // 活跃模块：从 localStorage 恢复上次页面；已下线模块统一回落到启动模式
   const [activeModule, setActiveModule] = useState(getInitialActiveModule)
   // MCP 页面是否已访问（已访问后保持挂载，支持切回时静默刷新）
   const [hasVisitedMcp, setHasVisitedMcp] = useState(false)
+  // Usage 页面是否已访问（已访问后保持挂载，支持后台继续汇总重周期）
+  const [hasVisitedUsage, setHasVisitedUsage] = useState(false)
   // 技能模块刷新信号（自动增量导入新增 skill 后触发）
   const [skillsRefreshSignal, setSkillsRefreshSignal] = useState(0)
   // 应用更新状态：由主进程统一检查并推送，渲染层只负责展示
@@ -192,6 +194,12 @@ export default function App() {
   }, [activeModule])
 
   useEffect(() => {
+    if (activeModule === 'usage') {
+      setHasVisitedUsage(true)
+    }
+  }, [activeModule])
+
+  useEffect(() => {
     if (!window.electronAPI?.getAppUpdateState) return undefined
 
     let isDisposed = false
@@ -283,7 +291,11 @@ export default function App() {
             <McpPage isActive={activeModule === 'mcp'} />
           </div>
         )}
-        {activeModule === 'usage' && <UsageMonitorModule />}
+        {(activeModule === 'usage' || hasVisitedUsage) && (
+          <div className="keep-alive-wrapper" hidden={activeModule !== 'usage'}>
+            <UsageMonitorModule />
+          </div>
+        )}
         {activeModule === 'claude-usage' && <ClaudeUsageStatusPage />}
         {activeModule === 'api' && <ApiConfigPage />}
         {activeModule === 'project-init' && <ProjectInitPage />}

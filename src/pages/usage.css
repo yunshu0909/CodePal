@@ -132,6 +132,140 @@
   box-shadow: 0 1px 2px rgba(0,0,0,0.08);
 }
 
+.segment-item:disabled {
+  color: var(--text-placeholder);
+  cursor: not-allowed;
+  opacity: 0.72;
+}
+
+.segment-item:disabled.active {
+  background: var(--bg-base);
+  box-shadow: 0 1px 2px rgba(0,0,0,0.08);
+}
+
+/* ============================================================
+   Background Aggregation Panel
+   - 当前周期需要后台扫描时，整个数据区让位给这个面板
+   - 走 design-system token 白底卡，跟其他卡片风格一致
+   ============================================================ */
+
+.usage-progress-panel {
+  background: var(--bg-base);
+  border: 1.5px solid var(--border-default);
+  border-radius: var(--radius-2xl);
+  box-shadow: var(--shadow-card);
+  padding: var(--space-8) var(--space-6);
+  margin-bottom: var(--space-5);
+  min-height: 360px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+
+.usage-progress-panel__icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: var(--color-primary-light);
+  display: grid;
+  place-items: center;
+  margin-bottom: var(--space-4);
+}
+
+.usage-progress-panel__spinner {
+  width: 22px;
+  height: 22px;
+  border: 2.5px solid rgba(37, 99, 235, 0.18);
+  border-top-color: var(--color-primary);
+  border-radius: 50%;
+  animation: usage-progress-spin 1s linear infinite;
+}
+
+@keyframes usage-progress-spin {
+  to { transform: rotate(360deg); }
+}
+
+.usage-progress-panel__eyebrow {
+  font-size: var(--text-2xs);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-primary);
+  margin-bottom: var(--space-2);
+}
+
+.usage-progress-panel__title {
+  font-size: var(--text-lg);
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: var(--space-1);
+}
+
+.usage-progress-panel__sub {
+  font-size: var(--text-sm);
+  color: var(--text-tertiary);
+  margin-bottom: var(--space-5);
+}
+
+.usage-progress-panel__bar-wrap {
+  width: 100%;
+  max-width: 420px;
+  margin-bottom: var(--space-3);
+}
+
+.usage-progress-panel__bar-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: var(--space-2);
+}
+
+.usage-progress-panel__days {
+  font-size: var(--text-base);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.usage-progress-panel__pct {
+  font-size: var(--text-base);
+  font-weight: 700;
+  color: var(--color-primary);
+}
+
+.usage-progress-panel__bar {
+  height: 8px;
+  border-radius: var(--radius-full);
+  background: rgba(37, 99, 235, 0.12);
+  overflow: hidden;
+}
+
+.usage-progress-panel__bar-fill {
+  height: 100%;
+  border-radius: inherit;
+  background: var(--color-primary);
+  transition: width 240ms ease;
+}
+
+.usage-progress-panel__elapsed {
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+  margin-top: var(--space-2);
+  text-align: left;
+}
+
+.usage-progress-panel__hint {
+  margin-top: var(--space-6);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--border-default);
+  width: 100%;
+  max-width: 420px;
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
+
 /* ============================================================
    Chart Row: Metrics (2x2) + Pie Chart
    ============================================================ */

@@ -21,13 +21,11 @@ const dotenv = require('dotenv')
 const ENV_FILE_PATH = path.resolve(__dirname, '..', '.env')
 dotenv.config({ path: ENV_FILE_PATH })
 
-const { scanLogFilesInRange } = require('./logScanner')
-const { handleScanLogFiles } = require('./scanLogFilesHandler')
-const { handleAggregateUsageRange } = require('./aggregateUsageRangeHandler')
 const { scanSkillDirectory, parseSkillMd } = require('./services/skillScanService')
 const { registerSkillHandlers } = require('./handlers/registerSkillHandlers')
 const { registerImportPageHandlers } = require('./handlers/registerImportPageHandlers')
 const { registerAppUpdateHandlers } = require('./handlers/registerAppUpdateHandlers')
+const { registerUsageAggregationHandlers } = require('./handlers/registerUsageAggregationHandlers')
 const { registerProviderHandlers } = require('./handlers/registerProviderHandlers')
 const { registerProjectInitHandlers } = require('./handlers/registerProjectInitHandlers')
 const { registerPermissionModeHandlers } = require('./handlers/permissionModeHandlers')
@@ -630,42 +628,13 @@ registerProjectInitHandlers({
   templateBaseDir: path.resolve(__dirname, '..', 'templates', 'project-init-v1.2.5'),
 })
 
-// IPC handlers for V0.6 usage monitoring
-
-/**
- * 扫描日志文件
- * @param {Electron.IpcMainInvokeEvent} event - IPC 事件
- * @param {Object} params - 扫描参数
- * @param {string} params.basePath - 基础目录路径
- * @param {string} params.pattern - 文件匹配模式
- * @param {string} params.start - 开始时间（ISO 字符串）
- * @param {string} params.end - 结束时间（ISO 字符串）
- * @returns {Promise<{success: boolean, files: Array, totalMatched: number, scannedCount: number, truncated: boolean, error: string|null}>} 扫描结果
- */
-ipcMain.handle('scan-log-files', async (event, params) => {
-  return handleScanLogFiles(params, {
-    expandHomeFn: expandHome,
-    pathExistsFn: pathExists,
-    scanLogFilesInRangeFn: scanLogFilesInRange
-  })
+registerUsageAggregationHandlers({
+  ipcMain,
+  expandHome,
+  pathExists,
+  homeDir: os.homedir(),
+  nowFn: () => new Date()
 })
-
-/**
- * 聚合自定义日期范围用量
- * @param {Electron.IpcMainInvokeEvent} event - IPC 事件
- * @param {{startDate?: string, endDate?: string, timezone?: string}} params - 聚合参数
- * @returns {Promise<{success: boolean, data?: object, meta?: object, error?: string}>}
- */
-ipcMain.handle('aggregate-usage-range', async (event, params) => {
-  return handleAggregateUsageRange(params, {
-    nowFn: () => new Date(),
-    homeDir: os.homedir(),
-    scanLogFilesInRangeFn: scanLogFilesInRange
-  })
-})
-
-// IPC handler for aggregate usage (kept for compatibility, actual aggregation happens in renderer)
-// The aggregation is done in renderer process to avoid bundling issues with ESM modules
 
 
 /**

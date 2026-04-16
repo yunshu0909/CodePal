@@ -15,19 +15,20 @@ const USAGE_CACHE_STORAGE_KEY = 'usage-monitor-cache-v3';
 
 /**
  * 创建空缓存容器
- * @returns {{today: null|object, week: null|object, month: null|object}}
+ * @returns {{today: null|object, week: null|object, month: null|object, allTime: null|object}}
  */
 function createEmptyCache() {
   return {
     today: null,
     week: null,
-    month: null
+    month: null,
+    allTime: null
   };
 }
 
 /**
  * 读取本地缓存
- * @returns {{today: null|object, week: null|object, month: null|object}}
+ * @returns {{today: null|object, week: null|object, month: null|object, allTime: null|object}}
  */
 function readUsageCache() {
   try {
@@ -40,7 +41,8 @@ function readUsageCache() {
     return {
       today: parsed.today || null,
       week: parsed.week || null,
-      month: parsed.month || null
+      month: parsed.month || null,
+      allTime: parsed.allTime || null
     };
   } catch {
     return createEmptyCache();
@@ -49,7 +51,7 @@ function readUsageCache() {
 
 /**
  * 写入本地缓存
- * @param {{today: null|object, week: null|object, month: null|object}} cache - 缓存数据
+ * @param {{today: null|object, week: null|object, month: null|object, allTime: null|object}} cache - 缓存数据
  */
 function writeUsageCache(cache) {
   try {
@@ -92,7 +94,7 @@ function isRangeCacheFresh(entry, now) {
 
 /**
  * 判断周期是否需要重算
- * @param {'today'|'week'|'month'} period - 周期
+ * @param {'today'|'week'|'month'|'allTime'} period - 周期
  * @param {object|null} entry - 周期缓存条目
  * @param {Date} now - 当前时间
  * @returns {boolean}

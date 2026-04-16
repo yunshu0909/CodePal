@@ -218,12 +218,23 @@ contextBridge.exposeInMainWorld('electronAPI', {
   /**
    * 聚合自定义日期范围用量
    * @param {Object} params - 聚合参数
+   * @param {string} [params.taskId] - 前端任务 ID，用于关联进度事件
    * @param {string} params.startDate - 开始日期（YYYY-MM-DD）
    * @param {string} params.endDate - 结束日期（YYYY-MM-DD）
    * @param {string} params.timezone - 时区（当前仅支持 Asia/Shanghai）
-   * @returns {Promise<{success: boolean, data?: object, meta?: {fromDailySummaryDays: number, recomputedDays: number, totalDays: number, failedDays: number}, error?: string}>}
+   * @returns {Promise<{success: boolean, data?: object, meta?: {fromDailySummaryDays: number, cachedDays: number, recomputedDays: number, totalDays: number, failedDays: number}, error?: string}>}
    */
   aggregateUsageRange: (params) => ipcRenderer.invoke('aggregate-usage-range', params),
+
+  /**
+   * 聚合预设周期用量
+   * @param {Object} params - 聚合参数
+   * @param {string} [params.taskId] - 前端任务 ID，用于关联进度事件
+   * @param {'today'|'week'|'month'|'allTime'} params.period - 预设周期
+   * @param {string} params.timezone - 时区（当前仅支持 Asia/Shanghai）
+   * @returns {Promise<{success: boolean, data?: object, meta?: object, error?: string}>}
+   */
+  aggregateUsagePeriod: (params) => ipcRenderer.invoke('aggregate-usage-period', params),
 
   // V0.7 API 配置 - 供应商切换
 
@@ -470,6 +481,17 @@ contextBridge.exposeInMainWorld('electronAPI', {
     const handler = (_event, state) => callback(state)
     ipcRenderer.on('app-update:state', handler)
     return () => ipcRenderer.removeListener('app-update:state', handler)
+  },
+
+  /**
+   * 监听用量聚合真实进度
+   * @param {(progress: Object) => void} callback - 进度回调
+   * @returns {() => void}
+   */
+  onUsageAggregationProgress: (callback) => {
+    const handler = (_event, progress) => callback(progress)
+    ipcRenderer.on('usage-aggregate:progress', handler)
+    return () => ipcRenderer.removeListener('usage-aggregate:progress', handler)
   },
 
   // V0.11 MCP 管理 APIs
