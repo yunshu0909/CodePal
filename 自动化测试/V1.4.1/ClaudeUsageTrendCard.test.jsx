@@ -77,12 +77,13 @@ describe('ClaudeUsageTrendCard - computeUtilization (via render)', () => {
     expect(screen.getByText('基于 1 个已完成的 7 天周期')).toBeTruthy()
   })
 
-  it('0 cycles → 值显示 "--"，footer 显示 "暂无已完成周期"', () => {
+  it('0 cycles → 值显示 "样本不足"（v1.4.4），footer 显示 "暂无正常完成周期"', () => {
     const { container } = render(
       <ClaudeUsageTrendCard snapshot={null} completedCycles={[]} />
     )
-    expect(getValueBadgeText(container)).toBe('--')
-    expect(screen.getByText('暂无已完成周期')).toBeTruthy()
+    // v1.4.4：0 条正常 → 样本不足态（替代原 "--"）
+    expect(getValueBadgeText(container)).toBe('样本不足')
+    expect(screen.getByText('暂无正常完成周期')).toBeTruthy()
   })
 })
 
@@ -92,9 +93,9 @@ describe('ClaudeUsageTrendCard - Header rendering', () => {
     expect(screen.getByRole('heading', { name: '满载率趋势' })).toBeTruthy()
   })
 
-  it('副标题在 0 个周期时显示引导文案', () => {
+  it('副标题在 0 个周期时显示引导文案（v1.4.4 文案加"正常"限定）', () => {
     render(<ClaudeUsageTrendCard snapshot={null} completedCycles={[]} />)
-    expect(screen.getByText('完整用完 1 个 7 天周期后出现趋势')).toBeTruthy()
+    expect(screen.getByText('完整用完 1 个正常 7 天周期后出现趋势')).toBeTruthy()
   })
 
   it('副标题在 1-3 个周期时显示 "基于 N 个已完成的 7 天周期"', () => {
@@ -120,19 +121,19 @@ describe('ClaudeUsageTrendCard - Header rendering', () => {
     expect(unit.textContent).toBe('%')
   })
 
-  it('0 个周期时值徽章带 --placeholder 样式类', () => {
+  it('0 个周期时值徽章带 --insufficient 样式类（v1.4.4 替代 --placeholder）', () => {
     const { container } = render(
       <ClaudeUsageTrendCard snapshot={null} completedCycles={[]} />
     )
     const badge = container.querySelector('.trend-card__value')
     expect(badge).not.toBeNull()
-    expect(badge.className).toContain('trend-card__value--placeholder')
-    // 有周期时不应带 placeholder
+    expect(badge.className).toContain('trend-card__value--insufficient')
+    // 有周期时不应带 insufficient
     const { container: c2 } = render(
       <ClaudeUsageTrendCard snapshot={null} completedCycles={[makeCycle(10)]} />
     )
     const badge2 = c2.querySelector('.trend-card__value')
-    expect(badge2.className).not.toContain('trend-card__value--placeholder')
+    expect(badge2.className).not.toContain('trend-card__value--insufficient')
   })
 })
 
@@ -267,17 +268,17 @@ describe('ClaudeUsageTrendCard - Edge cases', () => {
     const { container } = render(
       <ClaudeUsageTrendCard snapshot={null} completedCycles={undefined} />
     )
-    // 视为 0 个周期：值 "--"、空提示出现
-    expect(getValueBadgeText(container)).toBe('--')
+    // v1.4.4：视为 0 条正常 → 样本不足态
+    expect(getValueBadgeText(container)).toBe('样本不足')
     expect(container.querySelector('.trend-card__empty-hint')).not.toBeNull()
-    expect(screen.getByText('暂无已完成周期')).toBeTruthy()
+    expect(screen.getByText('暂无正常完成周期')).toBeTruthy()
   })
 
   it('completedCycles 不是数组时按空数组处理', () => {
     const { container } = render(
       <ClaudeUsageTrendCard snapshot={null} completedCycles={'not-an-array'} />
     )
-    expect(getValueBadgeText(container)).toBe('--')
+    expect(getValueBadgeText(container)).toBe('样本不足')
     expect(container.querySelector('.trend-card__empty-hint')).not.toBeNull()
   })
 

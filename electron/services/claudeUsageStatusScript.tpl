@@ -6,6 +6,10 @@
 # v4: also tracks 7d cycle peak history for 满载率趋势 feature.
 # v5: also shows current context window usage (bar + percent) by parsing
 #     transcript_path's last assistant usage entry.
+# v6: handles Anthropic provider_reset events — when sevenDayResetsAt jumps
+#     forward by < 6.5 days (non-natural shift), seal the prev window as an
+#     anomaly cycle instead of a normal completed cycle, so the 满载率 metric
+#     is not polluted by short partial windows.
 
 input=$(cat)
 CODEPAL_STATUS_PAYLOAD="$input" python3 - "__CONFIG_PATH__" "__SNAPSHOT_PATH__" "__HISTORY_PATH__" <<'PY'
@@ -268,12 +272,19 @@ def write_history(history):
         except OSError:
             pass
 
+ONE_WEEK_SECONDS = 7 * 86400
+JUMP_THRESHOLD_SECONDS = int(6.5 * 86400)  # delta < 6.5 天 且 > 0 视为异常跳变
+
+
 def update_history(week_pct_value, week_resets_at_value):
     """
     更新 7d 周期历史。
-    - 无数据时（week_pct/week_resets_at 为 None）：跳过，不写文件
-    - sevenDayResetsAt 与上次相同 → 同一周期，更新峰值（取较大者）
-    - sevenDayResetsAt 发生变化 → 新周期开始，封存上周期到 completedCycles 头部
+    - 无数据时：跳过
+    - sevenDayResetsAt 与上次相同 → 同一周期，更新峰值
+    - sevenDayResetsAt 前移且 delta < 6.5 天 → Anthropic provider_reset 等异常跳变，
+      封存旧窗口为异常条目（periodEnd 夹到新 currentCycle 起点），新 currentCycle 的
+      peak 直接用 current_pct，不继承旧 peak
+    - sevenDayResetsAt 前移且 delta ≥ 6.5 天 → 正常 7d 周期完成，按 v1.4.1 逻辑封存
     - completedCycles 超过 MAX_COMPLETED_CYCLES 时裁剪最旧
     """
     if week_pct_value is None or week_resets_at_value is None:
@@ -286,44 +297,69 @@ def update_history(week_pct_value, week_resets_at_value):
 
     history = load_history()
     prev = history.get("currentCycle")
-    period_start = current_resets_at - 7 * 86400
+    period_start = current_resets_at - ONE_WEEK_SECONDS
 
     if prev is None:
-        # 从未记录过：初始化 currentCycle
         history["currentCycle"] = {
             "periodStart": period_start,
             "sevenDayResetsAt": current_resets_at,
             "peakPercentage": current_pct,
         }
-    elif prev.get("sevenDayResetsAt") == current_resets_at:
+        write_history(history)
+        return
+
+    prev_resets_at = prev.get("sevenDayResetsAt")
+    try:
+        prev_resets_at_num = int(prev_resets_at) if prev_resets_at is not None else None
+    except Exception:
+        prev_resets_at_num = None
+
+    existing_peak = prev.get("peakPercentage")
+    try:
+        existing_peak_num = float(existing_peak) if existing_peak is not None else 0.0
+    except Exception:
+        existing_peak_num = 0.0
+
+    if prev_resets_at_num == current_resets_at:
         # 同一周期：更新峰值
-        existing_peak = prev.get("peakPercentage")
-        try:
-            existing_peak_num = float(existing_peak) if existing_peak is not None else 0.0
-        except Exception:
-            existing_peak_num = 0.0
         history["currentCycle"] = {
             "periodStart": prev.get("periodStart", period_start),
             "sevenDayResetsAt": current_resets_at,
             "peakPercentage": max(existing_peak_num, current_pct),
         }
-    else:
-        # 新周期：封存上一周期到历史，重置当前周期
+        write_history(history)
+        return
+
+    delta = current_resets_at - prev_resets_at_num if prev_resets_at_num is not None else None
+
+    # 判定异常跳变：delta 在 (0, JUMP_THRESHOLD) 之间
+    is_anomaly = delta is not None and 0 < delta < JUMP_THRESHOLD_SECONDS
+
+    if is_anomaly:
         sealed = {
             "periodStart": prev.get("periodStart", current_resets_at - 14 * 86400),
-            "periodEnd": prev.get("sevenDayResetsAt", current_resets_at),
-            "peakPercentage": prev.get("peakPercentage", 0),
+            "periodEnd": period_start,  # 夹到新 current 起点，避免重叠
+            "peakPercentage": existing_peak_num,
+            "anomaly": True,
+            "anomalyReason": "provider_reset",
         }
-        completed = history.get("completedCycles", [])
-        completed.insert(0, sealed)
-        if len(completed) > MAX_COMPLETED_CYCLES:
-            completed = completed[:MAX_COMPLETED_CYCLES]
-        history["completedCycles"] = completed
-        history["currentCycle"] = {
-            "periodStart": period_start,
-            "sevenDayResetsAt": current_resets_at,
-            "peakPercentage": current_pct,
+    else:
+        sealed = {
+            "periodStart": prev.get("periodStart", current_resets_at - 14 * 86400),
+            "periodEnd": prev_resets_at_num if prev_resets_at_num is not None else current_resets_at,
+            "peakPercentage": existing_peak_num,
         }
+
+    completed = history.get("completedCycles", [])
+    completed.insert(0, sealed)
+    if len(completed) > MAX_COMPLETED_CYCLES:
+        completed = completed[:MAX_COMPLETED_CYCLES]
+    history["completedCycles"] = completed
+    history["currentCycle"] = {
+        "periodStart": period_start,
+        "sevenDayResetsAt": current_resets_at,
+        "peakPercentage": current_pct,  # 异常/正常都用真实新 peak，不继承
+    }
 
     write_history(history)
 

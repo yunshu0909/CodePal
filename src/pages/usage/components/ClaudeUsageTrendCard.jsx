@@ -1,20 +1,22 @@
 /**
- * Claude 会员额度满载率趋势卡 (v1.4.1)
+ * Claude 会员额度满载率趋势卡 (v1.4.4)
  *
  * 负责：
- * - 展示最近 4 个已完成 7d 周期的峰值柱状条
+ * - 展示最近 4 个正常已完成 7d 周期的峰值柱状条
  * - 展示本周进行中（不计入满载率）
- * - 计算并显示满载率 = 已完成周期峰值的算术平均值
- * - 数据不足时降级展示（0 个周期引导 / 1-3 个标注数量 / 4+ 正常）
+ * - 计算并显示满载率 = 正常已完成周期峰值的算术平均值
+ * - 近 30 天内异常条目（provider_reset 等非自然跳变）独立小节展示，不计入均值
+ * - 正常样本为 0 时 header 展示"样本不足"；异常无条目时整个小节不渲染
  *
  * 视觉规则：
- * - 满载率高 = 用得值 = 好事，全部用品牌蓝色系 (--color-primary)，不套红/黄/绿告警色
- * - 通过 opacity 区分层级：本周进行中 0.6 / 历史条 0.45 / 满载率数字 1.0
+ * - 满载率高 = 用得值 = 好事，正常条目统一品牌蓝色 (--color-primary)
+ * - 异常条目使用 warning 暖橙 (--color-warning)，明确"非常规"语义
  *
  * @module pages/usage/components/ClaudeUsageTrendCard
  */
 
 import './ClaudeUsageTrendCard.css'
+import { classifyHistory, cycleDurationDays } from '../usageHistoryUtils'
 
 /**
  * 格式化 Unix 时间戳为 "M/D" 形式（用于日期范围展示）
@@ -45,28 +47,6 @@ function formatRemaining(unixSeconds) {
   if (days > 0) return `${days} 天 ${hours}h`
   if (hours > 0) return `${hours}h ${String(minutes).padStart(2, '0')}m`
   return `${minutes}m`
-}
-
-/**
- * 计算满载率（取最近 4 个已完成周期峰值的算术平均）
- * @param {Array<{peakPercentage: number}>} completedCycles - 已完成周期数组（最新在前）
- * @returns {{value: number|null, count: number}}
- *   value: 满载率百分比（0-100），不足则用实际数量算；0 个周期时为 null
- *   count: 参与计算的周期数（≤ 4）
- */
-function computeUtilization(completedCycles) {
-  if (!Array.isArray(completedCycles) || completedCycles.length === 0) {
-    return { value: null, count: 0 }
-  }
-  const recent = completedCycles.slice(0, 4)
-  const sum = recent.reduce((acc, cycle) => {
-    const v = Number(cycle?.peakPercentage)
-    return acc + (Number.isFinite(v) ? v : 0)
-  }, 0)
-  return {
-    value: Math.round(sum / recent.length),
-    count: recent.length,
-  }
 }
 
 /**
@@ -114,7 +94,7 @@ function CurrentWeekBar({ snapshot }) {
 }
 
 /**
- * 渲染单个已完成周期行
+ * 渲染单个正常已完成周期行
  * @param {object} props
  * @param {object} props.cycle - 周期数据 { periodStart, periodEnd, peakPercentage }
  * @returns {JSX.Element}
@@ -141,6 +121,39 @@ function HistoryRow({ cycle }) {
 }
 
 /**
+ * 渲染异常周期行（v1.4.4 新增）
+ * @param {object} props
+ * @param {object} props.cycle - 周期数据（含 anomaly: true）
+ * @returns {JSX.Element}
+ */
+function AnomalyRow({ cycle }) {
+  const peak = Number(cycle?.peakPercentage)
+  const pctNum = Number.isFinite(peak) ? Math.max(0, Math.min(100, peak)) : 0
+  const days = cycleDurationDays(cycle?.periodStart, cycle?.periodEnd)
+  return (
+    <div className="trend-history-row trend-history-row--anomaly">
+      <div className="trend-history-row__date-group">
+        <span className="trend-history-row__date">
+          {formatShortDate(cycle?.periodStart)} → {formatShortDate(cycle?.periodEnd)}
+        </span>
+        <span className="trend-history-row__anomaly-tag">
+          Anthropic 重置{days > 0 ? ` · ${days} 天` : ''}
+        </span>
+      </div>
+      <div className="trend-history-row__bar">
+        <div
+          className="trend-history-row__fill"
+          style={{ width: `${pctNum}%` }}
+        />
+      </div>
+      <span className="trend-history-row__pct">
+        {Number.isFinite(peak) ? `${Math.round(peak)}%` : '--'}
+      </span>
+    </div>
+  )
+}
+
+/**
  * 满载率趋势卡
  * @param {object} props
  * @param {object|null} props.snapshot - 当前额度快照
@@ -149,20 +162,22 @@ function HistoryRow({ cycle }) {
  * @returns {JSX.Element}
  */
 export default function ClaudeUsageTrendCard({ snapshot, completedCycles, stale = false }) {
-  const cycles = Array.isArray(completedCycles) ? completedCycles : []
-  const utilization = computeUtilization(cycles)
-  const displayCycles = cycles.slice(0, 4)
-  const hasAnyCycles = displayCycles.length > 0
+  const { normalCycles, normalCyclesTotal, recentAnomalies, avgPeak } = classifyHistory(completedCycles)
 
-  // 副标题：根据已完成周期数量分档展示
+  const hasNormal = normalCycles.length > 0
+  const hasAnomaly = recentAnomalies.length > 0
+
+  // 副标题：优先按正常条目数展示，正常为 0 时退化到引导文案
   let subtitle
-  if (utilization.count === 0) {
-    subtitle = '完整用完 1 个 7 天周期后出现趋势'
-  } else if (utilization.count < 4) {
-    subtitle = `基于 ${utilization.count} 个已完成的 7 天周期`
+  if (normalCycles.length === 0) {
+    subtitle = '完整用完 1 个正常 7 天周期后出现趋势'
+  } else if (normalCycles.length < 4) {
+    subtitle = `基于 ${normalCycles.length} 个已完成的 7 天周期`
   } else {
     subtitle = '基于最近 4 个已完成的 7 天周期'
   }
+
+  const insufficientSample = avgPeak === null
 
   return (
     <section className={`trend-card${stale ? ' trend-card--stale' : ''}`}>
@@ -171,14 +186,14 @@ export default function ClaudeUsageTrendCard({ snapshot, completedCycles, stale 
           <h2 className="trend-card__title">满载率趋势</h2>
           <div className="trend-card__subtitle">{subtitle}</div>
         </div>
-        {utilization.value !== null ? (
-          <div className="trend-card__value">
-            <span className="trend-card__value-num">{utilization.value}</span>
-            <span className="trend-card__value-unit">%</span>
+        {insufficientSample ? (
+          <div className="trend-card__value trend-card__value--insufficient">
+            <span className="trend-card__value-num">样本不足</span>
           </div>
         ) : (
-          <div className="trend-card__value trend-card__value--placeholder">
-            <span className="trend-card__value-num">--</span>
+          <div className="trend-card__value">
+            <span className="trend-card__value-num">{avgPeak}</span>
+            <span className="trend-card__value-unit">%</span>
           </div>
         )}
       </header>
@@ -186,13 +201,13 @@ export default function ClaudeUsageTrendCard({ snapshot, completedCycles, stale 
       <div className="trend-card__body">
         <CurrentWeekBar snapshot={snapshot} />
 
-        {hasAnyCycles && (
+        {hasNormal && (
           <>
             <div className="trend-card__section-label">已完成周期</div>
             <div className="trend-card__history-list">
-              {displayCycles.map((cycle, index) => (
+              {normalCycles.map((cycle, index) => (
                 <HistoryRow
-                  key={`${cycle?.periodEnd ?? 'cycle'}-${index}`}
+                  key={`normal-${cycle?.periodEnd ?? 'cycle'}-${index}`}
                   cycle={cycle}
                 />
               ))}
@@ -200,26 +215,40 @@ export default function ClaudeUsageTrendCard({ snapshot, completedCycles, stale 
           </>
         )}
 
-        {!hasAnyCycles && (
+        {hasAnomaly && (
+          <>
+            <div className="trend-card__section-label trend-card__section-label--anomaly">
+              异常周期 · 近 30 天
+            </div>
+            <div className="trend-card__anomaly-hint">
+              Claude 官方在 7 天窗口内做了 reset，本次周期提前中断。不计入满载率平均。
+            </div>
+            <div className="trend-card__history-list trend-card__history-list--anomaly">
+              {recentAnomalies.map((cycle, index) => (
+                <AnomalyRow
+                  key={`anomaly-${cycle?.periodEnd ?? 'cycle'}-${index}`}
+                  cycle={cycle}
+                />
+              ))}
+            </div>
+          </>
+        )}
+
+        {!hasNormal && !hasAnomaly && (
           <div className="trend-card__empty-hint">
-            完整用完 1 个 7 天周期后,这里会出现你的满载率趋势。
+            完整用完 1 个 7 天周期后，这里会出现你的满载率趋势。
           </div>
         )}
       </div>
 
       <footer className="trend-card__footer">
-        {utilization.count === 0 && <span>暂无已完成周期</span>}
-        {utilization.count > 0 && utilization.count < 4 && (
-          <span>
-            共 {utilization.count} 个已完成周期 · 数据积累中
-          </span>
-        )}
-        {utilization.count >= 4 && (
-          <>
-            <span>共 {cycles.length} 个已完成周期（展示最近 4 个）</span>
-            <span>满载率 = 峰值平均</span>
-          </>
-        )}
+        <span>
+          {normalCyclesTotal === 0 ? '暂无正常完成周期' : null}
+          {normalCyclesTotal > 0 && normalCyclesTotal < 4 && `共 ${normalCyclesTotal} 个正常完成周期 · 数据积累中`}
+          {normalCyclesTotal >= 4 && `共 ${normalCyclesTotal} 个正常完成周期（展示最近 4 个）`}
+          {hasAnomaly && <> · {recentAnomalies.length} 个近 30 天内异常</>}
+        </span>
+        {normalCyclesTotal > 0 && <span>满载率 = 正常周期峰值平均</span>}
       </footer>
     </section>
   )

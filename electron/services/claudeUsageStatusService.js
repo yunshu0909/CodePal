@@ -34,7 +34,8 @@ const LEGACY_MANAGED_STATUS_COMMAND = `bash ${STATUS_SCRIPT_PATH}`
 // 页面加载时自动检测版本不匹配就重写磁盘脚本。
 // v4: 新增 7d 周期历史追踪（update_history 逻辑）
 // v5: 新增当前上下文占用指示（bar + 百分比，默认开启不加配置）
-const SCRIPT_VERSION = 5
+// v6: update_history 区分异常跳变（Anthropic provider_reset）与正常周期完成
+const SCRIPT_VERSION = 6
 
 // v1.4.1: 满载率趋势最多保留的已完成周期数（约 3 个月）
 const MAX_COMPLETED_CYCLES = 13
