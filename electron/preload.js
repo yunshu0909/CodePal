@@ -385,6 +385,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
    */
   setModelConfig: (field, value) => ipcRenderer.invoke('set-model-config', field, value),
 
+  /**
+   * 获取当前生效的模型注册表（models + effortLevels）
+   * 来源优先级：userData cache（远程拉回的） > 打包 json > 硬编码兜底
+   * @returns {Promise<{success: boolean, registry: object, source: string}>}
+   */
+  getModelRegistry: () => ipcRenderer.invoke('model-registry:get'),
+
   // Claude Code 会员额度状态 APIs
 
   /**

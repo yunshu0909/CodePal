@@ -20,14 +20,16 @@ const {
   CLAUDE_SETTINGS_FILE_PATH,
 } = require('./permissionModeHandlers')
 
-// 有效的推理等级列表
-const VALID_EFFORT_LEVELS = ['low', 'medium', 'high']
+// effortLevel 的基础格式校验：只允许小写字母/数字/短横线/下划线，长度 1-32
+// 不做值白名单 —— 新值（如 Claude 4.7 的 xhigh、未来可能的新档位）由 Claude Code 自己判定有效性
+const EFFORT_LEVEL_PATTERN = /^[a-z0-9_-]{1,32}$/
 
-// 推理等级中文映射
+// 推理等级中文映射（仅用于提示文案，非业务白名单）
 const EFFORT_DISPLAY_NAMES = {
   low: '低',
   medium: '中',
   high: '高',
+  xhigh: '超高',
 }
 
 /**
@@ -146,11 +148,12 @@ async function setModelConfig(field, value, pathExists) {
     }
   }
 
-  // effortLevel 需要在白名单内
-  if (field === 'effortLevel' && !VALID_EFFORT_LEVELS.includes(value)) {
+  // effortLevel 做基础格式校验：只接受合法字符，具体"值是否有效"由 Claude Code 自己判定
+  // 这样未来 Claude 升级新增推理档位（如 4.7 的 xhigh）不用改后端代码
+  if (field === 'effortLevel' && !EFFORT_LEVEL_PATTERN.test(value)) {
     return {
       success: false,
-      error: `无效的推理等级: ${value}。支持的值: ${VALID_EFFORT_LEVELS.join(', ')}`,
+      error: `无效的推理等级格式: ${value}。仅允许小写字母、数字、短横线和下划线，长度 1-32`,
       errorCode: 'INVALID_EFFORT_LEVEL',
     }
   }
@@ -280,6 +283,6 @@ module.exports = {
   registerModelConfigHandlers,
   getModelConfig,
   setModelConfig,
-  VALID_EFFORT_LEVELS,
+  EFFORT_LEVEL_PATTERN,
   EFFORT_DISPLAY_NAMES,
 }

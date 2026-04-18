@@ -14,21 +14,24 @@ import React, { useState, useEffect, useCallback } from 'react'
 import Button from '../components/Button/Button'
 import StateView from '../components/StateView/StateView'
 
-// 预设模型别名列表
-const PRESET_MODELS = [
-  { id: 'opus[1m]', display: 'Opus (1M)', sublabel: '最强 · 1M' },
-  { id: 'opus', display: 'Opus', sublabel: '最强 · 200K' },
-  { id: 'sonnet', display: 'Sonnet', sublabel: '日常' },
-  { id: 'sonnet[1m]', display: 'Sonnet (1M)', sublabel: '日常 · 1M' },
-  { id: 'haiku', display: 'Haiku', sublabel: '快速' },
-]
-
-// 推理等级列表
-const EFFORT_LEVELS = [
-  { id: 'low', display: '低', desc: '快速响应，适合简单问答' },
-  { id: 'medium', display: '中', desc: '平衡速度与质量，Claude 默认值' },
-  { id: 'high', display: '高', desc: '深度思考，适合复杂编码任务' },
-]
+// 兜底 registry：IPC 失败时用这份渲染，保证页面不崩
+// 主要数据源是 window.electronAPI.getModelRegistry() 返回的 registry
+// （它本身已经有三层兜底：userData cache > 打包 json > 主进程硬编码）
+const FALLBACK_REGISTRY = {
+  models: [
+    { id: 'opus[1m]', display: 'Opus (1M)', sublabel: '最强 · 1M' },
+    { id: 'opus', display: 'Opus', sublabel: '最强 · 200K' },
+    { id: 'sonnet', display: 'Sonnet', sublabel: '日常' },
+    { id: 'sonnet[1m]', display: 'Sonnet (1M)', sublabel: '日常 · 1M' },
+    { id: 'haiku', display: 'Haiku', sublabel: '快速' },
+  ],
+  effortLevels: [
+    { id: 'low', display: '低', desc: '快速响应，适合简单问答' },
+    { id: 'medium', display: '中', desc: '平衡速度与质量，Claude 默认值', isDefault: true },
+    { id: 'high', display: '高', desc: '深度思考，适合复杂编码任务' },
+    { id: 'xhigh', display: '超高', desc: 'Claude 4.7 新增，推理最充分，适合复杂架构与调试' },
+  ],
+}
 
 /**
  * Info 图标
@@ -51,6 +54,8 @@ function InfoIcon() {
  * @returns {JSX.Element}
  */
 export default function ModelConfigTab({ onToast }) {
+  // 当前生效的 registry（models + effortLevels），IPC 加载失败时保持 FALLBACK_REGISTRY
+  const [registry, setRegistry] = useState(FALLBACK_REGISTRY)
   // 当前模型值（null = 未配置）
   const [currentModel, setCurrentModel] = useState(null)
   // 当前推理等级值（null = 未配置）
@@ -83,8 +88,10 @@ export default function ModelConfigTab({ onToast }) {
         setCurrentEffort(result.effortLevel)
         setIsModelConfigured(result.isModelConfigured)
         setIsEffortConfigured(result.isEffortConfigured)
-        // 模型值不匹配预设时，填入自定义输入框
-        if (result.isModelConfigured && !PRESET_MODELS.some((m) => m.id === result.model)) {
+        // 模型值不匹配预设时，自定义输入框预填原值
+        // 注：这里不依赖 registry（避免 registry 变化重跑 loadConfig 产生副作用），
+        //    后续 registry 载入后由独立 useEffect 统一收敛 customInput
+        if (result.isModelConfigured) {
           setCustomInput(result.model || '')
         }
       } else {
@@ -106,6 +113,34 @@ export default function ModelConfigTab({ onToast }) {
   useEffect(() => {
     loadConfig()
   }, [loadConfig])
+
+  // 当 currentModel 属于 registry 预设时清空自定义输入框（registry 异步加载后也会纠正一次）
+  useEffect(() => {
+    if (!isModelConfigured || !currentModel) return
+    if (registry.models.some((m) => m.id === currentModel)) {
+      setCustomInput('')
+    }
+  }, [registry, currentModel, isModelConfigured])
+
+  // 异步加载模型 registry。失败时保持 FALLBACK_REGISTRY，页面继续可用
+  useEffect(() => {
+    let cancelled = false
+    const loadRegistry = async () => {
+      try {
+        const result = await window.electronAPI.getModelRegistry()
+        if (!cancelled && result?.success && result.registry) {
+          setRegistry(result.registry)
+        }
+      } catch (err) {
+        // 静默：registry 加载失败不阻塞页面，保留 FALLBACK_REGISTRY
+        console.warn('[model-config] getModelRegistry failed:', err?.message || err)
+      }
+    }
+    loadRegistry()
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   /**
    * 切回"跟随账户默认"（写空字符串，Claude Code 会 fallback 到账户默认模型）
@@ -219,12 +254,12 @@ export default function ModelConfigTab({ onToast }) {
   }
 
   /**
-   * 获取模型显示名称
+   * 获取模型显示名称（优先用 registry 里的 display，缺失时回退到 id）
    * @returns {string}
    */
   const getModelDisplayName = () => {
     if (!isModelConfigured) return '跟随账户默认'
-    const preset = PRESET_MODELS.find((m) => m.id === currentModel)
+    const preset = registry.models.find((m) => m.id === currentModel)
     return preset?.display || currentModel || '跟随账户默认'
   }
 
@@ -234,7 +269,7 @@ export default function ModelConfigTab({ onToast }) {
    */
   const getEffortDisplayName = () => {
     if (!isEffortConfigured) return '中'
-    const level = EFFORT_LEVELS.find((l) => l.id === currentEffort)
+    const level = registry.effortLevels.find((l) => l.id === currentEffort)
     return level?.display || currentEffort || '中'
   }
 
@@ -314,11 +349,11 @@ export default function ModelConfigTab({ onToast }) {
             </label>
             <div className="radio-list-divider" />
 
-            {PRESET_MODELS.map((model) => (
+            {registry.models.map((model) => (
               <label
                 key={model.id}
                 className={`radio-item ${isPresetSelected(model.id) ? 'is-selected' : ''} ${isSwitching ? 'is-disabled' : ''}`}
-                onClick={() => !isSwitching && handleSelectModel(model.id, model.display)}
+                onClick={() => !isSwitching && handleSelectModel(model.id, model.display || model.id)}
                 data-testid={`model-radio-${model.id}`}
               >
                 <span className="radio-circle" />
@@ -357,10 +392,10 @@ export default function ModelConfigTab({ onToast }) {
         <div className="model-column">
           <div className="column-title">推理等级</div>
           <div className="radio-list">
-            {EFFORT_LEVELS.map((level) => (
+            {registry.effortLevels.map((level) => (
               <React.Fragment key={level.id}>
                 <label
-                  className={`radio-item ${(isEffortConfigured ? currentEffort === level.id : level.id === 'medium') ? 'is-selected' : ''} ${isSwitching ? 'is-disabled' : ''}`}
+                  className={`radio-item ${(isEffortConfigured ? currentEffort === level.id : level.isDefault) ? 'is-selected' : ''} ${isSwitching ? 'is-disabled' : ''}`}
                   onClick={() => !isSwitching && handleSelectEffort(level.id, level.display)}
                   data-testid={`effort-radio-${level.id}`}
                 >

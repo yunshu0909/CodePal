@@ -1,0 +1,19 @@
+{
+  "$schema": "./model-registry.schema.json",
+  "version": "2026-04-18",
+  "updatedAt": "2026-04-18",
+  "notes": "CodePal 模型配置注册表。jsDelivr / GitHub Raw 会直接拉取此文件；不发版更新时，只需修改此文件并 push master。",
+  "models": [
+    { "id": "opus[1m]", "display": "Opus (1M)", "sublabel": "最强 · 1M" },
+    { "id": "opus", "display": "Opus", "sublabel": "最强 · 200K" },
+    { "id": "sonnet", "display": "Sonnet", "sublabel": "日常" },
+    { "id": "sonnet[1m]", "display": "Sonnet (1M)", "sublabel": "日常 · 1M" },
+    { "id": "haiku", "display": "Haiku", "sublabel": "快速" }
+  ],
+  "effortLevels": [
+    { "id": "low", "display": "低", "desc": "快速响应，适合简单问答" },
+    { "id": "medium", "display": "中", "desc": "平衡速度与质量，Claude 默认值", "isDefault": true },
+    { "id": "high", "display": "高", "desc": "深度思考，适合复杂编码任务" },
+    { "id": "xhigh", "display": "超高", "desc": "Claude 4.7 新增，推理最充分，适合复杂架构与调试" }
+  ]
+}

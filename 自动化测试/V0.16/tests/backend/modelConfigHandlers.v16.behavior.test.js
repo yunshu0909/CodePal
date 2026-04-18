@@ -170,10 +170,11 @@ describe.sequential('V0.16 Model Config Handlers', () => {
     expect(result.errorCode).toBe('INVALID_VALUE')
   })
 
-  it('TC-BE-07: 非法 effortLevel 应被拦截', async () => {
+  it('TC-BE-07: 格式非法的 effortLevel 应被拦截（值本身的合法性交给 Claude Code 判定）', async () => {
     const setConfig = handlers.get('set-model-config')
 
-    const result = await setConfig({}, 'effortLevel', 'max')
+    // 大写字母违反 EFFORT_LEVEL_PATTERN
+    const result = await setConfig({}, 'effortLevel', 'HIGH!')
 
     expect(result.success).toBe(false)
     expect(result.errorCode).toBe('INVALID_EFFORT_LEVEL')
