@@ -578,3 +578,41 @@
 .sb-skeleton-gap {
   height: 8px;
 }
+
+/* ============================================================
+   v1.4.5 新增：.tag-btn — 基于规范 .tag--neutral 视觉扩展的按钮行为
+   用在对话回顾详情页 header 右侧的"复制 resume 参数"/"新终端启动"
+   视觉规格：padding 3px 10px · radius-full · text-xs · weight 500
+     bg: bg-muted · color: text-tertiary
+   ============================================================ */
+.tag-btn {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 10px;
+  border-radius: var(--radius-full);
+  font-size: var(--text-xs);
+  font-weight: 500;
+  color: var(--text-tertiary);
+  background: var(--bg-muted);
+  border: none;
+  cursor: pointer;
+  font-family: inherit;
+  margin-left: var(--space-2);
+  transition: all var(--transition-fast);
+}
+
+.tag-btn:hover {
+  color: var(--color-primary);
+  background: var(--color-primary-light);
+}
+
+.tag-btn:disabled {
+  color: var(--text-placeholder);
+  background: var(--bg-subtle);
+  cursor: not-allowed;
+}
+
+.tag-btn:disabled:hover {
+  color: var(--text-placeholder);
+  background: var(--bg-subtle);
+}

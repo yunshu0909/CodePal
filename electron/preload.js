@@ -606,6 +606,22 @@ contextBridge.exposeInMainWorld('electronAPI', {
    */
   deleteSession: (projectId, sessionId) => ipcRenderer.invoke('session:delete', projectId, sessionId),
 
+  // v1.4.5 启动历史对话 APIs
+
+  /**
+   * 读取 session 的原工作目录（cwd），并检测该目录是否仍存在
+   * @param {{projectId: string, sessionId: string}} payload
+   * @returns {Promise<{success: boolean, cwd?: string|null, cwdExists?: boolean, error?: string}>}
+   */
+  readSessionCwd: (payload) => ipcRenderer.invoke('session-resume:read-cwd', payload),
+
+  /**
+   * 在 macOS Terminal 新窗口中启动 Claude Code 并恢复此 session
+   * @param {{cwd: string, uuid: string}} payload
+   * @returns {Promise<{success: boolean, error?: string}>}
+   */
+  launchSessionInTerminal: (payload) => ipcRenderer.invoke('session-resume:launch-in-terminal', payload),
+
   // 文档查阅 APIs
 
   /**

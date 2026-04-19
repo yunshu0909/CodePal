@@ -225,6 +225,8 @@ export default function SessionBrowserPage() {
   const [deleting, setDeleting] = useState(false)
   // Toast 提示
   const [toast, setToast] = useState(null)
+  // v1.4.5 启动此对话：当前 session 的工作目录信息（null 表示未加载或读不到）
+  const [resumeCwdInfo, setResumeCwdInfo] = useState(null)
 
   // 是否处于搜索模式
   const isSearchMode = searchQuery.trim().length > 0
@@ -322,6 +324,7 @@ export default function SessionBrowserPage() {
     setViewingProjectId(projectId)
     setSelectedSessionId(sessionId)
     setMessagesLoading(true)
+    setResumeCwdInfo(null)
 
     try {
       const result = await window.electronAPI.readSession(projectId, sessionId)
@@ -337,7 +340,58 @@ export default function SessionBrowserPage() {
         setMessagesLoading(false)
       }
     }
+
+    // 并行拉 cwd（v1.4.5）：失败静默，最多让启动区消失，不影响主流程
+    if (window.electronAPI?.readSessionCwd) {
+      try {
+        const cwdResult = await window.electronAPI.readSessionCwd({ projectId, sessionId })
+        if (seq === loadSessionSeqRef.current && cwdResult?.success) {
+          setResumeCwdInfo({ cwd: cwdResult.cwd, cwdExists: cwdResult.cwdExists })
+        }
+      } catch {
+        // 忽略：启动区不展示即可
+      }
+    }
   }, [])
+
+  // v1.4.5：复制 resume 命令到剪贴板
+  const handleCopyResumeCommand = useCallback(async () => {
+    if (!resumeCwdInfo?.cwd || !selectedSessionId) return
+    const cmd = `cd "${resumeCwdInfo.cwd}" && claude --resume ${selectedSessionId}`
+    try {
+      await navigator.clipboard.writeText(cmd)
+      setToast({ message: 'resume 命令已复制到剪贴板', type: 'success' })
+    } catch {
+      setToast({
+        message: `复制失败，请手动在终端执行 claude --resume ${selectedSessionId}`,
+        type: 'error',
+      })
+    }
+  }, [resumeCwdInfo, selectedSessionId])
+
+  // v1.4.5：在新终端启动 Claude Code
+  const handleLaunchInTerminal = useCallback(async () => {
+    if (!resumeCwdInfo?.cwd || !resumeCwdInfo.cwdExists || !selectedSessionId) return
+    try {
+      const result = await window.electronAPI.launchSessionInTerminal({
+        cwd: resumeCwdInfo.cwd,
+        uuid: selectedSessionId,
+      })
+      if (result?.success) {
+        setToast({ message: '已在新 Terminal 窗口启动 Claude Code', type: 'success' })
+      } else {
+        setToast({
+          message: 'Terminal 启动失败，可以改用"复制 resume 参数"',
+          type: 'error',
+        })
+      }
+    } catch {
+      setToast({
+        message: 'Terminal 启动失败，可以改用"复制 resume 参数"',
+        type: 'error',
+      })
+    }
+  }, [resumeCwdInfo, selectedSessionId])
 
   // 树状视图点击 session
   const handleSessionClick = useCallback((sessionId) => {
@@ -531,6 +585,31 @@ export default function SessionBrowserPage() {
               <span className="sb-content-header-count">
                 {messages.length} 条消息
               </span>
+              {resumeCwdInfo?.cwd && (
+                <>
+                  <button
+                    type="button"
+                    className="tag-btn"
+                    onClick={handleCopyResumeCommand}
+                    title={`复制：cd "${resumeCwdInfo.cwd}" && claude --resume ${selectedSessionId}`}
+                  >
+                    复制 resume 参数
+                  </button>
+                  <button
+                    type="button"
+                    className="tag-btn"
+                    onClick={handleLaunchInTerminal}
+                    disabled={!resumeCwdInfo.cwdExists}
+                    title={
+                      resumeCwdInfo.cwdExists
+                        ? '在新 Terminal 窗口里启动 Claude Code 并恢复此对话'
+                        : `原项目目录已不存在：${resumeCwdInfo.cwd}`
+                    }
+                  >
+                    新终端启动
+                  </button>
+                </>
+              )}
             </div>
           )}
 

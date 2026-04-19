@@ -39,6 +39,7 @@ const { registerClaudeUsageStatusHandlers } = require('./handlers/registerClaude
 const { registerMcpHandlers } = require('./handlers/registerMcpHandlers')
 const { registerNetworkDiagnosticsHandlers } = require('./handlers/registerNetworkDiagnosticsHandlers')
 const { registerSessionBrowserHandlers } = require('./handlers/registerSessionBrowserHandlers')
+const { registerSessionResumeHandlers } = require('./handlers/registerSessionResumeHandlers')
 const { registerDocBrowserHandlers } = require('./handlers/registerDocBrowserHandlers')
 const { initDocBrowserStore } = require('./services/docBrowserService')
 const { startIpMonitor } = require('./services/networkDiagnosticsService')
@@ -714,6 +715,10 @@ registerNetworkDiagnosticsHandlers({
 })
 
 registerSessionBrowserHandlers({
+  ipcMain,
+})
+
+registerSessionResumeHandlers({
   ipcMain,
 })
 
