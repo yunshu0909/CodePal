@@ -28,6 +28,10 @@ const REMOTE_SOURCE_TEMPLATES = [
 
 const FETCH_TIMEOUT_MS = 5000
 
+// 支持的 version 格式：YYYY-MM-DD 或 YYYY-MM-DD.N（N 为同日修订版本）
+// 字符串按字典序比较对这两种格式都是正确的时序比较
+const VERSION_PATTERN = /^\d{4}-\d{2}-\d{2}(\.\d+)?$/
+
 // 全局 registry 快照池：name → { config, source, spec }
 // initRemoteConfig 注册后，getRemoteConfig 可同步读取
 const registryStore = new Map()
@@ -195,6 +199,32 @@ function getRemoteConfig(name) {
 }
 
 /**
+ * Version 防退化判定：远程返回的 version 是否比打包版更老（或缺失）
+ *
+ * 背景：jsDelivr CDN 在 push 后有几分钟到几小时的同步延迟，后台刷新可能
+ * 拉到比打包版还旧的数据。如果直接写入 cache，下次启动会加载旧数据，
+ * 造成"发了新版本反而回退"的 regression（典型案例：pricing 少了新模型价）。
+ *
+ * 判定规则（谨慎，只在有把握时拒绝）：
+ * - 远程与打包都有合法日期 version：按字符串比较，远程 < 打包 → 视为退化
+ * - 打包有合法 version、远程没有/非法：视为 CDN 污染 → 视为退化
+ * - 打包没有合法 version：无法比较 → 不做防护（保持原行为写 cache）
+ *
+ * @param {unknown} remoteVersion - 远程 JSON 的 version 字段
+ * @param {unknown} packagedVersion - 打包 JSON 的 version 字段
+ * @returns {boolean} true 表示远程数据退化，应拒绝写 cache
+ */
+function isRemoteVersionStale(remoteVersion, packagedVersion) {
+  const packagedValid = typeof packagedVersion === 'string' && VERSION_PATTERN.test(packagedVersion)
+  if (!packagedValid) return false
+
+  const remoteValid = typeof remoteVersion === 'string' && VERSION_PATTERN.test(remoteVersion)
+  if (!remoteValid) return true
+
+  return remoteVersion < packagedVersion
+}
+
+/**
  * 后台刷新某个 registry，拉成功即写入 cache（本次会话不切换，下次启动生效）
  * @param {object} spec - registry spec
  * @param {{ getUserDataPath: () => string }} deps
@@ -204,6 +234,16 @@ async function refreshRemoteConfigInBackground(spec, { getUserDataPath }) {
   const result = await fetchRemote(spec)
   if (!result.success) {
     return { success: false, error: result.error }
+  }
+
+  // 防退化保护：远程返老数据（典型是 CDN 缓存延迟）时拒绝写 cache
+  const remoteVersion = result.config?.version
+  const packagedVersion = spec.packaged?.version
+  if (isRemoteVersionStale(remoteVersion, packagedVersion)) {
+    console.warn(
+      `[${spec.name}] remote version stale (remote=${remoteVersion}, packaged=${packagedVersion}), cache not updated`
+    )
+    return { success: false, error: 'REMOTE_VERSION_STALE' }
   }
 
   const cacheFilePath = path.join(getUserDataPath(), spec.cacheFileName)
@@ -233,6 +273,7 @@ module.exports = {
   refreshRemoteConfigInBackground,
   REMOTE_SOURCE_TEMPLATES,
   FETCH_TIMEOUT_MS,
+  VERSION_PATTERN,
   // 以下供单测使用
   loadEffective,
   loadCached,
@@ -240,5 +281,6 @@ module.exports = {
   saveCached,
   fetchRemote,
   validateOrWarn,
+  isRemoteVersionStale,
   __resetAllRegistriesForTesting,
 }

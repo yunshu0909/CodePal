@@ -223,8 +223,9 @@ describe('remoteConfigLoader', () => {
   describe('refreshRemoteConfigInBackground', () => {
     it('远程拉取成功后应写入 cache', async () => {
       const { loader, modelRegistry } = loadFresh()
+      // 注意：remote version 必须是合法日期格式且 >= 打包版，否则会被防退化拦截
       const validConfig = {
-        version: 'remote-v2',
+        version: '2099-12-31',
         models: [{ id: 'opus', sublabel: '' }],
         effortLevels: [{ id: 'high', display: '高', desc: '' }],
       }
@@ -236,12 +237,12 @@ describe('remoteConfigLoader', () => {
         getUserDataPath: () => tmpDir,
       })
       expect(result.success).toBe(true)
-      expect(result.version).toBe('remote-v2')
+      expect(result.version).toBe('2099-12-31')
 
       // cache 文件应存在且内容正确
       const cacheFile = path.join(tmpDir, 'model-registry.cache.json')
       const written = JSON.parse(await fs.readFile(cacheFile, 'utf-8'))
-      expect(written.version).toBe('remote-v2')
+      expect(written.version).toBe('2099-12-31')
     })
 
     it('拉取失败时不应写 cache', async () => {
@@ -258,6 +259,131 @@ describe('remoteConfigLoader', () => {
 
       const cacheFile = path.join(tmpDir, 'model-registry.cache.json')
       await expect(fs.access(cacheFile)).rejects.toThrow()
+    })
+  })
+
+  describe('isRemoteVersionStale（防退化保护）', () => {
+    it('远程比打包新 → 不退化', () => {
+      const { loader } = loadFresh()
+      expect(loader.isRemoteVersionStale('2026-04-20', '2026-04-18')).toBe(false)
+    })
+
+    it('远程和打包同版 → 不退化', () => {
+      const { loader } = loadFresh()
+      expect(loader.isRemoteVersionStale('2026-04-18', '2026-04-18')).toBe(false)
+    })
+
+    it('远程比打包老 → 退化', () => {
+      const { loader } = loadFresh()
+      expect(loader.isRemoteVersionStale('2026-03-01', '2026-04-18')).toBe(true)
+    })
+
+    it('远程无 version、打包有 version → 视为退化（典型 CDN 污染场景）', () => {
+      const { loader } = loadFresh()
+      expect(loader.isRemoteVersionStale(undefined, '2026-04-18')).toBe(true)
+      expect(loader.isRemoteVersionStale(null, '2026-04-18')).toBe(true)
+    })
+
+    it('远程非法格式、打包有合法 version → 视为退化', () => {
+      const { loader } = loadFresh()
+      expect(loader.isRemoteVersionStale('garbage', '2026-04-18')).toBe(true)
+      expect(loader.isRemoteVersionStale('v2.0', '2026-04-18')).toBe(true)
+    })
+
+    it('打包无 version → 不做防护（无法比较，信任远程）', () => {
+      const { loader } = loadFresh()
+      expect(loader.isRemoteVersionStale('whatever', undefined)).toBe(false)
+      expect(loader.isRemoteVersionStale(undefined, undefined)).toBe(false)
+    })
+
+    it('同日修订号比较：.1 比无后缀新', () => {
+      const { loader } = loadFresh()
+      expect(loader.isRemoteVersionStale('2026-04-18', '2026-04-18.1')).toBe(true)
+      expect(loader.isRemoteVersionStale('2026-04-18.1', '2026-04-18')).toBe(false)
+      expect(loader.isRemoteVersionStale('2026-04-18.2', '2026-04-18.1')).toBe(false)
+    })
+  })
+
+  describe('refreshRemoteConfigInBackground：防退化集成', () => {
+    it('远程返老版本时不应写 cache（模拟 CDN 缓存污染）', async () => {
+      const { loader } = loadFresh()
+
+      // 构造一个 packaged version 明确较新的 spec
+      const spec = {
+        name: 'test-stale',
+        remotePath: 'x',
+        cacheFileName: 'test-stale.cache.json',
+        packaged: {
+          version: '2026-04-18',
+          models: [{ id: 'new', sublabel: '' }],
+          effortLevels: [{ id: 'high', display: '高', desc: '' }],
+        },
+        hardcoded: {
+          models: [{ id: 'hc', sublabel: '' }],
+          effortLevels: [{ id: 'high', display: '高', desc: '' }],
+        },
+        validate: (data) => {
+          if (!data || !Array.isArray(data.models)) return { valid: false, error: '...' }
+          return { valid: true }
+        },
+      }
+
+      // 模拟远程返回老 version
+      const staleRemote = {
+        version: '2026-03-01',
+        models: [{ id: 'old', sublabel: '' }],
+        effortLevels: [{ id: 'high', display: '高', desc: '' }],
+      }
+      vi.spyOn(globalThis, 'fetch').mockImplementation(() =>
+        Promise.resolve({ ok: true, json: () => Promise.resolve(staleRemote) })
+      )
+
+      const result = await loader.refreshRemoteConfigInBackground(spec, {
+        getUserDataPath: () => tmpDir,
+      })
+      expect(result.success).toBe(false)
+      expect(result.error).toBe('REMOTE_VERSION_STALE')
+
+      // cache 不应被写入
+      const cacheFile = path.join(tmpDir, 'test-stale.cache.json')
+      await expect(fs.access(cacheFile)).rejects.toThrow()
+    })
+
+    it('远程缺 version 且打包有 version → 拒绝写 cache', async () => {
+      const { loader } = loadFresh()
+      const spec = {
+        name: 'test-missing-version',
+        remotePath: 'x',
+        cacheFileName: 'test-mv.cache.json',
+        packaged: {
+          version: '2026-04-18',
+          models: [{ id: 'a', sublabel: '' }],
+          effortLevels: [{ id: 'high', display: '高', desc: '' }],
+        },
+        hardcoded: {
+          models: [{ id: 'hc', sublabel: '' }],
+          effortLevels: [{ id: 'high', display: '高', desc: '' }],
+        },
+        validate: (data) => {
+          if (!data || !Array.isArray(data.models)) return { valid: false, error: '...' }
+          return { valid: true }
+        },
+      }
+
+      const remoteWithoutVersion = {
+        // 故意不写 version，模拟 CDN 缓存的老版本
+        models: [{ id: 'old', sublabel: '' }],
+        effortLevels: [{ id: 'high', display: '高', desc: '' }],
+      }
+      vi.spyOn(globalThis, 'fetch').mockImplementation(() =>
+        Promise.resolve({ ok: true, json: () => Promise.resolve(remoteWithoutVersion) })
+      )
+
+      const result = await loader.refreshRemoteConfigInBackground(spec, {
+        getUserDataPath: () => tmpDir,
+      })
+      expect(result.success).toBe(false)
+      expect(result.error).toBe('REMOTE_VERSION_STALE')
     })
   })
 })
