@@ -95,12 +95,17 @@ async function loadCached(spec, cacheFilePath) {
  * @returns {Promise<boolean>}
  */
 async function saveCached(spec, cacheFilePath, config) {
+  const tmpFile = `${cacheFilePath}.tmp`
   try {
     await fs.mkdir(path.dirname(cacheFilePath), { recursive: true })
     const content = `${JSON.stringify(config, null, 2)}\n`
-    await fs.writeFile(cacheFilePath, content, 'utf-8')
+    // 先写临时文件再原子 rename，避免写到一半崩溃时 cache 损坏
+    await fs.writeFile(tmpFile, content, 'utf-8')
+    await fs.rename(tmpFile, cacheFilePath)
     return true
   } catch (error) {
+    // rename 失败前如果临时文件已创建，清理掉避免残留
+    await fs.unlink(tmpFile).catch(() => {})
     console.warn(`[${spec.name}] save cache failed:`, error?.message || error)
     return false
   }

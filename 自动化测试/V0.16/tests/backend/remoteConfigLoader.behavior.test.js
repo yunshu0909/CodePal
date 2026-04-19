@@ -196,6 +196,19 @@ describe('remoteConfigLoader', () => {
       const written = JSON.parse(await fs.readFile(cacheFile, 'utf-8'))
       expect(written).toEqual(config)
     })
+
+    it('写入成功后不应残留 .tmp 临时文件（原子 rename 守护）', async () => {
+      const { loader, modelRegistry } = loadFresh()
+      const cacheFile = path.join(tmpDir, 'cache.json')
+      const config = {
+        models: [{ id: 'opus', sublabel: '' }],
+        effortLevels: [{ id: 'high', display: '高', desc: '' }],
+      }
+      await loader.saveCached(modelRegistry.modelRegistrySpec, cacheFile, config)
+
+      // .tmp 应该被 rename 成最终文件，不残留
+      await expect(fs.access(`${cacheFile}.tmp`)).rejects.toThrow()
+    })
   })
 
   describe('initRemoteConfig + getRemoteConfig', () => {
