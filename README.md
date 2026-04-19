@@ -4,8 +4,6 @@
 
 [![macOS](https://img.shields.io/badge/macOS-Apple%20Silicon-black?logo=apple)](https://github.com/yunshu0909/CodePal/releases) [![version](https://img.shields.io/badge/version-v1.5.0-blue)](https://github.com/yunshu0909/CodePal/releases/latest) [![license](https://img.shields.io/badge/license-ISC-green)](#license)
 
-![CodePal Hero](docs/screenshots/codex-accounts.png)
-
 ---
 
 ## 为什么需要 CodePal？
