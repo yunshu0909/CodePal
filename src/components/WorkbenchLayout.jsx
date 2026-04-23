@@ -39,8 +39,7 @@ function WorkbenchLayout({ children, activeModule, onModuleChange, hasUpdate, on
         // 'api' 模块 v1.5.0 起从侧栏隐藏：短期内不使用，代码和路由保留，未来需要时恢复此条即可
         { id: 'permission', label: '启动模式', icon: '🛡️' },
         { id: 'project-init', label: '新建项目', icon: '🚀' },
-        { id: 'network', label: '网络诊断', icon: '🌐' },
-        { id: 'terminal-theme', label: '终端外观', icon: '🎨' }
+        { id: 'network', label: '网络诊断', icon: '🌐' }
       ]
     },
     {

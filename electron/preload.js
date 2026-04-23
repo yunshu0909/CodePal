@@ -655,40 +655,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
     },
   },
 
-  // v1.6.0 终端外观 APIs
-
-  /**
-   * 命名空间式接口，避免污染顶层 electronAPI
-   */
-  terminalTheme: {
-    list: () => ipcRenderer.invoke('terminal-theme:list'),
-    setDefault: (themeId) => ipcRenderer.invoke('terminal-theme:set-default', { themeId }),
-    restoreSystemDefault: () => ipcRenderer.invoke('terminal-theme:restore-system-default'),
-  },
-
-  /** v1.7 终端预览(xterm.js 实时渲染真 Claude Code) */
-  terminalPreview: {
-    start: (cols, rows) => ipcRenderer.send('terminal-preview:start', { cols, rows }),
-    write: (data) => ipcRenderer.send('terminal-preview:write', data),
-    resize: (cols, rows) => ipcRenderer.send('terminal-preview:resize', { cols, rows }),
-    stop: () => ipcRenderer.send('terminal-preview:stop'),
-    onData: (cb) => {
-      const listener = (_e, data) => cb(data)
-      ipcRenderer.on('terminal-preview:data', listener)
-      return () => ipcRenderer.removeListener('terminal-preview:data', listener)
-    },
-    onExit: (cb) => {
-      const listener = () => cb()
-      ipcRenderer.on('terminal-preview:exit', listener)
-      return () => ipcRenderer.removeListener('terminal-preview:exit', listener)
-    },
-    onError: (cb) => {
-      const listener = (_e, msg) => cb(msg)
-      ipcRenderer.on('terminal-preview:error', listener)
-      return () => ipcRenderer.removeListener('terminal-preview:error', listener)
-    },
-  },
-
   // 文档查阅 APIs
 
   /**

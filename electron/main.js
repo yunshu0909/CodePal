@@ -44,8 +44,6 @@ const { registerNetworkDiagnosticsHandlers } = require('./handlers/registerNetwo
 const { registerSessionBrowserHandlers } = require('./handlers/registerSessionBrowserHandlers')
 const { registerSessionResumeHandlers } = require('./handlers/registerSessionResumeHandlers')
 const { registerCodexAccountHandlers, stopCodexAccountWatcher } = require('./handlers/registerCodexAccountHandlers')
-const { registerTerminalThemeHandlers } = require('./handlers/registerTerminalThemeHandlers')
-const { registerTerminalPreviewHandlers, cleanupTerminalPreview } = require('./handlers/registerTerminalPreviewHandlers')
 const { registerDocBrowserHandlers } = require('./handlers/registerDocBrowserHandlers')
 const { initDocBrowserStore } = require('./services/docBrowserService')
 const { startIpMonitor } = require('./services/networkDiagnosticsService')
@@ -747,18 +745,3 @@ registerDocBrowserHandlers({
   ipcMain,
   getMainWindow: () => mainWindow,
 })
-
-registerTerminalThemeHandlers({ ipcMain })
-registerTerminalPreviewHandlers({ ipcMain, getMainWindow: () => mainWindow })
-
-// 启动自检(dev canary):尽早暴露资源路径/plist 读取等配置类问题
-// —— 单测跑在纯 Node 环境读不到 process.resourcesPath,这个 canary 是"真 electron 环境"下的第一道防线
-;(async () => {
-  try {
-    const svc = require('./services/terminalThemeService')
-    const r = await svc.listThemes()
-    console.log(`[terminal-theme] canary ok: ${r.themes.length} themes, currentDefault=${r.currentDefault ?? 'null'}`)
-  } catch (err) {
-    console.error('[terminal-theme] ❌ canary failed:', err?.message || err)
-  }
-})()
