@@ -738,6 +738,7 @@ registerSessionResumeHandlers({
 
 registerCodexAccountHandlers({
   ipcMain,
+  app,
   getMainWindow: () => mainWindow,
 })
 

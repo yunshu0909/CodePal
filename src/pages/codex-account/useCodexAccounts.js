@@ -109,6 +109,13 @@ export function useCodexAccounts(options = {}) {
     return window.electronAPI.codexAccount.openCodex()
   }, [])
 
+  // V1.6.2: 手动续签指定槽位（重新登录前后用）
+  const refreshSlot = useCallback(async (name, force = true) => {
+    const r = await window.electronAPI.codexAccount.refreshSlot(name, force)
+    if (r?.success) await reload()
+    return r
+  }, [reload])
+
   /** 本次会话忽略未保存激活账户（不做持久化，重启即失效） */
   const ignoreUnsavedActive = useCallback(() => {
     const id = state.unsavedActive?.accountId
@@ -124,6 +131,7 @@ export function useCodexAccounts(options = {}) {
     renameAccount,
     deleteAccount,
     openCodex,
+    refreshSlot,
     ignoreUnsavedActive,
   }
 }

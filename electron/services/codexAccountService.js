@@ -27,6 +27,19 @@ const {
   isRefreshTokenLikelyDead,
 } = require('./codexJwtUtils')
 
+// V1.6.2: 懒加载避免和 codexTokenRefresher 形成循环依赖
+// （refresher 的 sweepAllSlots 也要用本模块的 __INTERNAL__）
+let _refresher = null
+function getRefresher() {
+  if (!_refresher) _refresher = require('./codexTokenRefresher')
+  return _refresher
+}
+const refresher = {
+  ensureFreshCodexToken(...args) {
+    return getRefresher().ensureFreshCodexToken(...args)
+  },
+}
+
 // ---------- 常量 ----------
 
 // 可注入：测试中用 __setHomeDir 替换，生产走 os.homedir()
@@ -231,13 +244,19 @@ async function listSavedAccounts() {
     }
 
     const stat = await fsp.stat(filePath).catch(() => null)
+    const mtimeMs = stat ? stat.mtimeMs : null
+    // V1.6.2 修复 B3：优先读独立字段；缺失时回退 mtime（兼容 V1.5.0 旧槽位）
+    const lastSwitchAt = (typeof parsed.__codepal_last_switch_at === 'number')
+      ? parsed.__codepal_last_switch_at
+      : mtimeMs
     accounts.push({
       name,
       email: extractEmail(parsed),
       plan: extractPlan(parsed),
       accountId: extractAccountId(parsed),
-      expired: isRefreshTokenLikelyDead(parsed),
-      lastSwitchAt: stat ? stat.mtimeMs : null,
+      // V1.6.2: 把 mtime 传进去做 last_refresh 缺失时的兜底
+      expired: isRefreshTokenLikelyDead(parsed, undefined, mtimeMs),
+      lastSwitchAt,
     })
   }
 
@@ -387,7 +406,38 @@ async function switchAccount(targetName) {
     return { success: false, codexWasRunning: false, error: 'ACCOUNT_NOT_FOUND' }
   }
 
-  await syncCurrentToActiveSlot()
+  // V1.6.2: 同步失败必须显式拦截，不许偷偷丢当前账户的 refresh_token（Bug A）
+  const syncResult = await syncCurrentToActiveSlot()
+  if (!syncResult.ok) {
+    return {
+      success: false,
+      codexWasRunning: false,
+      error: 'SYNC_BEFORE_SWITCH_FAILED',
+      hint: `保存当前账户凭证到本地槽位失败：${syncResult.reason}。切换已取消以避免 token 丢失。`,
+    }
+  }
+
+  // V1.6.2: lazy refresh 目标槽位（Bug B），保证切过去立刻可用
+  // 失败原因分两类：
+  //   - needsRelogin（4xx invalid_grant）→ 直接拒绝切换并提示重登
+  //   - 网络/5xx → 不阻塞切换，让 Codex 自己尝试 refresh
+  try {
+    const refreshResult = await refresher.ensureFreshCodexToken({
+      filePath: target,
+      thresholdSec: 5 * 60,
+    })
+    if (!refreshResult.success && refreshResult.needsRelogin) {
+      return {
+        success: false,
+        codexWasRunning: false,
+        error: 'TARGET_NEEDS_RELOGIN',
+        hint: `账户 ${targetName} 的授权已过期，请重新登录此账户`,
+      }
+    }
+  } catch (err) {
+    // refresh 出现意外异常不阻塞切换
+    console.warn('[switch-account] lazy refresh exception, proceed anyway:', err?.message || err)
+  }
 
   const currentHash = await hashFile(getAuthFile())
   const targetHash = await hashFile(target)
@@ -403,6 +453,8 @@ async function switchAccount(targetName) {
     await fsp.mkdir(getCodexDir(), { recursive: true })
     await atomicCopy(target, getAuthFile())
     await writeCurrentName(targetName)
+    // V1.6.2 修复 B3：独立记录"上次切入时间"，不让 sweep 续 token 时的 mtime 污染 UI
+    await stampLastSwitch(target)
   } catch (err) {
     return {
       success: false,
@@ -415,33 +467,71 @@ async function switchAccount(targetName) {
 }
 
 /**
+ * V1.6.2 修复 B3：在 slot 文件加 `__codepal_last_switch_at` 字段记录"上次切入时间"
+ *
+ * 不让后台 sweep / lazy refresh 写入新 token 时的 mtime 跳动污染 UI 显示。
+ * refresher 在 atomicWriteJson 时也会保留这个字段（合并 tokens 但不动它）。
+ *
+ * @param {string} slotPath - 槽位文件路径
+ */
+async function stampLastSwitch(slotPath) {
+  try {
+    const auth = await readJsonSafe(slotPath)
+    if (!auth) return
+    auth.__codepal_last_switch_at = Date.now()
+    const tmp = `${slotPath}.tmp-${crypto.randomBytes(6).toString('hex')}`
+    await fsp.writeFile(tmp, JSON.stringify(auth, null, 2), { mode: 0o600 })
+    await fsp.rename(tmp, slotPath)
+  } catch (err) {
+    // 不影响主流程，只是 UI 时间显示可能用 mtime 兜底
+    console.warn('[codex-account] stampLastSwitch failed:', err?.message || err)
+  }
+}
+
+/**
  * 把当前 auth.json 同步回原激活槽（保 refresh_token 最新）
  *
  * 规则：current 文件记录的"上次激活账户"存在，且其 account_id 与当前 auth.json 一致
  *       → 把当前 auth.json 覆盖回该槽位
- * 否则：不动（未归属情况由上层决定如何处理）
+ * 否则：跳过（未归属情况由上层决定如何处理）
+ *
+ * V1.6.2 修复 Bug A：所有异常路径返回 `{ok: false, reason}`，不再静默吞错。
+ * 调用方必须根据返回值决定是否继续 swap，避免丢失当前账户的最新 refresh_token。
+ *
+ * @returns {Promise<{ok: boolean, reason: string}>}
+ *   - `ok=true`: 同步成功 / 无需同步（无 auth.json / 无槽位 / hash 一致）
+ *   - `ok=false`: 应该同步但失败了（磁盘/权限/锁等），调用方应中止 swap
  */
 async function syncCurrentToActiveSlot() {
-  if (!fs.existsSync(getAuthFile())) return
-  const current = await readCurrentAuth()
-  if (!current.accountId) return
+  try {
+    if (!fs.existsSync(getAuthFile())) return { ok: true, reason: 'no-auth-file' }
+    const current = await readCurrentAuth()
+    if (!current.accountId) return { ok: true, reason: 'no-account-id' }
 
-  const lastName = await readCurrentName()
-  if (!lastName || !SAFE_NAME_REGEX.test(lastName)) return
+    const lastName = await readCurrentName()
+    if (!lastName || !SAFE_NAME_REGEX.test(lastName)) return { ok: true, reason: 'no-current-name' }
 
-  const slot = accountPath(lastName)
-  if (!fs.existsSync(slot)) return
+    const slot = accountPath(lastName)
+    if (!fs.existsSync(slot)) return { ok: true, reason: 'slot-not-exists' }
 
-  const slotParsed = await readJsonSafe(slot)
-  if (!slotParsed) return
-  const slotAid = extractAccountId(slotParsed)
-  if (slotAid && slotAid === current.accountId) {
-    // 同账户才同步，避免污染别的槽位
+    const slotParsed = await readJsonSafe(slot)
+    if (!slotParsed) return { ok: true, reason: 'slot-parse-failed' }
+    const slotAid = extractAccountId(slotParsed)
+    if (!slotAid || slotAid !== current.accountId) {
+      // 不同账户：不该同步（避免污染别的槽位）
+      return { ok: true, reason: 'account-mismatch' }
+    }
+
+    // 同账户：判断是否需要同步
     const curHash = await hashFile(getAuthFile())
     const slotHash = await hashFile(slot)
-    if (curHash !== slotHash) {
-      await atomicCopy(getAuthFile(), slot)
-    }
+    if (curHash === slotHash) return { ok: true, reason: 'already-synced' }
+
+    // 真正需要同步——这是唯一能失败的关键路径
+    await atomicCopy(getAuthFile(), slot)
+    return { ok: true, reason: 'synced' }
+  } catch (err) {
+    return { ok: false, reason: err?.message || 'unknown-error' }
   }
 }
 
@@ -527,6 +617,8 @@ module.exports = {
     hashFile,
     isCodexRunning,
     syncCurrentToActiveSlot,
+    // V1.6.2: 暴露本模块 require 的 refresher 实例（同 codexAuthWatcher 同款做法）
+    getLinkedRefresher() { return getRefresher() },
     __setHomeDir(dir) { _homeDir = dir },
     __resetHomeDir() { _homeDir = os.homedir() },
     __setExecFile(fn) { _execFile = fn },

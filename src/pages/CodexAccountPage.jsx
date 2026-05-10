@@ -86,7 +86,7 @@ export default function CodexAccountPage() {
       })
       return
     }
-    setToast({ message: mapSwitchError(r?.error), type: 'error' })
+    setToast({ message: mapSwitchError(r?.error, r?.hint), type: 'error' })
   }, [switchAccount])
 
   const handleSave = useCallback(async (name) => {
@@ -343,12 +343,17 @@ function ErrorState({ error, onRetry }) {
   )
 }
 
-function mapSwitchError(code) {
+function mapSwitchError(code, hint) {
+  // V1.6.2: 对新增的两类错误给精准提示
   switch (code) {
     case 'ACCOUNT_NOT_FOUND':
       return '账户不存在（可能刚被删除）'
     case 'INVALID_NAME':
       return '账户名不合法'
+    case 'SYNC_BEFORE_SWITCH_FAILED':
+      return hint || '保存当前账户凭证失败，切换已取消（避免 token 丢失）'
+    case 'TARGET_NEEDS_RELOGIN':
+      return hint || '目标账户授权已过期，请重新登录此账户'
     default:
       return code ? `切换失败：${String(code).slice(0, 80)}` : '切换失败'
   }

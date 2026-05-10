@@ -154,24 +154,39 @@ function isTokenExpired(jwt, toleranceSec = 0) {
 /**
  * 判断某个 account 槽位是否已彻底失效
  *
- * 规则：access_token 过期 且 上次刷新距今超过 30 天 → 推断 refresh_token 也失效
- * （refresh_token 本身没有 exp 字段，OpenAI 的未公开策略是约 30 天不用失效）
+ * 规则：access_token 过期 且 上次刷新距今超过 N 天 → 推断 refresh_token 也失效
+ * （refresh_token 本身没有 exp 字段，OpenAI 实测 TTL 7-30 天浮动，V1.6.2 收紧到 20 天）
  *
- * @param {object} authObj
- * @param {number} [refreshTtlDays=30]
+ * **fail-closed 设计**（V1.6.2 修复 Bug C）：
+ * - last_refresh 字段缺失 → 用文件 mtime 兜底
+ * - mtime 也无 → 保守判死（宁可误报也不撒谎）
+ * - 字段解析失败 → 同上
+ *
+ * @param {object} authObj - auth.json 解析后的对象
+ * @param {number} [refreshTtlDays=20] - V1.6.2 从 30d 收紧到 20d
+ * @param {number|null} [mtimeMs=null] - 文件 mtime（毫秒），last_refresh 缺失时兜底
  * @returns {boolean}
  */
-function isRefreshTokenLikelyDead(authObj, refreshTtlDays = 30) {
+function isRefreshTokenLikelyDead(authObj, refreshTtlDays = 20, mtimeMs = null) {
   if (!authObj || typeof authObj !== 'object') return true
   const tokens = authObj.tokens || {}
   if (!tokens.refresh_token) return true
   const accessExpired = tokens.access_token ? isTokenExpired(tokens.access_token) : true
   if (!accessExpired) return false
 
+  // last_refresh 字段优先；缺失或非法时用 mtime 兜底
+  let lastRefresh = null
   const lastRefreshRaw = authObj.last_refresh
-  if (!lastRefreshRaw) return false
-  const lastRefresh = Date.parse(lastRefreshRaw)
-  if (Number.isNaN(lastRefresh)) return false
+  if (lastRefreshRaw) {
+    const parsed = Date.parse(lastRefreshRaw)
+    if (!Number.isNaN(parsed)) lastRefresh = parsed
+  }
+  if (lastRefresh === null && typeof mtimeMs === 'number' && mtimeMs > 0) {
+    lastRefresh = mtimeMs
+  }
+  // 既无 last_refresh 也无 mtime → 保守判死（fail-closed）
+  if (lastRefresh === null) return true
+
   const ageDays = (Date.now() - lastRefresh) / (86400 * 1000)
   return ageDays > refreshTtlDays
 }

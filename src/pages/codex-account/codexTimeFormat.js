@@ -20,6 +20,11 @@ const WINDOW_7D_MS = 7 * MS_PER_DAY
 
 /**
  * 给定"上次切入时间"，算 5 小时窗口的剩余倒计时描述
+ *
+ * V1.6.2 修复：旧文案"已重置"会误导用户以为 ChatGPT 服务端窗口已重置，
+ * 实际只是本地从"上次切入"起算的倒计时到期。改成不撒谎的措辞。
+ * （彻底解决要等 V1.6.3 接入 wham/usage 拿真实 reset_at）
+ *
  * @param {number|null} lastSwitchAt - UNIX 毫秒，null 表示从未切入
  * @param {number} [now=Date.now()]
  * @returns {{text: string, urgent: boolean}}
@@ -27,7 +32,7 @@ const WINDOW_7D_MS = 7 * MS_PER_DAY
 export function fiveHourWindowText(lastSwitchAt, now = Date.now()) {
   if (!lastSwitchAt) return { text: '尚未切入过', urgent: false }
   const remaining = WINDOW_5H_MS - (now - lastSwitchAt)
-  if (remaining <= 0) return { text: '已重置', urgent: false }
+  if (remaining <= 0) return { text: '本地计时已过', urgent: false }
   return { text: `约 ${formatDuration(remaining)} 后重置`, urgent: remaining < MS_PER_HOUR }
 }
 
@@ -37,7 +42,7 @@ export function fiveHourWindowText(lastSwitchAt, now = Date.now()) {
 export function sevenDayWindowText(lastSwitchAt, now = Date.now()) {
   if (!lastSwitchAt) return { text: '尚未切入过', urgent: false }
   const remaining = WINDOW_7D_MS - (now - lastSwitchAt)
-  if (remaining <= 0) return { text: '已重置', urgent: false }
+  if (remaining <= 0) return { text: '本地计时已过', urgent: false }
   return { text: `约 ${formatDuration(remaining)} 后重置`, urgent: false }
 }
 

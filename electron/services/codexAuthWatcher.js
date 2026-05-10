@@ -18,6 +18,13 @@ const chokidar = require('chokidar')
 const { extractEmail, extractPlan, extractAccountId } = require('./codexJwtUtils')
 const accountService = require('./codexAccountService')
 
+// V1.6.2: 懒加载 refresher，避免循环依赖
+let _refresher = null
+function getRefresher() {
+  if (!_refresher) _refresher = require('./codexTokenRefresher')
+  return _refresher
+}
+
 // 同一账户连续变化的 debounce（ms）
 const DEBOUNCE_MS = 500
 
@@ -53,6 +60,18 @@ async function handleAuthChange(state, callbacks) {
   const match = accounts.find((a) => a.accountId && a.accountId === current.accountId)
 
   if (match) {
+    // V1.6.2 修复 B1：refresher 正在写同 accountId 的 slot 时跳过，
+    // 避免旧 auth.json 内容覆盖刚写入的新 token（refresh_token 是一次性的，覆盖会丢号）
+    const inflight = getRefresher().__INTERNAL__.inflight
+    const hasInflight = Array.from(inflight.keys()).some((key) => {
+      // inflight key 是 `${accountId}:${force?'force':'normal'}`，按前缀匹配
+      return key === current.accountId || key.startsWith(`${current.accountId}:`)
+    })
+    if (hasInflight) {
+      // refresher 正在写，让 refresher 完成；watcher 不抢
+      return { handled: false, reason: 'refresh-in-flight' }
+    }
+
     // 已归属：Codex 刷了 token → 同步回槽位
     await accountService.__INTERNAL__.atomicCopy(
       accountService.__INTERNAL__.getAuthFile(),
@@ -134,5 +153,7 @@ module.exports = {
     // 给测试用（ESM import 和 CommonJS require 在 vitest 里可能 cache 分离，
     // 不同实例的 _homeDir 是独立的，必须拿同一份才能注入 tmpHome）
     getLinkedAccountService() { return accountService },
+    // V1.6.2: 同样暴露 watcher 内部用的 refresher 实例（B1 测试需要）
+    getLinkedRefresher() { return getRefresher() },
   },
 }

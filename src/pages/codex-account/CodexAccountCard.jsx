@@ -92,7 +92,7 @@ export default function CodexAccountCard({
       </div>
 
       <div className="codex-card__footer">
-        {renderFooterMain({ isActive, expired, onSwitch, name })}
+        {renderFooterMain({ isActive, expired, onSwitch, onReLogin, name })}
         <div className="codex-card__menu" ref={menuRef}>
           <button
             className="codex-btn-menu"
@@ -132,9 +132,14 @@ export default function CodexAccountCard({
   )
 }
 
-function renderFooterMain({ isActive, expired, onSwitch, name }) {
+function renderFooterMain({ isActive, expired, onSwitch, onReLogin, name }) {
   if (expired) {
-    return <span className="codex-card__status codex-card__status--error">需重新登录</span>
+    // V1.6.2 修复 C4：失效卡片把"重新登录"按钮放到主区域显眼位置
+    return (
+      <Button variant="danger" size="sm" onClick={() => onReLogin?.(name)}>
+        重新登录
+      </Button>
+    )
   }
   if (isActive) {
     return <span className="codex-card__status codex-card__status--active">当前使用中</span>

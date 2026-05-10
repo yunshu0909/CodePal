@@ -643,6 +643,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
     delete: (name) => ipcRenderer.invoke('codex-account:delete', { name }),
     detectStorage: () => ipcRenderer.invoke('codex-account:detect-storage'),
     openCodex: () => ipcRenderer.invoke('codex-account:open-codex'),
+    // V1.6.2: 手动续签指定槽位（UI 重新登录入口）
+    refreshSlot: (name, force = true) =>
+      ipcRenderer.invoke('codex-account:refresh-slot', { name, force }),
     /**
      * 订阅"新账户检测"推送
      * @param {(payload: object) => void} handler

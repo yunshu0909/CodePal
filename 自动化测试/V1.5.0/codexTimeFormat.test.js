@@ -40,9 +40,9 @@ describe('fiveHourWindowText', () => {
     expect(r.text).toMatch(/^约 30m/)
     expect(r.urgent).toBe(true)
   })
-  it('超过 5h → 已重置', () => {
+  it('超过 5h → 本地计时已过（V1.6.2 改文案，避免误导真实窗口已重置）', () => {
     const now = Date.now()
-    expect(fiveHourWindowText(now - 6 * HOUR, now).text).toBe('已重置')
+    expect(fiveHourWindowText(now - 6 * HOUR, now).text).toBe('本地计时已过')
   })
 })
 
@@ -57,9 +57,9 @@ describe('sevenDayWindowText', () => {
     const r = sevenDayWindowText(now - 3 * DAY, now)
     expect(r.text).toMatch(/^约 4d/)
   })
-  it('超过 7 天 → 已重置', () => {
+  it('超过 7 天 → 本地计时已过（V1.6.2 改文案）', () => {
     const now = Date.now()
-    expect(sevenDayWindowText(now - 8 * DAY, now).text).toBe('已重置')
+    expect(sevenDayWindowText(now - 8 * DAY, now).text).toBe('本地计时已过')
   })
 })
 
