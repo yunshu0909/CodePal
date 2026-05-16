@@ -229,6 +229,38 @@ describe('classifyHistory - 混合场景', () => {
   })
 })
 
+describe('classifyHistory - 历史脏数据清洗', () => {
+  it('同一正常周期重复 → 保留峰值最大的那条', () => {
+    const periodEnd = NOW - DAY
+    const duplicated = [
+      normalCycle({ periodEnd, peak: 6 }),
+      normalCycle({ periodEnd, peak: 53 }),
+      normalCycle({ periodEnd, peak: 21 }),
+    ]
+    const r = classifyHistory(duplicated, NOW)
+    expect(r.normalCyclesTotal).toBe(1)
+    expect(r.normalCycles[0].peakPercentage).toBe(53)
+    expect(r.avgPeak).toBe(53)
+  })
+
+  it('过滤未来周期和当前窗口重叠周期', () => {
+    const currentStart = NOW - DAY
+    const currentEnd = currentStart + 7 * DAY
+    const currentCycle = {
+      periodStart: currentStart,
+      sevenDayResetsAt: currentEnd,
+    }
+    const cycles = [
+      { periodStart: currentStart, periodEnd: currentEnd, peakPercentage: 0 },
+      { periodStart: currentStart - 7 * DAY, periodEnd: NOW, peakPercentage: 6 },
+      { periodStart: currentStart - 7 * DAY, periodEnd: currentStart, peakPercentage: 53 },
+    ]
+    const r = classifyHistory(cycles, NOW, currentCycle)
+    expect(r.normalCyclesTotal).toBe(1)
+    expect(r.normalCycles[0].peakPercentage).toBe(53)
+  })
+})
+
 describe('cycleDurationDays', () => {
   it('2 天', () => {
     const start = 1776000000

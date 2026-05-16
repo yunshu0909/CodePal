@@ -106,9 +106,9 @@ function registerCodexAccountHandlers({ ipcMain, app, getMainWindow }) {
   })
 
   ipcMain.handle('codex-account:switch', async (_event, payload) => {
-    const { targetName } = payload || {}
+    const { targetName, restartCodex = false } = payload || {}
     try {
-      return await accountService.switchAccount(targetName)
+      return await accountService.switchAccount(targetName, { restartCodex })
     } catch (error) {
       return { success: false, error: error?.message || 'SWITCH_FAILED' }
     }

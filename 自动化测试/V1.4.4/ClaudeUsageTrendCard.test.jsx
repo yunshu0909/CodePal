@@ -207,6 +207,47 @@ describe('ClaudeUsageTrendCard - 副标题', () => {
   })
 })
 
+describe('ClaudeUsageTrendCard - 历史脏数据兜底', () => {
+  it('过滤当前周期重复条目，并按同周期最大峰值计算满载率', () => {
+    const currentStart = 1778918400
+    const currentEnd = 1779523200
+    vi.setSystemTime(new Date((currentStart + 3600) * 1000))
+    const cycles = [
+      { periodStart: 1778313600, periodEnd: 1778918400, peakPercentage: 6 },
+      { periodStart: 1778918400, periodEnd: 1779523200, peakPercentage: 0 },
+      { periodStart: 1778313600, periodEnd: 1778918400, peakPercentage: 6 },
+      { periodStart: 1778918400, periodEnd: 1779523200, peakPercentage: 0 },
+      { periodStart: 1778313600, periodEnd: 1778918400, peakPercentage: 53 },
+      { periodStart: 1777708800, periodEnd: 1778313600, peakPercentage: 21 },
+      { periodStart: 1777104000, periodEnd: 1777708800, peakPercentage: 42 },
+      { periodStart: 1776391200, periodEnd: 1776996000, peakPercentage: 82 },
+      {
+        periodStart: 1776211200,
+        periodEnd: 1776391200,
+        peakPercentage: 25,
+        anomaly: true,
+        anomalyReason: 'provider_reset',
+      },
+      { periodStart: 1775606400, periodEnd: 1776211200, peakPercentage: 66 },
+    ]
+    const { container } = render(
+      <ClaudeUsageTrendCard
+        snapshot={{ sevenDayUsedPercentage: 0, sevenDayResetsAt: currentEnd }}
+        completedCycles={cycles}
+      />
+    )
+
+    expect(container.querySelector('.trend-card__value-num').textContent).toBe('50')
+    const normalRows = Array.from(
+      container.querySelectorAll('.trend-history-row:not(.trend-history-row--anomaly)')
+    )
+    expect(normalRows.length).toBe(4)
+    expect(normalRows[0].textContent).toContain('53%')
+    expect(normalRows.some((row) => row.textContent.includes('0%'))).toBe(false)
+    expect(screen.getByText(/共 5 个正常完成周期/)).toBeTruthy()
+  })
+})
+
 describe('ClaudeUsageTrendCard - 对 v1.4.1 的兼容', () => {
   it('老数据（无 anomaly 字段） → 照常按正常处理', () => {
     const cycles = [

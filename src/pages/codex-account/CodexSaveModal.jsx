@@ -72,7 +72,7 @@ export default function CodexSaveModal({ open, payload, onConfirm, onClose }) {
           : null}
       </p>
       <p style={{ fontSize: 13, color: '#5a6070', marginTop: 10, lineHeight: 1.7 }}>
-        保存后以后就能一键切换了。
+        保存后以后就能切换并重启到这个账户。
       </p>
 
       <label className="codex-modal-input-label">账户名</label>

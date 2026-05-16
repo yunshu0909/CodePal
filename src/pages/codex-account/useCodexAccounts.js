@@ -87,8 +87,8 @@ export function useCodexAccounts(options = {}) {
     return r
   }, [reload])
 
-  const switchAccount = useCallback(async (targetName) => {
-    const r = await window.electronAPI.codexAccount.switch(targetName)
+  const switchAccount = useCallback(async (targetName, options = {}) => {
+    const r = await window.electronAPI.codexAccount.switch(targetName, options)
     if (r?.success) await reload()
     return r
   }, [reload])

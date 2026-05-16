@@ -637,7 +637,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   codexAccount: {
     list: () => ipcRenderer.invoke('codex-account:list'),
     save: (name) => ipcRenderer.invoke('codex-account:save', { name }),
-    switch: (targetName) => ipcRenderer.invoke('codex-account:switch', { targetName }),
+    switch: (targetName, options = {}) =>
+      ipcRenderer.invoke('codex-account:switch', { targetName, ...options }),
     rename: (oldName, newName) =>
       ipcRenderer.invoke('codex-account:rename', { oldName, newName }),
     delete: (name) => ipcRenderer.invoke('codex-account:delete', { name }),

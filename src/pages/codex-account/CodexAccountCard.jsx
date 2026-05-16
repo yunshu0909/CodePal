@@ -4,7 +4,7 @@
  * 负责：
  * - 展示账户名、email、套餐、5h/7d 倒计时、上次切入时间
  * - 区分激活态 / 失效态 / 切换中态 / dim 态
- * - 提供"切换到"按钮 + [⋯] 更多操作（重命名 / 删除 / 重新登录）
+ * - 提供"切换并重启"按钮 + [⋯] 更多操作（重命名 / 删除 / 重新登录）
  *
  * @module pages/codex-account/CodexAccountCard
  */
@@ -146,7 +146,7 @@ function renderFooterMain({ isActive, expired, onSwitch, onReLogin, name }) {
   }
   return (
     <Button variant="secondary" size="sm" onClick={() => onSwitch?.(name)}>
-      切换到
+      切换并重启
     </Button>
   )
 }

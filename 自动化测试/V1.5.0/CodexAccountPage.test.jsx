@@ -93,7 +93,7 @@ describe('CodexAccountPage · 正常态', () => {
     mockListResult()
     render(<CodexAccountPage />)
 
-    expect(await screen.findByText(/不会自动重启 Codex/)).toBeInTheDocument()
+    expect(await screen.findByText(/完整退出 Codex/)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /新增账户/ })).toBeInTheDocument()
   })
 })
@@ -177,29 +177,29 @@ describe('CodexAccountPage · 未保存激活账户', () => {
 // ---------- 切换操作 ----------
 
 describe('CodexAccountPage · 切换', () => {
-  it('点击 bob 卡的 [切换到] → 调 switch API + 成功 Toast', async () => {
+  it('点击 bob 卡的 [切换并重启] → 调 switch API + 成功 Toast', async () => {
     mockListResult()
     api.switch.mockResolvedValue({ success: true, codexWasRunning: false })
     render(<CodexAccountPage />)
 
     await screen.findByText('bob')
-    const switchBtns = screen.getAllByRole('button', { name: /切换到/ })
+    const switchBtns = screen.getAllByRole('button', { name: /切换并重启/ })
     fireEvent.click(switchBtns[0])
 
-    await waitFor(() => expect(api.switch).toHaveBeenCalledWith('bob'))
+    await waitFor(() => expect(api.switch).toHaveBeenCalledWith('bob', { restartCodex: true }))
     expect(await screen.findByText(/已切换到 bob/)).toBeInTheDocument()
   })
 
-  it('Codex 在跑 → Toast 提示"请重启 Codex"', async () => {
+  it('Codex 在跑 → Toast 提示已重启并读取新账户', async () => {
     mockListResult()
-    api.switch.mockResolvedValue({ success: true, codexWasRunning: true })
+    api.switch.mockResolvedValue({ success: true, codexWasRunning: true, restarted: true })
     render(<CodexAccountPage />)
 
     await screen.findByText('bob')
-    fireEvent.click(screen.getAllByRole('button', { name: /切换到/ })[0])
+    fireEvent.click(screen.getAllByRole('button', { name: /切换并重启/ })[0])
 
     expect(
-      await screen.findByText(/已切换到 bob，请重启 Codex 让新账户生效/)
+      await screen.findByText(/已切换到 bob，Codex 已重启并读取新账户/)
     ).toBeInTheDocument()
   })
 
@@ -209,10 +209,46 @@ describe('CodexAccountPage · 切换', () => {
     render(<CodexAccountPage />)
 
     await screen.findByText('bob')
-    fireEvent.click(screen.getAllByRole('button', { name: /切换到/ })[0])
+    fireEvent.click(screen.getAllByRole('button', { name: /切换并重启/ })[0])
 
     expect(
       await screen.findByText(/已切换到 bob，下次启动 Codex 生效/)
+    ).toBeInTheDocument()
+  })
+
+  it('Codex 打开失败 → Toast 提示手动启动', async () => {
+    mockListResult()
+    api.switch.mockResolvedValue({
+      success: true,
+      codexWasRunning: true,
+      restarted: false,
+      restartError: 'open failed',
+    })
+    render(<CodexAccountPage />)
+
+    await screen.findByText('bob')
+    fireEvent.click(screen.getAllByRole('button', { name: /切换并重启/ })[0])
+
+    expect(
+      await screen.findByText(/已切换到 bob，但打开 Codex 失败，请手动启动/)
+    ).toBeInTheDocument()
+  })
+
+  it('Codex 未完整退出 → Toast 提示切换取消', async () => {
+    mockListResult()
+    api.switch.mockResolvedValue({
+      success: false,
+      codexWasRunning: true,
+      error: 'CODEX_QUIT_FAILED',
+      hint: 'Codex 仍有 2 个进程未退出，切换已取消',
+    })
+    render(<CodexAccountPage />)
+
+    await screen.findByText('bob')
+    fireEvent.click(screen.getAllByRole('button', { name: /切换并重启/ })[0])
+
+    expect(
+      await screen.findByText(/Codex 仍有 2 个进程未退出，切换已取消/)
     ).toBeInTheDocument()
   })
 })

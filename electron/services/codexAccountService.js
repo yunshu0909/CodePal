@@ -5,7 +5,7 @@
  * - 读取 ~/.codex/auth.json 与 ~/.codex-switcher/accounts/*.json
  * - 匹配当前激活账户（按 tokens.account_id 比对）
  * - 保存 / 切换 / 重命名 / 删除账户槽位
- * - 自动交互 Codex.app：pgrep 检测 → osascript quit → swap auth.json → open -a Codex
+ * - 切换时可完整重启 Codex.app，让新 auth.json 被重新加载
  * - 切换前把当前 auth.json 同步回原激活槽（保 refresh_token 最新）
  *
  * 与 bash 脚本 codex-switch 的目录与命名完全兼容。
@@ -18,7 +18,7 @@ const fsp = require('fs/promises')
 const path = require('path')
 const os = require('os')
 const crypto = require('crypto')
-const childProcess = require('child_process')
+const codexProcessService = require('./codexProcessService')
 
 const {
   extractEmail,
@@ -27,8 +27,7 @@ const {
   isRefreshTokenLikelyDead,
 } = require('./codexJwtUtils')
 
-// V1.6.2: 懒加载避免和 codexTokenRefresher 形成循环依赖
-// （refresher 的 sweepAllSlots 也要用本模块的 __INTERNAL__）
+// 懒加载避免和 codexTokenRefresher 形成循环依赖。
 let _refresher = null
 function getRefresher() {
   if (!_refresher) _refresher = require('./codexTokenRefresher')
@@ -45,13 +44,10 @@ const refresher = {
 // 可注入：测试中用 __setHomeDir 替换，生产走 os.homedir()
 let _homeDir = os.homedir()
 
-// execFile 可注入：测试中 mock，生产走原生
-let _execFile = childProcess.execFile
-
 // 账户名白名单：字母/数字/下划线/点/连字符，1-64 字符
 const SAFE_NAME_REGEX = /^[A-Za-z0-9._-]{1,64}$/
 
-// pgrep 超时（毫秒）—— 只用于"Codex 是否在跑"检测
+// 进程检测超时（毫秒）—— 兼容历史测试与内部常量暴露
 const PGREP_TIMEOUT_MS = 2000
 
 // ---------- 路径工具 ----------
@@ -131,22 +127,6 @@ async function readCurrentName() {
 
 async function writeCurrentName(name) {
   await fsp.writeFile(getCurrentFile(), `${name}\n`, { mode: 0o600 })
-}
-
-/**
- * 用 execFile 调用系统命令
- * @returns {Promise<{code: number, stdout: string, stderr: string}>}
- */
-function execFilePromise(cmd, args, opts = {}) {
-  return new Promise((resolve) => {
-    _execFile(cmd, args, opts, (err, stdout, stderr) => {
-      resolve({
-        code: err ? (err.code ?? 1) : 0,
-        stdout: String(stdout || ''),
-        stderr: String(stderr || ''),
-      })
-    })
-  })
 }
 
 // ---------- 导出函数 ----------
@@ -245,7 +225,6 @@ async function listSavedAccounts() {
 
     const stat = await fsp.stat(filePath).catch(() => null)
     const mtimeMs = stat ? stat.mtimeMs : null
-    // V1.6.2 修复 B3：优先读独立字段；缺失时回退 mtime（兼容 V1.5.0 旧槽位）
     const lastSwitchAt = (typeof parsed.__codepal_last_switch_at === 'number')
       ? parsed.__codepal_last_switch_at
       : mtimeMs
@@ -254,7 +233,6 @@ async function listSavedAccounts() {
       email: extractEmail(parsed),
       plan: extractPlan(parsed),
       accountId: extractAccountId(parsed),
-      // V1.6.2: 把 mtime 传进去做 last_refresh 缺失时的兜底
       expired: isRefreshTokenLikelyDead(parsed, undefined, mtimeMs),
       lastSwitchAt,
     })
@@ -381,23 +359,26 @@ async function deleteAccount(name) {
 /**
  * 切换到目标账户
  *
- * 策略（V1.5.0 最终版）：**只做凭证交换，不碰 Codex.app**。
- *   - 不调 osascript quit（避免中间态：用户在 Codex 里点"取消保存"会让切换卡住）
- *   - 不 open -a Codex（用户可能正在写东西，不想被打断）
- *   - 只检测 Codex 当前是否在跑，用于 UI 反馈文案（"请重启"还是"下次启动生效"）
+ * 默认策略保持兼容：只做凭证交换，不碰 Codex.app。
+ * 传入 `{ restartCodex: true }` 时走推荐路径：
+ *   - 先完整退出 Codex 进程树，避免旧 app-server 用旧账号覆盖 auth.json
+ *   - 再同步当前槽位、刷新目标槽位、swap auth.json
+ *   - 最后重新打开 Codex，让新账号立即生效
  *
  * 执行步骤：
  *   1. 合法性校验
- *   2. 同步当前 auth.json 回原激活槽（保 refresh_token 最新）
- *   3. 幂等检查：目标已是当前激活 → noop
- *   4. 检测 Codex 是否在跑（仅用于 UI 反馈）
- *   5. 原子 swap target.json → auth.json
- *   6. 写 current 文件
+ *   2. 重启模式下先检测并完整退出 Codex
+ *   3. 同步当前 auth.json 回原激活槽（保 refresh_token 最新）
+ *   4. lazy refresh 目标槽位，失效账户直接拦截
+ *   5. 幂等检查：目标已是当前激活 → noop
+ *   6. 事务式写入 auth.json + current，失败时回滚
+ *   7. 重启模式下重新打开 Codex
  *
  * @param {string} targetName
- * @returns {Promise<{success: boolean, codexWasRunning: boolean, noop?: boolean, error?: string}>}
+ * @param {{restartCodex?: boolean}} [options]
+ * @returns {Promise<{success: boolean, codexWasRunning: boolean, noop?: boolean, restarted?: boolean, restartError?: string, error?: string}>}
  */
-async function switchAccount(targetName) {
+async function switchAccount(targetName, options = {}) {
   if (!SAFE_NAME_REGEX.test(targetName)) {
     return { success: false, codexWasRunning: false, error: 'INVALID_NAME' }
   }
@@ -406,30 +387,57 @@ async function switchAccount(targetName) {
     return { success: false, codexWasRunning: false, error: 'ACCOUNT_NOT_FOUND' }
   }
 
-  // V1.6.2: 同步失败必须显式拦截，不许偷偷丢当前账户的 refresh_token（Bug A）
+  const shouldRestartCodex = Boolean(options.restartCodex)
+  let codexWasRunning = false
+
+  if (shouldRestartCodex) {
+    const runningCheck = await codexProcessService.listCodexProcesses()
+    if (!runningCheck.success) {
+      return {
+        success: false,
+        codexWasRunning: false,
+        error: 'CODEX_PROCESS_CHECK_FAILED',
+        hint: `检测 Codex 进程失败：${runningCheck.error || 'unknown'}`,
+      }
+    }
+    codexWasRunning = runningCheck.processes.length > 0
+    if (codexWasRunning) {
+      const quitResult = await codexProcessService.quitCodex()
+      if (!quitResult.success) {
+        return {
+          success: false,
+          codexWasRunning: true,
+          error: 'CODEX_QUIT_FAILED',
+          hint: `Codex 仍有 ${quitResult.remaining?.length || 0} 个进程未退出，切换已取消以避免旧账号覆盖新凭证。`,
+        }
+      }
+    }
+  }
+
   const syncResult = await syncCurrentToActiveSlot()
   if (!syncResult.ok) {
+    const restartState = await reopenAfterCanceledSwitch(shouldRestartCodex, codexWasRunning)
     return {
       success: false,
-      codexWasRunning: false,
+      codexWasRunning,
+      ...restartState,
       error: 'SYNC_BEFORE_SWITCH_FAILED',
       hint: `保存当前账户凭证到本地槽位失败：${syncResult.reason}。切换已取消以避免 token 丢失。`,
     }
   }
 
-  // V1.6.2: lazy refresh 目标槽位（Bug B），保证切过去立刻可用
-  // 失败原因分两类：
-  //   - needsRelogin（4xx invalid_grant）→ 直接拒绝切换并提示重登
-  //   - 网络/5xx → 不阻塞切换，让 Codex 自己尝试 refresh
+  // 目标槽失效要拦截；网络/5xx 则让 Codex 自己再试 refresh。
   try {
     const refreshResult = await refresher.ensureFreshCodexToken({
       filePath: target,
-      thresholdSec: 5 * 60,
+      thresholdSec: 7 * 86400,
     })
     if (!refreshResult.success && refreshResult.needsRelogin) {
+      const restartState = await reopenAfterCanceledSwitch(shouldRestartCodex, codexWasRunning)
       return {
         success: false,
-        codexWasRunning: false,
+        codexWasRunning,
+        ...restartState,
         error: 'TARGET_NEEDS_RELOGIN',
         hint: `账户 ${targetName} 的授权已过期，请重新登录此账户`,
       }
@@ -442,28 +450,63 @@ async function switchAccount(targetName) {
   const currentHash = await hashFile(getAuthFile())
   const targetHash = await hashFile(target)
   if (currentHash && currentHash === targetHash) {
-    await writeCurrentName(targetName)
-    return { success: true, codexWasRunning: false, noop: true }
+    try {
+      await writeCurrentName(targetName)
+    } catch (err) {
+      const restartState = await reopenAfterCanceledSwitch(shouldRestartCodex, codexWasRunning)
+      return {
+        success: false,
+        codexWasRunning,
+        ...restartState,
+        error: `CURRENT_WRITE_FAILED:${err?.message || 'unknown'}`,
+      }
+    }
+    if (shouldRestartCodex && codexWasRunning) {
+      const openResult = await codexProcessService.openCodex()
+      return {
+        success: true,
+        codexWasRunning,
+        noop: true,
+        restarted: openResult.success,
+        restartError: openResult.success ? undefined : openResult.error,
+      }
+    }
+    return { success: true, codexWasRunning, noop: true }
   }
 
-  // 只是"看一眼"Codex 状态用于反馈文案，不做任何操作
-  const codexWasRunning = await isCodexRunning()
+  // 兼容旧路径：不要求重启时，只检测运行态用于 UI 提示。
+  if (!shouldRestartCodex) {
+    codexWasRunning = await isCodexRunning()
+  }
 
-  try {
-    await fsp.mkdir(getCodexDir(), { recursive: true })
-    await atomicCopy(target, getAuthFile())
-    await writeCurrentName(targetName)
-    // V1.6.2 修复 B3：独立记录"上次切入时间"，不让 sweep 续 token 时的 mtime 污染 UI
-    await stampLastSwitch(target)
-  } catch (err) {
+  const swapResult = await swapAuthAndCurrent(target, targetName)
+  if (!swapResult.ok) {
+    const restartState = swapResult.rollbackFailed
+      ? {}
+      : await reopenAfterCanceledSwitch(shouldRestartCodex, codexWasRunning)
     return {
       success: false,
       codexWasRunning,
-      error: `AUTH_WRITE_FAILED:${err.message || 'unknown'}`,
+      ...restartState,
+      error: `AUTH_WRITE_FAILED:${swapResult.reason || 'unknown'}`,
+      hint: swapResult.rollbackFailed
+        ? `写入凭证失败且回滚失败：${swapResult.rollbackErrors.join('；')}。Codex 已保持关闭，请手动检查 auth.json。`
+        : undefined,
+    }
+  }
+  await stampLastSwitch(target)
+
+  if (shouldRestartCodex && codexWasRunning) {
+    const openResult = await codexProcessService.openCodex()
+    return {
+      success: true,
+      codexWasRunning,
+      restarted: openResult.success,
+      restartError: openResult.success ? undefined : openResult.error,
     }
   }
 
-  return { success: true, codexWasRunning }
+  return { success: true, codexWasRunning, restarted: false }
 }
 
 /**
@@ -489,17 +532,141 @@ async function stampLastSwitch(slotPath) {
 }
 
 /**
+ * 给文件创建可回滚快照
+ * @param {string} filePath - 文件路径
+ * @returns {Promise<{exists: boolean, data: Buffer|null}>}
+ */
+async function snapshotFile(filePath) {
+  try {
+    return { exists: true, data: await fsp.readFile(filePath) }
+  } catch (err) {
+    if (err?.code === 'ENOENT') return { exists: false, data: null }
+    throw err
+  }
+}
+
+/**
+ * 从快照恢复文件
+ * @param {string} filePath - 文件路径
+ * @param {{exists: boolean, data: Buffer|null}} snapshot - 文件快照
+ * @returns {Promise<void>}
+ */
+async function restoreFileSnapshot(filePath, snapshot) {
+  if (!snapshot.exists) {
+    await fsp.rm(filePath, { force: true })
+    return
+  }
+  await fsp.mkdir(path.dirname(filePath), { recursive: true })
+  await fsp.writeFile(filePath, snapshot.data, { mode: 0o600 })
+}
+
+/**
+ * 同步写入 auth.json 与 current 文件，失败时尽量回滚到切换前状态
+ * @param {string} target - 目标账户槽位文件
+ * @param {string} targetName - 目标账户名
+ * @returns {Promise<{ok: boolean, reason?: string, rollbackFailed?: boolean, rollbackErrors?: string[]}>}
+ */
+async function swapAuthAndCurrent(target, targetName) {
+  let authSnapshot
+  let currentSnapshot
+  try {
+    authSnapshot = await snapshotFile(getAuthFile())
+    currentSnapshot = await snapshotFile(getCurrentFile())
+    await fsp.mkdir(getCodexDir(), { recursive: true })
+    await atomicCopy(target, getAuthFile())
+    await writeCurrentName(targetName)
+    return { ok: true }
+  } catch (err) {
+    const rollbackErrors = []
+    if (authSnapshot) {
+      try {
+        await restoreFileSnapshot(getAuthFile(), authSnapshot)
+      } catch (rollbackErr) {
+        rollbackErrors.push(`auth.json:${rollbackErr?.message || rollbackErr}`)
+      }
+    }
+    if (currentSnapshot) {
+      try {
+        await restoreFileSnapshot(getCurrentFile(), currentSnapshot)
+      } catch (rollbackErr) {
+        rollbackErrors.push(`current:${rollbackErr?.message || rollbackErr}`)
+      }
+    }
+    return {
+      ok: false,
+      reason: err?.message || 'unknown',
+      rollbackFailed: rollbackErrors.length > 0,
+      rollbackErrors,
+    }
+  }
+}
+
+/**
+ * 重启切换中途取消时，恢复打开原本正在运行的 Codex
+ * @param {boolean} shouldRestartCodex - 本次是否请求重启 Codex
+ * @param {boolean} codexWasRunning - Codex 是否曾在切换前运行
+ * @returns {Promise<{restarted?: boolean, restartError?: string}>}
+ */
+async function reopenAfterCanceledSwitch(shouldRestartCodex, codexWasRunning) {
+  if (!shouldRestartCodex || !codexWasRunning) return {}
+  const openResult = await codexProcessService.openCodex()
+  return {
+    restarted: openResult.success,
+    restartError: openResult.success ? undefined : openResult.error,
+  }
+}
+
+/**
+ * 按 account_id 查找已保存槽位
+ * @param {string} accountId - Codex account_id
+ * @returns {Promise<{name: string, filePath: string}|null>}
+ */
+async function findAccountSlotByAccountId(accountId) {
+  if (!accountId) return null
+  let entries
+  try {
+    entries = await fsp.readdir(getAccountsDir())
+  } catch {
+    return null
+  }
+  for (const entry of entries) {
+    if (!entry.endsWith('.json')) continue
+    const name = entry.replace(/\.json$/, '')
+    if (!SAFE_NAME_REGEX.test(name)) continue
+    const filePath = accountPath(name)
+    const parsed = await readJsonSafe(filePath)
+    if (parsed && extractAccountId(parsed) === accountId) {
+      return { name, filePath }
+    }
+  }
+  return null
+}
+
+/**
+ * 把 live auth.json 写回指定槽位
+ * @param {string} slot - 槽位文件路径
+ * @param {string} reason - 成功原因
+ * @returns {Promise<{ok: boolean, reason: string}>}
+ */
+async function copyCurrentAuthToSlot(slot, reason) {
+  await fsp.mkdir(path.dirname(slot), { recursive: true })
+  await atomicCopy(getAuthFile(), slot)
+  return { ok: true, reason }
+}
+
+/**
  * 把当前 auth.json 同步回原激活槽（保 refresh_token 最新）
  *
  * 规则：current 文件记录的"上次激活账户"存在，且其 account_id 与当前 auth.json 一致
  *       → 把当前 auth.json 覆盖回该槽位
- * 否则：跳过（未归属情况由上层决定如何处理）
+ * current 丢失 / 槽位损坏时：
+ *       → 尽量按 current 名或 account_id 修复槽位；仍找不到归属则中止切换
  *
  * V1.6.2 修复 Bug A：所有异常路径返回 `{ok: false, reason}`，不再静默吞错。
  * 调用方必须根据返回值决定是否继续 swap，避免丢失当前账户的最新 refresh_token。
  *
  * @returns {Promise<{ok: boolean, reason: string}>}
- *   - `ok=true`: 同步成功 / 无需同步（无 auth.json / 无槽位 / hash 一致）
+ *   - `ok=true`: 同步成功 / 无需同步（无 auth.json / hash 一致 / 槽位已修复）
  *   - `ok=false`: 应该同步但失败了（磁盘/权限/锁等），调用方应中止 swap
  */
 async function syncCurrentToActiveSlot() {
@@ -509,27 +676,35 @@ async function syncCurrentToActiveSlot() {
     if (!current.accountId) return { ok: true, reason: 'no-account-id' }
 
     const lastName = await readCurrentName()
-    if (!lastName || !SAFE_NAME_REGEX.test(lastName)) return { ok: true, reason: 'no-current-name' }
+    if (lastName && SAFE_NAME_REGEX.test(lastName)) {
+      const slot = accountPath(lastName)
+      if (!fs.existsSync(slot)) {
+        return await copyCurrentAuthToSlot(slot, 'recreated-current-slot')
+      }
 
-    const slot = accountPath(lastName)
-    if (!fs.existsSync(slot)) return { ok: true, reason: 'slot-not-exists' }
-
-    const slotParsed = await readJsonSafe(slot)
-    if (!slotParsed) return { ok: true, reason: 'slot-parse-failed' }
-    const slotAid = extractAccountId(slotParsed)
-    if (!slotAid || slotAid !== current.accountId) {
-      // 不同账户：不该同步（避免污染别的槽位）
-      return { ok: true, reason: 'account-mismatch' }
+      const slotParsed = await readJsonSafe(slot)
+      if (!slotParsed) {
+        return await copyCurrentAuthToSlot(slot, 'repaired-parse-failed-slot')
+      }
+      const slotAid = extractAccountId(slotParsed)
+      if (slotAid && slotAid === current.accountId) {
+        const curHash = await hashFile(getAuthFile())
+        const slotHash = await hashFile(slot)
+        if (curHash === slotHash) return { ok: true, reason: 'already-synced' }
+        return await copyCurrentAuthToSlot(slot, 'synced')
+      }
     }
 
-    // 同账户：判断是否需要同步
-    const curHash = await hashFile(getAuthFile())
-    const slotHash = await hashFile(slot)
-    if (curHash === slotHash) return { ok: true, reason: 'already-synced' }
+    // current 文件丢失或指向了别的账户时，按 account_id 兜底，避免覆盖 live auth 的唯一副本。
+    const matchedSlot = await findAccountSlotByAccountId(current.accountId)
+    if (matchedSlot) {
+      const curHash = await hashFile(getAuthFile())
+      const slotHash = await hashFile(matchedSlot.filePath)
+      if (curHash === slotHash) return { ok: true, reason: 'already-synced-by-account-id' }
+      return await copyCurrentAuthToSlot(matchedSlot.filePath, 'synced-by-account-id')
+    }
 
-    // 真正需要同步——这是唯一能失败的关键路径
-    await atomicCopy(getAuthFile(), slot)
-    return { ok: true, reason: 'synced' }
+    return { ok: false, reason: lastName ? 'active-slot-mismatch' : 'active-slot-not-found' }
   } catch (err) {
     return { ok: false, reason: err?.message || 'unknown-error' }
   }
@@ -540,16 +715,14 @@ async function syncCurrentToActiveSlot() {
  * @returns {Promise<boolean>}
  */
 async function isCodexRunning() {
-  const { code } = await execFilePromise('pgrep', ['-x', 'Codex'], { timeout: PGREP_TIMEOUT_MS })
-  return code === 0
+  return codexProcessService.isCodexRunning()
 }
 
 /**
- * 打开 Codex.app（供"重新登录失效账户"场景使用，切换账户不调它）
+ * 打开 Codex.app（供"重新登录失效账户"与重启切换收尾使用）
  */
 async function openCodex() {
-  const { code, stderr } = await execFilePromise('open', ['-a', 'Codex'], { timeout: 3000 })
-  return { success: code === 0, error: code !== 0 ? stderr : undefined }
+  return codexProcessService.openCodex()
 }
 
 /**
@@ -621,7 +794,7 @@ module.exports = {
     getLinkedRefresher() { return getRefresher() },
     __setHomeDir(dir) { _homeDir = dir },
     __resetHomeDir() { _homeDir = os.homedir() },
-    __setExecFile(fn) { _execFile = fn },
-    __resetExecFile() { _execFile = childProcess.execFile },
+    __setExecFile(fn) { codexProcessService.__INTERNAL__.__setExecFile(fn) },
+    __resetExecFile() { codexProcessService.__INTERNAL__.__resetExecFile() },
   },
 }

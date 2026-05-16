@@ -2,7 +2,7 @@
  * Codex 账户页 — V1.5.0
  *
  * 负责：
- * - 顶部提示条（"切换会自动关闭并重启 Codex"）
+ * - 顶部提示条（"切换会完整重启 Codex 让账号生效"）
  * - 账户卡片网格 + 未保存激活卡
  * - 切换/保存/重命名/删除 4 个流程的 Modal 编排
  * - 空态（无账户 / 未登录 Codex / Keyring 模式）
@@ -69,24 +69,49 @@ export default function CodexAccountPage() {
 
   const handleSwitch = useCallback(async (targetName) => {
     setSwitchingTo(targetName)
-    setToast({ message: `正在切换到 ${targetName}…`, type: 'info' })
-    const r = await switchAccount(targetName)
+    setToast({ message: `正在切换到 ${targetName}，并准备重启 Codex…`, type: 'info' })
+    const r = await switchAccount(targetName, { restartCodex: true })
     setSwitchingTo('')
 
     if (r?.noop) {
-      setToast({ message: `${targetName} 已经是当前账户，无需切换`, type: 'info' })
+      if (r.codexWasRunning && r.restartError) {
+        setToast({
+          message: `${targetName} 已经是当前账户，但打开 Codex 失败，请手动启动`,
+          type: 'warning',
+        })
+        return
+      }
+      setToast({
+        message: r.codexWasRunning && r.restarted
+          ? `${targetName} 已经是当前账户，Codex 已重启`
+          : `${targetName} 已经是当前账户，无需切换`,
+        type: 'info',
+      })
       return
     }
     if (r?.success) {
+      if (r.codexWasRunning && r.restartError) {
+        setToast({
+          message: `已切换到 ${targetName}，但打开 Codex 失败，请手动启动`,
+          type: 'warning',
+        })
+        return
+      }
       setToast({
-        message: r.codexWasRunning
-          ? `已切换到 ${targetName}，请重启 Codex 让新账户生效`
+        message: r.codexWasRunning && r.restarted
+          ? `已切换到 ${targetName}，Codex 已重启并读取新账户`
           : `已切换到 ${targetName}，下次启动 Codex 生效`,
         type: 'success',
       })
       return
     }
-    setToast({ message: mapSwitchError(r?.error, r?.hint), type: 'error' })
+    const errorMessage = mapSwitchError(r?.error, r?.hint)
+    setToast({
+      message: r?.codexWasRunning && r?.restartError
+        ? `${errorMessage}；Codex 重新打开失败，请手动启动`
+        : errorMessage,
+      type: 'error',
+    })
   }, [switchAccount])
 
   const handleSave = useCallback(async (name) => {
@@ -146,7 +171,7 @@ export default function CodexAccountPage() {
   return (
     <PageShell
       title="Codex 账户"
-      subtitle="管理多个 ChatGPT 登录凭证，一键切换 Codex 账号"
+      subtitle="管理多个 ChatGPT 登录凭证，切换时自动重启 Codex"
       actions={headerActions}
     >
       <div className="codex-account-page">
@@ -241,7 +266,7 @@ function renderBody(ctx) {
       <div className="codex-intro-bar">
         <span className="codex-intro-bar__icon">ⓘ</span>
         <span>
-          切换只交换本机凭证，<strong>不会自动重启 Codex</strong>。如果 Codex 正在运行，请手动退出再打开让新账户生效。
+          切换会先完整退出 Codex，再保存当前凭证、替换目标凭证并重新打开，确保新账户立即生效。
           5 小时 / 7 天窗口的重置时间从上次切入起估算。
         </span>
       </div>
@@ -354,6 +379,10 @@ function mapSwitchError(code, hint) {
       return hint || '保存当前账户凭证失败，切换已取消（避免 token 丢失）'
     case 'TARGET_NEEDS_RELOGIN':
       return hint || '目标账户授权已过期，请重新登录此账户'
+    case 'CODEX_PROCESS_CHECK_FAILED':
+      return hint || '检测 Codex 进程失败，切换已取消'
+    case 'CODEX_QUIT_FAILED':
+      return hint || 'Codex 未完整退出，切换已取消（避免旧账号覆盖新凭证）'
     default:
       return code ? `切换失败：${String(code).slice(0, 80)}` : '切换失败'
   }

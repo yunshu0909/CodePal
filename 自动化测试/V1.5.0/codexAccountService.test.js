@@ -3,7 +3,7 @@
  *
  * 关键策略：
  * - 用 tmp dir 作为假 home（__setHomeDir），避免碰真实 ~/.codex/
- * - execFile 用 mock（__setExecFile）控制 pgrep / osascript / open 的行为
+ * - execFile 用 mock（__setExecFile）控制 ps / osascript / open 的行为
  * - 每个测试重置 tmp dir 保证隔离
  *
  * @module 自动化测试/V1.5.0/codexAccountService.test
@@ -34,6 +34,7 @@ const {
   __resetHomeDir,
   __setExecFile,
   __resetExecFile,
+  getLinkedRefresher,
   getAuthFile,
   getAccountsDir,
   getBackupsDir,
@@ -44,6 +45,7 @@ const {
 
 let tmpHome
 const execFileMock = vi.fn()
+const refresher = getLinkedRefresher()
 
 // ---------- 测试辅助 ----------
 
@@ -65,12 +67,12 @@ function seedAccount(name, obj) {
 }
 
 /**
- * 默认 execFile mock：pgrep 返回 "not found"，其他默认成功
+ * 默认 execFile mock：ps 返回空进程表，其他默认成功
  * 测试里可以覆盖
  */
 function defaultExecFileBehavior(cmd, args, opts, cb) {
-  if (cmd === 'pgrep') {
-    cb({ code: 1 }, '', '')  // Codex 默认不在跑
+  if (cmd === 'ps') {
+    cb(null, '', '')  // Codex 默认不在跑
   } else {
     cb(null, 'ok', '')
   }
@@ -82,11 +84,23 @@ beforeEach(() => {
   execFileMock.mockReset()
   execFileMock.mockImplementation(defaultExecFileBehavior)
   __setExecFile(execFileMock)
+  refresher.__INTERNAL__.__setFetch(vi.fn().mockResolvedValue({
+    ok: true,
+    status: 200,
+    text: () => Promise.resolve(JSON.stringify({
+      access_token: 'new.access.token',
+      id_token: 'new.id.token',
+      refresh_token: 'new-refresh-token',
+    })),
+  }))
+  refresher.__INTERNAL__.inflight.clear()
 })
 
 afterEach(() => {
   __resetHomeDir()
   __resetExecFile()
+  refresher.__INTERNAL__.__resetFetch()
+  refresher.__INTERNAL__.inflight.clear()
   if (tmpHome && existsSync(tmpHome)) {
     rmSync(tmpHome, { recursive: true, force: true })
   }
@@ -315,7 +329,7 @@ describe('deleteAccount', () => {
 
 describe('switchAccount', () => {
   it('Codex 未运行 + 正常切换 → swap 完成，codexWasRunning=false', async () => {
-    // execFileMock 默认 pgrep exit=1（Codex 不在）
+    // execFileMock 默认 ps 返回空进程表（Codex 不在）
     seedAccount('alice', makeAuthObj({ accountId: 'a1' }))
     seedAccount('bob', makeAuthObj({ accountId: 'b1' }))
     writeAuth(makeAuthObj({ accountId: 'a1' }))
@@ -331,9 +345,9 @@ describe('switchAccount', () => {
   })
 
   it('Codex 在运行 → 仍只 swap，不 quit / 不 restart', async () => {
-    // pgrep 返回在跑
+    // ps 返回 Codex 进程在跑
     execFileMock.mockImplementation((cmd, args, opts, cb) => {
-      if (cmd === 'pgrep') cb(null, '12345\n', '')
+      if (cmd === 'ps') cb(null, ' 12345 1 /Applications/Codex.app/Contents/MacOS/Codex\n', '')
       else cb(null, 'ok', '')
     })
     seedAccount('alice', makeAuthObj({ accountId: 'a1' }))
@@ -360,7 +374,7 @@ describe('switchAccount', () => {
   })
 
   it('同账户切换 → noop', async () => {
-    const auth = makeAuthObj({ accountId: 'a1' })
+    const auth = makeAuthObj({ accountId: 'a1', expSecFromNow: 10 * 86400 })
     seedAccount('alice', auth)
     writeAuth(auth)
     writeFileSync(getCurrentFile(), 'alice\n')

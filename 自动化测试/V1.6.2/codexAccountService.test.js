@@ -5,6 +5,7 @@
  * - syncCurrentToActiveSlot 永远返回 {ok, reason}，所有异常路径不抛
  * - switchAccount 在 sync 失败时返回 SYNC_BEFORE_SWITCH_FAILED 不执行 swap
  * - switchAccount 在 lazy refresh needsRelogin 时返回 TARGET_NEEDS_RELOGIN
+ * - restartCodex 切换会完整退出并重新打开 Codex
  *
  * @module 自动化测试/V1.6.2/codexAccountService.test
  */
@@ -36,9 +37,10 @@ beforeEach(async () => {
   await fsp.mkdir(ACCOUNTS_DIR(), { recursive: true })
   await fsp.mkdir(path.dirname(AUTH_FILE()), { recursive: true })
 
-  // mock execFile（pgrep）→ Codex 没在跑
+  // mock execFile（ps）→ Codex 没在跑
   mockExecFile = vi.fn((cmd, args, opts, cb) => {
-    cb(Object.assign(new Error('not found'), { code: 1 }), '', '')
+    if (cmd === 'ps') cb(null, '', '')
+    else cb(null, '', '')
   })
   linkedAccountService.__INTERNAL__.__setExecFile(mockExecFile)
 
@@ -57,9 +59,9 @@ afterEach(async () => {
 })
 
 async function writeSlotAndAuth(name, opts = {}) {
-  // 默认 expSecFromNow 给一个比较长的时间，避免 lazy refresh 触发
+  // 默认 expSecFromNow 给 10 天，避免 7 天阈值的 lazy refresh 触发
   const accountId = opts.accountId || `acc-${name}-${'0'.repeat(32)}`.slice(0, 36)
-  const auth = makeAuthObj({ expSecFromNow: 3600, ...opts, accountId })
+  const auth = makeAuthObj({ expSecFromNow: 10 * 86400, ...opts, accountId })
   await fsp.writeFile(SLOT_PATH(name), JSON.stringify(auth, null, 2))
   return auth
 }
@@ -102,7 +104,7 @@ describe('syncCurrentToActiveSlot 异常安全（Bug A 修复）', () => {
     expect(slotContent.tokens.access_token).toBe(newerAuth.tokens.access_token)
   })
 
-  it('账户 ID 不一致 → ok=true reason=account-mismatch（不污染槽位）', async () => {
+  it('current 槽账户 ID 不一致且无匹配槽 → ok=false（不污染槽位）', async () => {
     await writeSlotAndAuth('alice', { accountId: 'aaa-id' })
     // auth.json 是另一个账户
     const otherAuth = makeAuthObj({ accountId: 'bbb-id' })
@@ -110,8 +112,48 @@ describe('syncCurrentToActiveSlot 异常安全（Bug A 修复）', () => {
     await fsp.writeFile(CURRENT_FILE(), 'alice\n')
 
     const result = await linkedAccountService.__INTERNAL__.syncCurrentToActiveSlot()
+    expect(result.ok).toBe(false)
+    expect(result.reason).toBe('active-slot-mismatch')
+  })
+
+  it('current 槽位 JSON 损坏 → 用 live auth 修复槽位', async () => {
+    const liveAuth = makeAuthObj({ accountId: 'aaa-id', expSecFromNow: 10 * 86400 })
+    await fsp.writeFile(SLOT_PATH('alice'), '{bad json')
+    await fsp.writeFile(AUTH_FILE(), JSON.stringify(liveAuth, null, 2))
+    await fsp.writeFile(CURRENT_FILE(), 'alice\n')
+
+    const result = await linkedAccountService.__INTERNAL__.syncCurrentToActiveSlot()
+
     expect(result.ok).toBe(true)
-    expect(result.reason).toBe('account-mismatch')
+    expect(result.reason).toBe('repaired-parse-failed-slot')
+    const repaired = JSON.parse(await fsp.readFile(SLOT_PATH('alice'), 'utf-8'))
+    expect(repaired.tokens.account_id).toBe('aaa-id')
+  })
+
+  it('current 缺失但 account_id 匹配已保存槽 → 按 account_id 同步', async () => {
+    await writeSlotAndAuth('alice', { accountId: 'aaa-id', expSecFromNow: 1000 })
+    const liveAuth = makeAuthObj({ accountId: 'aaa-id', expSecFromNow: 10 * 86400 })
+    await fsp.writeFile(AUTH_FILE(), JSON.stringify(liveAuth, null, 2))
+
+    const result = await linkedAccountService.__INTERNAL__.syncCurrentToActiveSlot()
+
+    expect(result.ok).toBe(true)
+    expect(result.reason).toBe('synced-by-account-id')
+    const stored = JSON.parse(await fsp.readFile(SLOT_PATH('alice'), 'utf-8'))
+    expect(stored.tokens.access_token).toBe(liveAuth.tokens.access_token)
+  })
+
+  it('live auth 未归属任何已保存槽 → 拒绝继续切换以保护唯一凭证', async () => {
+    await writeSlotAndAuth('bob', { accountId: 'bbb-id', expSecFromNow: 10 * 86400 })
+    const liveAuth = makeAuthObj({ accountId: 'unsaved-id', expSecFromNow: 10 * 86400 })
+    await fsp.writeFile(AUTH_FILE(), JSON.stringify(liveAuth, null, 2))
+
+    const result = await linkedAccountService.switchAccount('bob')
+
+    expect(result.success).toBe(false)
+    expect(result.error).toBe('SYNC_BEFORE_SWITCH_FAILED')
+    const authStill = JSON.parse(await fsp.readFile(AUTH_FILE(), 'utf-8'))
+    expect(authStill.tokens.account_id).toBe('unsaved-id')
   })
 })
 
@@ -203,9 +245,44 @@ describe('switchAccount lazy refresh 目标槽（Bug B 修复）', () => {
     expect(authStill.tokens.account_id).toBe('aaa')
   })
 
-  it('目标槽 access_token 还远未过期 → 不发 fetch，直接 swap', async () => {
-    const aliceAuth = await writeSlotAndAuth('alice', { accountId: 'aaa', expSecFromNow: 3600 })
-    await writeSlotAndAuth('bob', { accountId: 'bbb', expSecFromNow: 3600 })
+  it('restartCodex=true 且目标槽 needsRelogin → 拒绝切换并重新打开原 Codex', async () => {
+    const aliceAuth = await writeSlotAndAuth('alice', { accountId: 'aaa', expSecFromNow: 10 * 86400 })
+    await writeSlotAndAuth('bob', { accountId: 'bbb', expSecFromNow: 60 })
+
+    await fsp.writeFile(AUTH_FILE(), JSON.stringify(aliceAuth, null, 2))
+    await fsp.writeFile(CURRENT_FILE(), 'alice\n')
+
+    const runningPs = ' 100 1 /Applications/Codex.app/Contents/MacOS/Codex\n'
+    let psCalls = 0
+    mockExecFile.mockImplementation((cmd, args, opts, cb) => {
+      if (cmd === 'ps') {
+        psCalls += 1
+        cb(null, psCalls <= 2 ? runningPs : '', '')
+        return
+      }
+      cb(null, '', '')
+    })
+    mockFetch.mockReturnValue(Promise.resolve({
+      ok: false,
+      status: 400,
+      text: () => Promise.resolve('{"error":"invalid_grant"}'),
+    }))
+
+    const result = await linkedAccountService.switchAccount('bob', { restartCodex: true })
+
+    expect(result.success).toBe(false)
+    expect(result.error).toBe('TARGET_NEEDS_RELOGIN')
+    expect(result.codexWasRunning).toBe(true)
+    expect(result.restarted).toBe(true)
+    expect(mockExecFile.mock.calls.some((c) => c[0] === 'open')).toBe(true)
+
+    const authStill = JSON.parse(await fsp.readFile(AUTH_FILE(), 'utf-8'))
+    expect(authStill.tokens.account_id).toBe('aaa')
+  })
+
+  it('目标槽 access_token 还超过 7 天才过期 → 不发 fetch，直接 swap', async () => {
+    const aliceAuth = await writeSlotAndAuth('alice', { accountId: 'aaa', expSecFromNow: 10 * 86400 })
+    await writeSlotAndAuth('bob', { accountId: 'bbb', expSecFromNow: 10 * 86400 })
 
     await fsp.writeFile(AUTH_FILE(), JSON.stringify(aliceAuth, null, 2))
     await fsp.writeFile(CURRENT_FILE(), 'alice\n')
@@ -214,6 +291,67 @@ describe('switchAccount lazy refresh 目标槽（Bug B 修复）', () => {
 
     expect(result.success).toBe(true)
     expect(mockFetch).not.toHaveBeenCalled()
+  })
+
+  it('restartCodex=true 且 Codex 在运行 → 先退出 Codex，再 swap，最后重新打开', async () => {
+    const aliceAuth = await writeSlotAndAuth('alice', { accountId: 'aaa', expSecFromNow: 10 * 86400 })
+    await writeSlotAndAuth('bob', { accountId: 'bbb', expSecFromNow: 10 * 86400 })
+
+    await fsp.writeFile(AUTH_FILE(), JSON.stringify(aliceAuth, null, 2))
+    await fsp.writeFile(CURRENT_FILE(), 'alice\n')
+
+    const runningPs = [
+      ' 100 1 /Applications/Codex.app/Contents/MacOS/Codex',
+      ' 101 100 /Applications/Codex.app/Contents/Resources/codex app-server --analytics-default-enabled',
+    ].join('\n')
+    let psCalls = 0
+    mockExecFile.mockImplementation((cmd, args, opts, cb) => {
+      if (cmd === 'ps') {
+        psCalls += 1
+        cb(null, psCalls <= 2 ? runningPs : '', '')
+        return
+      }
+      cb(null, '', '')
+    })
+
+    const result = await linkedAccountService.switchAccount('bob', { restartCodex: true })
+
+    expect(result.success).toBe(true)
+    expect(result.codexWasRunning).toBe(true)
+    expect(result.restarted).toBe(true)
+    expect(mockExecFile.mock.calls.some((c) => c[0] === 'osascript')).toBe(true)
+    expect(mockExecFile.mock.calls.some((c) => c[0] === 'open')).toBe(true)
+
+    const written = JSON.parse(await fsp.readFile(AUTH_FILE(), 'utf-8'))
+    expect(written.tokens.account_id).toBe('bbb')
+    expect(await fsp.readFile(CURRENT_FILE(), 'utf-8')).toBe('bob\n')
+  })
+
+  it('restartCodex=true 且已经是目标 auth → noop 后仍重新打开 Codex', async () => {
+    const aliceAuth = await writeSlotAndAuth('alice', { accountId: 'aaa', expSecFromNow: 10 * 86400 })
+
+    await fsp.writeFile(AUTH_FILE(), JSON.stringify(aliceAuth, null, 2))
+    await fsp.writeFile(CURRENT_FILE(), 'alice\n')
+
+    const runningPs = ' 100 1 /Applications/Codex.app/Contents/MacOS/Codex\n'
+    let psCalls = 0
+    mockExecFile.mockImplementation((cmd, args, opts, cb) => {
+      if (cmd === 'ps') {
+        psCalls += 1
+        cb(null, psCalls <= 2 ? runningPs : '', '')
+        return
+      }
+      cb(null, '', '')
+    })
+
+    const result = await linkedAccountService.switchAccount('alice', { restartCodex: true })
+
+    expect(result.success).toBe(true)
+    expect(result.noop).toBe(true)
+    expect(result.codexWasRunning).toBe(true)
+    expect(result.restarted).toBe(true)
+    expect(mockExecFile.mock.calls.some((c) => c[0] === 'open')).toBe(true)
+    expect(await fsp.readFile(CURRENT_FILE(), 'utf-8')).toBe('alice\n')
   })
 
   it('B3: 切换成功后写入 __codepal_last_switch_at 字段', async () => {

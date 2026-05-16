@@ -18,6 +18,8 @@
 import './ClaudeUsageTrendCard.css'
 import { classifyHistory, cycleDurationDays } from '../usageHistoryUtils'
 
+const ONE_WEEK_SECONDS = 7 * 86400
+
 /**
  * 格式化 Unix 时间戳为 "M/D" 形式（用于日期范围展示）
  * @param {number|null|undefined} unixSeconds - Unix 秒时间戳
@@ -50,6 +52,20 @@ function formatRemaining(unixSeconds) {
 }
 
 /**
+ * 从实时快照构造当前 7d 窗口
+ * @param {object|null} snapshot - 当前额度快照
+ * @returns {{periodStart: number, sevenDayResetsAt: number}|null}
+ */
+function buildCurrentCycleWindow(snapshot) {
+  const resetsAt = Number(snapshot?.sevenDayResetsAt)
+  if (!Number.isFinite(resetsAt)) return null
+  return {
+    periodStart: resetsAt - ONE_WEEK_SECONDS,
+    sevenDayResetsAt: resetsAt,
+  }
+}
+
+/**
  * 渲染本周进行中条
  * @param {object} props
  * @param {object|null} props.snapshot - 当前快照（提供当前 7d 百分比和重置时间）
@@ -60,7 +76,7 @@ function CurrentWeekBar({ snapshot }) {
   const resetsAt = snapshot?.sevenDayResetsAt
   const hasValue = Number.isFinite(Number(pct))
   const pctNum = hasValue ? Math.max(0, Math.min(100, Number(pct))) : 0
-  const periodStartSec = resetsAt ? Number(resetsAt) - 7 * 86400 : null
+  const periodStartSec = resetsAt ? Number(resetsAt) - ONE_WEEK_SECONDS : null
   const remaining = formatRemaining(resetsAt)
 
   return (
@@ -162,7 +178,12 @@ function AnomalyRow({ cycle }) {
  * @returns {JSX.Element}
  */
 export default function ClaudeUsageTrendCard({ snapshot, completedCycles, stale = false }) {
-  const { normalCycles, normalCyclesTotal, recentAnomalies, avgPeak } = classifyHistory(completedCycles)
+  const currentCycle = buildCurrentCycleWindow(snapshot)
+  const { normalCycles, normalCyclesTotal, recentAnomalies, avgPeak } = classifyHistory(
+    completedCycles,
+    undefined,
+    currentCycle
+  )
 
   const hasNormal = normalCycles.length > 0
   const hasAnomaly = recentAnomalies.length > 0

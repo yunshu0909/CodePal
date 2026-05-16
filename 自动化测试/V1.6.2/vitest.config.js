@@ -5,6 +5,7 @@
  * - codexTokenRefresher（主动续签 + sweep + crash recovery + inflight 去重）
  * - codexJwtUtils（V1.6.2 新增：fail-closed + mtime 兜底）
  * - codexAccountService（V1.6.2 新增：sync 失败拦截 + lazy refresh）
+ * - codexProcessService（切换前完整退出 / 重启 Codex）
  *
  * @module 自动化测试/V1.6.2/vitest.config
  */

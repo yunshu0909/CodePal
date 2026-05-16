@@ -31,7 +31,7 @@ export default function UnsavedAccountCard({ unsavedActive, onSaveClick, onIgnor
       </div>
 
       <div className="codex-unsaved-hint">
-        Codex 当前正在用这个账户，但还没有加到切换列表。保存后就能一键切换了。
+        Codex 当前正在用这个账户，但还没有加到切换列表。保存后就能切换并重启到这个账户。
       </div>
 
       <div className="codex-card__footer">
