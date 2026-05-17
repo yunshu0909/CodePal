@@ -35,7 +35,8 @@ const LEGACY_MANAGED_STATUS_COMMAND = `bash ${STATUS_SCRIPT_PATH}`
 // v4: 新增 7d 周期历史追踪（update_history 逻辑）
 // v5: 新增当前上下文占用指示（bar + 百分比，默认开启不加配置）
 // v6: update_history 区分异常跳变（Anthropic provider_reset）与正常周期完成
-const SCRIPT_VERSION = 6
+// v7: 新增第二行 Git 信息（git:<分支>@<最近tag><脏标记>），与额度第一行耦合
+const SCRIPT_VERSION = 7
 
 // v1.4.1: 满载率趋势最多保留的已完成周期数（约 3 个月）
 const MAX_COMPLETED_CYCLES = 13
@@ -535,5 +536,6 @@ module.exports = {
   SCRIPT_VERSION,
   MAX_COMPLETED_CYCLES,
   normalizeStatusConfig,
+  buildStatusScriptContent,
   createClaudeUsageStatusService,
 }

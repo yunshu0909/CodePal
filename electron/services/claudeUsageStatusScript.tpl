@@ -10,12 +10,18 @@
 #     forward by < 6.5 days (non-natural shift), seal the prev window as an
 #     anomaly cycle instead of a normal completed cycle, so the 满载率 metric
 #     is not polluted by short partial windows.
+# v7: appends a second line with Git info (git:<branch>@<nearest-tag><dirty>)
+#     for the cwd's repo. Coupled to the usage line: only emitted when the
+#     usage/no-rate-limits first line is printed. All git calls are read-only
+#     with a 1.0s timeout each; any failure silently drops the second line so
+#     the status line never breaks.
 
 input=$(cat)
 CODEPAL_STATUS_PAYLOAD="$input" python3 - "__CONFIG_PATH__" "__SNAPSHOT_PATH__" "__HISTORY_PATH__" <<'PY'
 import json
 import os
 import re
+import subprocess
 import sys
 import tempfile
 import time
@@ -363,6 +369,74 @@ def update_history(week_pct_value, week_resets_at_value):
 
     write_history(history)
 
+_GIT_TIMEOUT = 1.0  # v7: 每个 git 子命令超时上限（秒），冻结值见 PRD V1.6.5
+
+def _git_capture(cwd, args):
+    """
+    在 cwd 下跑只读 git 子命令，最多 _GIT_TIMEOUT 秒。
+    返回 (returncode, stdout_str)；任何异常（git 不在 PATH / 超时 / 非法路径 /
+    非 UTF-8 输出）都收敛为 (None, "")，绝不抛出影响状态栏主流程。
+    """
+    try:
+        proc = subprocess.run(
+            ["git", "-C", cwd] + args,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            timeout=_GIT_TIMEOUT,
+        )
+        return proc.returncode, proc.stdout.decode("utf-8", "ignore")
+    except Exception:
+        return None, ""
+
+def compute_git_line(payload):
+    """
+    计算 statusLine 第二行的 Git 信息：git:<分支>@<最近tag><脏标记>。
+    - cwd 取 workspace.current_dir，回退顶层 cwd；非字符串/缺失 → None
+    - 分支为必要段：取不到（非 git / git 不可用 / 超时）→ 整行 None
+    - HEAD 游离 → 退化为 git rev-parse --short HEAD 的短 sha
+    - tag / 脏 为 best-effort 段：各自失败仅省略该段
+    - 整体异常兜底：任何未预期异常 → None（绝不让状态栏报错）
+    任何分支都不会抛异常。
+    """
+    try:
+        cwd = get_value(payload, "workspace", "current_dir")
+        if not isinstance(cwd, str) or not cwd:
+            cwd = get_value(payload, "cwd")
+        if not isinstance(cwd, str) or not cwd:
+            return None
+
+        # 分支段（必要）：HEAD 游离时退化为短 sha
+        rc, out = _git_capture(cwd, ["rev-parse", "--abbrev-ref", "HEAD"])
+        if rc != 0:
+            return None
+        branch = out.strip()
+        if not branch:
+            return None
+        if branch == "HEAD":
+            rc2, out2 = _git_capture(cwd, ["rev-parse", "--short", "HEAD"])
+            short_sha = out2.strip() if rc2 == 0 else ""
+            if not short_sha:
+                return None
+            branch = short_sha
+
+        # tag 段（best-effort）：只取最近 tag，不带偏移后缀
+        tag = ""
+        rct, outt = _git_capture(cwd, ["describe", "--tags", "--abbrev=0"])
+        if rct == 0:
+            tag = outt.strip()
+
+        # 脏段（best-effort）：porcelain 非空即脏（含未跟踪）
+        dirty = False
+        rcd, outd = _git_capture(cwd, ["status", "--porcelain"])
+        if rcd == 0 and outd.strip():
+            dirty = True
+
+        # v7: 纯文本一行，不加任何 ANSI 颜色。脏(*)是开发常态、非告警，
+        # 不用红（红是额度行的告警色，用在常态上是假警报）；也不 DIM 弱化。
+        return "git:" + branch + (("@" + tag) if tag else "") + ("*" if dirty else "")
+    except Exception:
+        return None
+
 config = load_config()
 model = get_value(payload, "model", "display_name", default="Claude Code")
 model_id = get_value(payload, "model", "id")
@@ -416,6 +490,10 @@ if five_pct is None and week_pct is None:
     # 输出明确提示替代原来的 "usage data pending",避免用户误以为是 bug。
     # 前端通过 snapshot.updatedAt 做同样的"首次等待 vs 账号无数据"区分。
     print(f"{line}{sep}{YELLOW}no rate limits{RESET}{DIM} (非 Max 订阅或第三方后端){RESET}")
+    # v7: no rate limits 仍算"有第一行"，在其下方追加 git 第二行（耦合：此分支已打印第一行）
+    git_line = compute_git_line(payload)
+    if git_line is not None:
+        print(git_line)
     raise SystemExit(0)
 
 parts = []
@@ -442,4 +520,8 @@ if resets_at is not None:
         pass
 
 print(f"{line}{sep}" + f"{sep}".join(parts))
+# v7: 额度第一行已打印，追加 git 第二行（耦合：off/阈值/首启已在上方 SystemExit 退出，不会到这）
+git_line = compute_git_line(payload)
+if git_line is not None:
+    print(git_line)
 PY
