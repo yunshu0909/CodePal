@@ -200,6 +200,15 @@
 }
 .codex-card__status--active { color: var(--color-success, #16a34a); }
 .codex-card__status--error { color: var(--color-danger, #dc2626); }
+/* 失效卡的引导文案：红色但弱化为说明语气（非状态 chip），无圆点、可换行 */
+.codex-card__status--expired {
+  display: inline;
+  color: var(--color-danger, #dc2626);
+  font-weight: 500;
+  font-size: 12px;
+  line-height: 1.45;
+}
+.codex-card__status--expired::before { display: none; }
 .codex-card__status::before {
   content: '';
   width: 6px;

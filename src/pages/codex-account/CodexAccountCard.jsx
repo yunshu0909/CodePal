@@ -4,7 +4,9 @@
  * 负责：
  * - 展示账户名、email、套餐、5h/7d 倒计时、上次切入时间
  * - 区分激活态 / 失效态 / 切换中态 / dim 态
- * - 提供"切换并重启"按钮 + [⋯] 更多操作（重命名 / 删除 / 重新登录）
+ * - 提供"切换并重启"按钮 + [⋯] 更多操作（重命名 / 删除）
+ * - 失效卡只给文案不给主按钮：凭证已死无法在应用内恢复，
+ *   引导用户去 Codex 重登（watcher 自动救活）或在 ⋯ 删除
  *
  * @module pages/codex-account/CodexAccountCard
  */
@@ -23,7 +25,6 @@ import { fiveHourWindowText, sevenDayWindowText, lastSwitchText } from './codexT
  * @param {(targetName: string) => void} props.onSwitch
  * @param {(name: string) => void} props.onRename
  * @param {(name: string) => void} props.onDelete
- * @param {(name: string) => void} props.onReLogin
  */
 export default function CodexAccountCard({
   account,
@@ -33,7 +34,6 @@ export default function CodexAccountCard({
   onSwitch,
   onRename,
   onDelete,
-  onReLogin,
 }) {
   // 更多操作菜单是否展开
   const [menuOpen, setMenuOpen] = useState(false)
@@ -92,7 +92,7 @@ export default function CodexAccountCard({
       </div>
 
       <div className="codex-card__footer">
-        {renderFooterMain({ isActive, expired, onSwitch, onReLogin, name })}
+        {renderFooterMain({ isActive, expired, onSwitch, name })}
         <div className="codex-card__menu" ref={menuRef}>
           <button
             className="codex-btn-menu"
@@ -102,12 +102,9 @@ export default function CodexAccountCard({
           >⋯</button>
           {menuOpen && (
             <div className="codex-menu-popup">
-              {expired ? (
-                <button
-                  className="codex-menu-item"
-                  onClick={() => { setMenuOpen(false); onReLogin?.(name) }}
-                >重新登录此账户</button>
-              ) : (
+              {/* 失效卡不再给"重新登录"项——它只能 open Codex 做不了真登录，
+                  反而误导用户。失效后的恢复路径只有：去 Codex 重登 或 删除 */}
+              {!expired && (
                 <button
                   className="codex-menu-item"
                   onClick={() => { setMenuOpen(false); onRename?.(name) }}
@@ -132,13 +129,14 @@ export default function CodexAccountCard({
   )
 }
 
-function renderFooterMain({ isActive, expired, onSwitch, onReLogin, name }) {
+function renderFooterMain({ isActive, expired, onSwitch, name }) {
   if (expired) {
-    // V1.6.2 修复 C4：失效卡片把"重新登录"按钮放到主区域显眼位置
+    // 凭证已失效，应用内无法恢复（"重新登录"按钮过去只是 open Codex、
+    // 做不了真登录，反而误导）。只给文案，引导去 Codex 重登或 ⋯ 删除。
     return (
-      <Button variant="danger" size="sm" onClick={() => onReLogin?.(name)}>
-        重新登录
-      </Button>
+      <span className="codex-card__status codex-card__status--expired">
+        凭证已失效 · 在 Codex 重新登录后自动恢复，或 ⋯ 删除
+      </span>
     )
   }
   if (isActive) {

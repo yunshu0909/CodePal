@@ -280,17 +280,111 @@ describe('switchAccount lazy refresh 目标槽（Bug B 修复）', () => {
     expect(authStill.tokens.account_id).toBe('aaa')
   })
 
-  it('目标槽 access_token 还超过 7 天才过期 → 不发 fetch，直接 swap', async () => {
+  // 【回归】这条原本断言"access_token 没快过期就不刷、直接 swap 冻结槽位"，
+  // 并且是绿的——正是这个断言把 bug 行为认证成了正确预期，导致带病发版。
+  // 真实事故：槽位是冻结快照，refresh_token 早被 Codex 自己轮换作废；
+  // 用 access_token 过期时间做判断是看错时钟。修复后：切换到非激活账户
+  // 必须无条件强制刷新，跟 access_token 还剩几天过期无关。
+  it('目标槽 access_token 还很久才过期 → 仍必须强制刷新（不再端冻结旧票）', async () => {
     const aliceAuth = await writeSlotAndAuth('alice', { accountId: 'aaa', expSecFromNow: 10 * 86400 })
     await writeSlotAndAuth('bob', { accountId: 'bbb', expSecFromNow: 10 * 86400 })
 
     await fsp.writeFile(AUTH_FILE(), JSON.stringify(aliceAuth, null, 2))
     await fsp.writeFile(CURRENT_FILE(), 'alice\n')
 
+    mockFetch.mockReturnValue(Promise.resolve({
+      ok: true,
+      status: 200,
+      text: () => Promise.resolve(JSON.stringify({
+        access_token: 'a.b.c', id_token: 'a.b.c', refresh_token: 'minted-on-switch', expires_in: 3600,
+      })),
+    }))
+
     const result = await linkedAccountService.switchAccount('bob')
 
     expect(result.success).toBe(true)
-    expect(mockFetch).not.toHaveBeenCalled()
+    expect(mockFetch).toHaveBeenCalledTimes(1)  // 强制刷新触发，不再静默端旧票
+  })
+
+  it('目标就是当前激活账户 → 跳过强制刷新，不无谓轮换活号', async () => {
+    const aliceAuth = await writeSlotAndAuth('alice', { accountId: 'aaa', expSecFromNow: 10 * 86400 })
+    await fsp.writeFile(AUTH_FILE(), JSON.stringify(aliceAuth, null, 2))
+    await fsp.writeFile(CURRENT_FILE(), 'alice\n')
+
+    const result = await linkedAccountService.switchAccount('alice')
+
+    expect(result.success).toBe(true)
+    expect(mockFetch).not.toHaveBeenCalled()  // 已是激活账户，live token 本就能用
+  })
+
+  // 【核心回归】模拟真实 OpenAI：refresh_token 一次性，用过即废。
+  // 这是 mock 永远返回新票的旧测试结构上无法覆盖的那类 bug。
+  it('槽位 refresh_token 已被轮换作废 → 切换必须拦截并引导重登，绝不把废票端给 Codex', async () => {
+    const aliceAuth = await writeSlotAndAuth('alice', { accountId: 'aaa', expSecFromNow: 10 * 86400 })
+    // bob 槽位是冻结快照，里面的 refresh_token 早被 Codex 自己轮换作废
+    await writeSlotAndAuth('bob', { accountId: 'bbb', expSecFromNow: 10 * 86400 })
+
+    await fsp.writeFile(AUTH_FILE(), JSON.stringify(aliceAuth, null, 2))
+    await fsp.writeFile(CURRENT_FILE(), 'alice\n')
+
+    // OpenAI 单次性语义：alive 集合为空 = bob 那张冻结的票已死，
+    // 拿它换票 → 400 invalid_grant「refresh token was already used」
+    const alive = new Set()
+    mockFetch.mockImplementation((_url, init) => {
+      const body = JSON.parse(init.body)
+      if (!alive.has(body.refresh_token)) {
+        return Promise.resolve({
+          ok: false,
+          status: 400,
+          text: () => Promise.resolve('{"error":"invalid_grant","error_description":"refresh token was already used"}'),
+        })
+      }
+      return Promise.resolve({ ok: true, status: 200, text: () => Promise.resolve('{}') })
+    })
+
+    const result = await linkedAccountService.switchAccount('bob')
+
+    expect(result.success).toBe(false)
+    expect(result.error).toBe('TARGET_NEEDS_RELOGIN')
+    // 关键：auth.json 必须还是 alice，没把 bob 的废票 swap 进去坑 Codex
+    const authStill = JSON.parse(await fsp.readFile(AUTH_FILE(), 'utf-8'))
+    expect(authStill.tokens.account_id).toBe('aaa')
+
+    // UX：确认死了 → 槽位打上 needs_relogin 标记，listSavedAccounts 据此标红
+    const bobSlot = JSON.parse(await fsp.readFile(SLOT_PATH('bob'), 'utf-8'))
+    expect(bobSlot.__codepal_needs_relogin).toBe(true)
+    const list = await linkedAccountService.listSavedAccounts()
+    expect(list.accounts.find((a) => a.name === 'bob').expired).toBe(true)
+  })
+
+  it('成功切入必清掉残留的 needs_relogin 标记（兜 watcher 错过同步导致卡片一直红）', async () => {
+    const aliceAuth = await writeSlotAndAuth('alice', { accountId: 'aaa', expSecFromNow: 10 * 86400 })
+    // bob 其实已恢复（token 有效），但还残留着上次失败打的标记
+    const bob = await writeSlotAndAuth('bob', { accountId: 'bbb', expSecFromNow: 10 * 86400 })
+    bob.__codepal_needs_relogin = true
+    await fsp.writeFile(SLOT_PATH('bob'), JSON.stringify(bob, null, 2))
+
+    await fsp.writeFile(AUTH_FILE(), JSON.stringify(aliceAuth, null, 2))
+    await fsp.writeFile(CURRENT_FILE(), 'alice\n')
+
+    // force 刷新走网络失败的软降级路径（不阻塞切换）
+    mockFetch.mockImplementation(() => Promise.reject(new Error('ECONNREFUSED')))
+
+    const result = await linkedAccountService.switchAccount('bob')
+
+    expect(result.success).toBe(true)
+    const bobSlot = JSON.parse(await fsp.readFile(SLOT_PATH('bob'), 'utf-8'))
+    expect(bobSlot.__codepal_needs_relogin).toBeUndefined()  // 标记被清
+  })
+
+  it('槽位带 __codepal_needs_relogin 标记 → 即使启发式判活也报 expired（卡片转已失效）', async () => {
+    // access_token 还有 10 天才过期，isRefreshTokenLikelyDead 会判"活"
+    const dead = await writeSlotAndAuth('zoe', { accountId: 'zzz', expSecFromNow: 10 * 86400 })
+    dead.__codepal_needs_relogin = true
+    await fsp.writeFile(SLOT_PATH('zoe'), JSON.stringify(dead, null, 2))
+
+    const list = await linkedAccountService.listSavedAccounts()
+    expect(list.accounts.find((a) => a.name === 'zoe').expired).toBe(true)
   })
 
   it('restartCodex=true 且 Codex 在运行 → 先退出 Codex，再 swap，最后重新打开', async () => {

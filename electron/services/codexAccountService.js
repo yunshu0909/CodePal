@@ -233,7 +233,9 @@ async function listSavedAccounts() {
       email: extractEmail(parsed),
       plan: extractPlan(parsed),
       accountId: extractAccountId(parsed),
-      expired: isRefreshTokenLikelyDead(parsed, undefined, mtimeMs),
+      // 优先信"真的试过确认死了"的标记，否则回落到启发式猜测
+      expired: parsed.__codepal_needs_relogin === true
+        || isRefreshTokenLikelyDead(parsed, undefined, mtimeMs),
       lastSwitchAt,
     })
   }
@@ -426,13 +428,31 @@ async function switchAccount(targetName, options = {}) {
     }
   }
 
+  // 目标就是当前激活账户时跳过强制刷新：live auth.json 里的就是能用的票，
+  // syncCurrentToActiveSlot 已把它回灌到该槽位，再 force 刷只会无谓轮换活号、徒增风险。
+  const liveAuth = await readCurrentAuth()
+  const targetParsedForActive = await readJsonSafe(target)
+  const targetAid = targetParsedForActive ? extractAccountId(targetParsedForActive) : ''
+  const targetIsAlreadyActive = Boolean(liveAuth.exists && liveAuth.accountId && targetAid && liveAuth.accountId === targetAid)
+
   // 目标槽失效要拦截；网络/5xx 则让 Codex 自己再试 refresh。
   try {
+    if (targetIsAlreadyActive) {
+      // 跳过 force 刷新，走下面的 noop 短路逻辑
+    } else {
+    // 切换到目标账户时无条件强制刷新它的 token：
+    // 槽位是冻结快照，里面的 refresh_token 可能已被 Codex 自己轮换作废
+    // （单次性 token）。用 access_token 过期时间做启发式判断是看错时钟——
+    // 账户死于 refresh_token 被轮换，跟 access_token 还剩几天过期无关。
+    // force 刷新保证：要么 Codex 拿到切换那刻新铸的 token，要么当场暴露
+    // 槽位已失效并引导用户重新登录该账户，绝不把废票静默端给 Codex。
     const refreshResult = await refresher.ensureFreshCodexToken({
       filePath: target,
-      thresholdSec: 7 * 86400,
+      force: true,
     })
     if (!refreshResult.success && refreshResult.needsRelogin) {
+      // 真的试过、确认这张票已死 → 持久化标记，让卡片立刻转"已失效"态
+      await stampNeedsRelogin(target)
       const restartState = await reopenAfterCanceledSwitch(shouldRestartCodex, codexWasRunning)
       return {
         success: false,
@@ -441,6 +461,7 @@ async function switchAccount(targetName, options = {}) {
         error: 'TARGET_NEEDS_RELOGIN',
         hint: `账户 ${targetName} 的授权已过期，请重新登录此账户`,
       }
+    }
     }
   } catch (err) {
     // refresh 出现意外异常不阻塞切换
@@ -522,12 +543,42 @@ async function stampLastSwitch(slotPath) {
     const auth = await readJsonSafe(slotPath)
     if (!auth) return
     auth.__codepal_last_switch_at = Date.now()
+    // 成功切入 = 该号此刻可用 → 清掉可能残留的失效标记，
+    // 兜住 watcher 在重登时错过同步（same-id/in-flight）导致卡片一直红的路径
+    delete auth.__codepal_needs_relogin
     const tmp = `${slotPath}.tmp-${crypto.randomBytes(6).toString('hex')}`
     await fsp.writeFile(tmp, JSON.stringify(auth, null, 2), { mode: 0o600 })
     await fsp.rename(tmp, slotPath)
   } catch (err) {
     // 不影响主流程，只是 UI 时间显示可能用 mtime 兜底
     console.warn('[codex-account] stampLastSwitch failed:', err?.message || err)
+  }
+}
+
+/**
+ * 在 slot 文件打 `__codepal_needs_relogin` 标记
+ *
+ * 场景：切换时强制刷新被 OpenAI 以 invalid_grant 打回（refresh_token 已被
+ * 轮换作废）。这是"真的试过、确认死了"的事实，比 isRefreshTokenLikelyDead
+ * 的启发式猜测可靠。listSavedAccounts 据此把卡片直接标红为"已失效"，不再
+ * 误导用户它还能切。
+ *
+ * 自清除：用户在 Codex.app 重登成功后，watcher 会用全新 auth.json 覆盖整个
+ * 槽位（不含此标记）；refresher 成功续签时 next 对象也不带此字段 → 标记消失。
+ *
+ * @param {string} slotPath - 槽位文件路径
+ */
+async function stampNeedsRelogin(slotPath) {
+  try {
+    const auth = await readJsonSafe(slotPath)
+    if (!auth) return
+    auth.__codepal_needs_relogin = true
+    const tmp = `${slotPath}.tmp-${crypto.randomBytes(6).toString('hex')}`
+    await fsp.writeFile(tmp, JSON.stringify(auth, null, 2), { mode: 0o600 })
+    await fsp.rename(tmp, slotPath)
+  } catch (err) {
+    // 不影响主流程，只是 UI 仍会回落到启发式 expired 判断
+    console.warn('[codex-account] stampNeedsRelogin failed:', err?.message || err)
   }
 }
 

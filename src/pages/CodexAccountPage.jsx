@@ -73,6 +73,11 @@ export default function CodexAccountPage() {
     const r = await switchAccount(targetName, { restartCodex: true })
     setSwitchingTo('')
 
+    // 切换尝试结束后必须重拉列表：每个分支都可能已改动磁盘状态
+    // （force 刷新轮换 token / stampNeedsRelogin 写失效标记 / swap 换激活号），
+    // 不重拉则卡片停留在切换前的缓存态（如失效号仍显示"切换并重启"）。
+    await reload()
+
     if (r?.noop) {
       if (r.codexWasRunning && r.restartError) {
         setToast({
@@ -112,7 +117,7 @@ export default function CodexAccountPage() {
         : errorMessage,
       type: 'error',
     })
-  }, [switchAccount])
+  }, [switchAccount, reload])
 
   const handleSave = useCallback(async (name) => {
     const r = await saveAccount(name)
@@ -141,15 +146,6 @@ export default function CodexAccountPage() {
       setToast({ message: `删除失败：${r?.error || '未知'}`, type: 'error' })
     }
   }, [deleteAccount])
-
-  const handleReLogin = useCallback(async (_name) => {
-    const r = await openCodex()
-    if (r?.success) {
-      setToast({ message: '已打开 Codex，请完成登录后回到此页', type: 'info' })
-    } else {
-      setToast({ message: '打开 Codex 失败，请手动启动', type: 'error' })
-    }
-  }, [openCodex])
 
   const handleOpenCodexFromAddModal = useCallback(async () => {
     setAddHelpOpen(false)
@@ -187,7 +183,6 @@ export default function CodexAccountPage() {
           onSwitch: handleSwitch,
           onRename: (name) => setRenamingName(name),
           onDelete: (name) => setDeletingName(name),
-          onReLogin: handleReLogin,
           onSaveUnsaved: () => {
             // 点"保存为账户"按钮 → 直接弹 M1（带现有 unsavedActive 数据）
             if (unsavedActive) {
@@ -245,7 +240,7 @@ function renderBody(ctx) {
   const {
     loading, error, storageMode, accounts, activeName,
     hasUnsavedActive, unsavedActive, switchingTo,
-    onSwitch, onRename, onDelete, onReLogin,
+    onSwitch, onRename, onDelete,
     onSaveUnsaved, onIgnoreUnsaved, onRetry,
   } = ctx
 
@@ -289,7 +284,6 @@ function renderBody(ctx) {
             onSwitch={onSwitch}
             onRename={onRename}
             onDelete={onDelete}
-            onReLogin={onReLogin}
           />
         ))}
       </div>
