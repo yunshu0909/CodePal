@@ -52,14 +52,72 @@ const PGREP_TIMEOUT_MS = 2000
 
 // ---------- 路径工具 ----------
 
-function getCodexDir() { return path.join(_homeDir, '.codex') }
+// V1.7：CODEX_SWITCHER_HOME 优先级链（env > __setHomeDir > os.homedir）
+// env 设置时，switcher 走该路径，.codex 走其父目录的 .codex（测试隔离场景下父目录即 fake home）
+function getFakeHomeDir() {
+  if (process.env.CODEX_SWITCHER_HOME) return path.dirname(process.env.CODEX_SWITCHER_HOME)
+  return _homeDir
+}
+
+function getCodexDir() { return path.join(getFakeHomeDir(), '.codex') }
 function getAuthFile() { return path.join(getCodexDir(), 'auth.json') }
 function getConfigTomlFile() { return path.join(getCodexDir(), 'config.toml') }
-function getStoreDir() { return path.join(_homeDir, '.codex-switcher') }
+function getStoreDir() {
+  if (process.env.CODEX_SWITCHER_HOME) return process.env.CODEX_SWITCHER_HOME
+  return path.join(_homeDir, '.codex-switcher')
+}
 function getAccountsDir() { return path.join(getStoreDir(), 'accounts') }
 function getBackupsDir() { return path.join(getStoreDir(), 'backups') }
 function getCurrentFile() { return path.join(getStoreDir(), 'current') }
 function accountPath(name) { return path.join(getAccountsDir(), `${name}.json`) }
+// V1.7 新增：账号独立 home（accounts/{name}/.codex/）+ 工作环境共享（shared/.codex/）+ 激活指针
+function getSharedCodexDir() { return path.join(getStoreDir(), 'shared', '.codex') }
+function getAccountHomeDir(name) { return path.join(getAccountsDir(), name, '.codex') }
+function getActiveJsonFile() { return path.join(getStoreDir(), 'active.json') }
+
+// ---------- 日志辅助 ----------
+
+/**
+ * 结构化切换日志（统一前缀 `[switch-account]`）
+ *
+ * 14 路失败 + 关键成功节点都走这里，避免静默路径让用户/支持无法回溯"为什么切换打不进去"。
+ * 不打印敏感字段（refresh_token / access_token / id_token 等）；只打可观察的状态与原因。
+ *
+ * @param {'info' | 'warn' | 'error'} level
+ * @param {string} event - 事件标识（短串，例如 'invalid-name'、'sync-failed'、'permanent-revoked'）
+ * @param {object} [details] - 附加上下文（仅可观察字段：账户名、错误码、stage 等）
+ */
+function logSwitchEvent(level, event, details = {}) {
+  const safeDetails = redactSensitive(details)
+  const payload = { event, ...safeDetails }
+  const line = `[switch-account] ${event}` + (Object.keys(safeDetails).length > 0 ? ` ${JSON.stringify(safeDetails)}` : '')
+  const fn = level === 'error' ? console.error : level === 'warn' ? console.warn : console.log
+  fn(line)
+  return payload
+}
+
+const SENSITIVE_KEYS = new Set(['refresh_token', 'access_token', 'id_token', 'authorization', 'cookie', 'session', 'OPENAI_API_KEY'])
+
+function redactSensitive(obj) {
+  if (!obj || typeof obj !== 'object') return obj
+  const out = {}
+  for (const [k, v] of Object.entries(obj)) {
+    if (SENSITIVE_KEYS.has(k)) {
+      out[k] = '<redacted>'
+      continue
+    }
+    if (v && typeof v === 'object' && !Array.isArray(v)) {
+      out[k] = redactSensitive(v)
+      continue
+    }
+    if (typeof v === 'string' && v.length > 200) {
+      out[k] = `${v.slice(0, 80)}...<${v.length}chars>`
+      continue
+    }
+    out[k] = v
+  }
+  return out
+}
 
 // ---------- 内部工具 ----------
 
@@ -163,6 +221,20 @@ async function readCurrentAuth() {
  * @returns {Promise<{mode: 'file'|'keyring'|'auto'|'unknown'}>}
  */
 async function detectStorageMode() {
+  // V1.7.1.1 P0-5：~/.codex 是 V1.7.1 farm symlink 时，返 'v17-farm' 让 V1.6 UI 走 fallback / 隐藏 UI
+  // 避免 V1.6 旧 UI 显示出 V1.7 active 账户造成"账号身份分裂"
+  try {
+    const codexDir = getCodexDir()
+    const lst = await fsp.lstat(codexDir)
+    if (lst.isSymbolicLink()) {
+      const target = await fsp.readlink(codexDir)
+      const resolved = path.resolve(path.dirname(codexDir), target)
+      if (resolved === getSharedCodexDir()) {
+        return { mode: 'v17-farm' }
+      }
+    }
+  } catch { /* ENOENT 等忽略 */ }
+
   const tomlPath = getConfigTomlFile()
   if (!fs.existsSync(tomlPath)) {
     // 没有 config.toml → Codex 默认用 file 模式
@@ -381,11 +453,16 @@ async function deleteAccount(name) {
  * @returns {Promise<{success: boolean, codexWasRunning: boolean, noop?: boolean, restarted?: boolean, restartError?: string, error?: string}>}
  */
 async function switchAccount(targetName, options = {}) {
+  const startTs = Date.now()
+  logSwitchEvent('info', 'begin', { targetName, restartCodex: !!options.restartCodex })
+
   if (!SAFE_NAME_REGEX.test(targetName)) {
+    logSwitchEvent('warn', 'invalid-name', { targetName })
     return { success: false, codexWasRunning: false, error: 'INVALID_NAME' }
   }
   const target = accountPath(targetName)
   if (!fs.existsSync(target)) {
+    logSwitchEvent('warn', 'account-not-found', { targetName, slotPath: target })
     return { success: false, codexWasRunning: false, error: 'ACCOUNT_NOT_FOUND' }
   }
 
@@ -395,6 +472,7 @@ async function switchAccount(targetName, options = {}) {
   if (shouldRestartCodex) {
     const runningCheck = await codexProcessService.listCodexProcesses()
     if (!runningCheck.success) {
+      logSwitchEvent('warn', 'codex-process-check-failed', { targetName, reason: runningCheck.error || 'unknown' })
       return {
         success: false,
         codexWasRunning: false,
@@ -406,6 +484,11 @@ async function switchAccount(targetName, options = {}) {
     if (codexWasRunning) {
       const quitResult = await codexProcessService.quitCodex()
       if (!quitResult.success) {
+        logSwitchEvent('warn', 'codex-quit-failed', {
+          targetName,
+          remaining: quitResult.remaining?.length ?? 0,
+          reason: quitResult.error,
+        })
         return {
           success: false,
           codexWasRunning: true,
@@ -418,6 +501,8 @@ async function switchAccount(targetName, options = {}) {
 
   const syncResult = await syncCurrentToActiveSlot()
   if (!syncResult.ok) {
+    // 用户最常踩的路径——必须 warn，含 reason
+    logSwitchEvent('warn', 'sync-before-switch-failed', { targetName, reason: syncResult.reason })
     const restartState = await reopenAfterCanceledSwitch(shouldRestartCodex, codexWasRunning)
     return {
       success: false,
@@ -452,6 +537,12 @@ async function switchAccount(targetName, options = {}) {
     })
     if (!refreshResult.success && refreshResult.needsRelogin) {
       // 真的试过、确认这张票已死 → 持久化标记，让卡片立刻转"已失效"态
+      // 这就是 UI 显示"已失效"的真正来源——必须 warn
+      logSwitchEvent('warn', 'force-refresh-permanent', {
+        targetName,
+        error: refreshResult.error,
+        accountId: refreshResult.accountId,
+      })
       await stampNeedsRelogin(target)
       const restartState = await reopenAfterCanceledSwitch(shouldRestartCodex, codexWasRunning)
       return {
@@ -462,10 +553,17 @@ async function switchAccount(targetName, options = {}) {
         hint: `账户 ${targetName} 的授权已过期，请重新登录此账户`,
       }
     }
+    if (!refreshResult.success && !refreshResult.needsRelogin) {
+      // 5xx / 网络错误——refresher 已捕获、不阻塞切换，但 switchAccount 之前完全静默
+      logSwitchEvent('info', 'force-refresh-transient', {
+        targetName,
+        error: refreshResult.error,
+      })
+    }
     }
   } catch (err) {
-    // refresh 出现意外异常不阻塞切换
-    console.warn('[switch-account] lazy refresh exception, proceed anyway:', err?.message || err)
+    // refresh 出现意外异常不阻塞切换（保留原有日志，新增 event 名规范化）
+    logSwitchEvent('warn', 'force-refresh-threw', { targetName, message: err?.message || String(err) })
   }
 
   const currentHash = await hashFile(getAuthFile())
@@ -474,6 +572,7 @@ async function switchAccount(targetName, options = {}) {
     try {
       await writeCurrentName(targetName)
     } catch (err) {
+      logSwitchEvent('warn', 'current-write-failed', { targetName, message: err?.message || 'unknown' })
       const restartState = await reopenAfterCanceledSwitch(shouldRestartCodex, codexWasRunning)
       return {
         success: false,
@@ -484,6 +583,10 @@ async function switchAccount(targetName, options = {}) {
     }
     if (shouldRestartCodex && codexWasRunning) {
       const openResult = await codexProcessService.openCodex()
+      if (!openResult.success) {
+        logSwitchEvent('warn', 'open-codex-after-noop-failed', { targetName, error: openResult.error })
+      }
+      logSwitchEvent('info', 'done-noop', { targetName, restarted: openResult.success, elapsedMs: Date.now() - startTs })
       return {
         success: true,
         codexWasRunning,
@@ -492,6 +595,7 @@ async function switchAccount(targetName, options = {}) {
         restartError: openResult.success ? undefined : openResult.error,
       }
     }
+    logSwitchEvent('info', 'done-noop', { targetName, elapsedMs: Date.now() - startTs })
     return { success: true, codexWasRunning, noop: true }
   }
 
@@ -502,6 +606,16 @@ async function switchAccount(targetName, options = {}) {
 
   const swapResult = await swapAuthAndCurrent(target, targetName)
   if (!swapResult.ok) {
+    if (swapResult.rollbackFailed) {
+      // 最严重：凭证可能错乱
+      logSwitchEvent('error', 'swap-rollback-failed', {
+        targetName,
+        reason: swapResult.reason,
+        rollbackErrors: swapResult.rollbackErrors,
+      })
+    } else {
+      logSwitchEvent('warn', 'auth-write-failed', { targetName, reason: swapResult.reason })
+    }
     const restartState = swapResult.rollbackFailed
       ? {}
       : await reopenAfterCanceledSwitch(shouldRestartCodex, codexWasRunning)
@@ -519,6 +633,15 @@ async function switchAccount(targetName, options = {}) {
 
   if (shouldRestartCodex && codexWasRunning) {
     const openResult = await codexProcessService.openCodex()
+    if (!openResult.success) {
+      logSwitchEvent('warn', 'open-codex-after-swap-failed', { targetName, error: openResult.error })
+    }
+    logSwitchEvent('info', 'done', {
+      targetName,
+      restarted: openResult.success,
+      restartError: openResult.success ? undefined : openResult.error,
+      elapsedMs: Date.now() - startTs,
+    })
     return {
       success: true,
       codexWasRunning,
@@ -527,6 +650,7 @@ async function switchAccount(targetName, options = {}) {
     }
   }
 
+  logSwitchEvent('info', 'done', { targetName, restarted: false, elapsedMs: Date.now() - startTs })
   return { success: true, codexWasRunning, restarted: false }
 }
 
@@ -541,7 +665,11 @@ async function switchAccount(targetName, options = {}) {
 async function stampLastSwitch(slotPath) {
   try {
     const auth = await readJsonSafe(slotPath)
-    if (!auth) return
+    if (!auth) {
+      logSwitchEvent('warn', 'stamp-last-switch-skip', { slotPath, reason: 'slot-unreadable' })
+      return
+    }
+    const hadReloginMarker = !!auth.__codepal_needs_relogin
     auth.__codepal_last_switch_at = Date.now()
     // 成功切入 = 该号此刻可用 → 清掉可能残留的失效标记，
     // 兜住 watcher 在重登时错过同步（same-id/in-flight）导致卡片一直红的路径
@@ -549,9 +677,10 @@ async function stampLastSwitch(slotPath) {
     const tmp = `${slotPath}.tmp-${crypto.randomBytes(6).toString('hex')}`
     await fsp.writeFile(tmp, JSON.stringify(auth, null, 2), { mode: 0o600 })
     await fsp.rename(tmp, slotPath)
+    logSwitchEvent('info', 'stamp-last-switch', { slotPath, clearedReloginMarker: hadReloginMarker })
   } catch (err) {
     // 不影响主流程，只是 UI 时间显示可能用 mtime 兜底
-    console.warn('[codex-account] stampLastSwitch failed:', err?.message || err)
+    logSwitchEvent('warn', 'stamp-last-switch-failed', { slotPath, message: err?.message || String(err) })
   }
 }
 
@@ -571,14 +700,18 @@ async function stampLastSwitch(slotPath) {
 async function stampNeedsRelogin(slotPath) {
   try {
     const auth = await readJsonSafe(slotPath)
-    if (!auth) return
+    if (!auth) {
+      logSwitchEvent('warn', 'stamp-relogin-skip', { slotPath, reason: 'slot-unreadable' })
+      return
+    }
     auth.__codepal_needs_relogin = true
     const tmp = `${slotPath}.tmp-${crypto.randomBytes(6).toString('hex')}`
     await fsp.writeFile(tmp, JSON.stringify(auth, null, 2), { mode: 0o600 })
     await fsp.rename(tmp, slotPath)
+    logSwitchEvent('info', 'stamp-relogin', { slotPath })
   } catch (err) {
     // 不影响主流程，只是 UI 仍会回落到启发式 expired 判断
-    console.warn('[codex-account] stampNeedsRelogin failed:', err?.message || err)
+    logSwitchEvent('warn', 'stamp-relogin-failed', { slotPath, message: err?.message || String(err) })
   }
 }
 
@@ -755,8 +888,10 @@ async function syncCurrentToActiveSlot() {
       return await copyCurrentAuthToSlot(matchedSlot.filePath, 'synced-by-account-id')
     }
 
+    logSwitchEvent('warn', 'sync-current-no-slot', { lastName, currentAccountId: current.accountId })
     return { ok: false, reason: lastName ? 'active-slot-mismatch' : 'active-slot-not-found' }
   } catch (err) {
+    logSwitchEvent('warn', 'sync-current-threw', { message: err?.message || String(err) })
     return { ok: false, reason: err?.message || 'unknown-error' }
   }
 }
@@ -811,6 +946,298 @@ function pickFallbackName(existingNames) {
   return `account-${Date.now()}`
 }
 
+// ---------- V1.7 API（账号隔离 + 工作环境共享） ----------
+
+/**
+ * 读 V1.7 active.json
+ * @returns {Promise<{ currentAccount: string | null, version: string, switchedAt?: string, migratedAt?: string } | null>}
+ */
+async function readActiveJsonV17() {
+  const activePath = getActiveJsonFile()
+  if (!fs.existsSync(activePath)) return null
+  try {
+    return JSON.parse(await fsp.readFile(activePath, 'utf8'))
+  } catch {
+    return null
+  }
+}
+
+/**
+ * atomic 写 active.json
+ * @param {{ currentAccount: string | null, switchedAt?: string }} payload
+ */
+async function writeActiveJsonV17(payload) {
+  const activePath = getActiveJsonFile()
+  await fsp.mkdir(path.dirname(activePath), { recursive: true })
+  const tmp = `${activePath}.tmp-${crypto.randomBytes(6).toString('hex')}`
+  const merged = {
+    version: 'v1.7',
+    ...payload,
+  }
+  await fsp.writeFile(tmp, JSON.stringify(merged, null, 2), { encoding: 'utf8', mode: 0o600 })
+  await fsp.rename(tmp, activePath)
+  return merged
+}
+
+/**
+ * 列出 V1.7 accounts/{name}/ 下所有目录式账号（不再是 *.json 副本）
+ *
+ * @returns {Promise<Array<{
+ *   name: string,
+ *   email: string,
+ *   plan: string,
+ *   accountId: string,
+ *   authPath: string,
+ *   homeDir: string,
+ *   active: boolean,
+ *   state: { status: 'active' | 'paused' | 'invalid', permanentReason?: string }
+ * }>>}
+ */
+async function listSavedAccountsV17() {
+  const accountsDir = getAccountsDir()
+  if (!fs.existsSync(accountsDir)) return []
+  const entries = await fsp.readdir(accountsDir, { withFileTypes: true })
+  const active = await readActiveJsonV17()
+  const currentAccount = active?.currentAccount ?? null
+
+  const results = []
+  for (const ent of entries) {
+    if (!ent.isDirectory()) continue
+    const name = ent.name
+    const homeDir = getAccountHomeDir(name)
+    const authPath = path.join(homeDir, 'auth.json')
+    let authObj = null
+    try { authObj = JSON.parse(await fsp.readFile(authPath, 'utf8')) } catch { /* corrupt → 仍展示但字段降级 */ }
+
+    let stateObj = { status: 'active' }
+    const statePath = path.join(homeDir, 'state.json')
+    if (fs.existsSync(statePath)) {
+      try {
+        const parsed = JSON.parse(await fsp.readFile(statePath, 'utf8'))
+        if (parsed && typeof parsed === 'object') stateObj = parsed
+      } catch { /* 损坏 → 默认 active */ }
+    }
+
+    results.push({
+      name,
+      email: authObj ? extractEmail(authObj) : '(corrupt)',
+      plan: authObj ? extractPlan(authObj) : 'unknown',
+      accountId: authObj ? extractAccountId(authObj) : '',
+      authPath,
+      homeDir,
+      active: currentAccount === name,
+      state: stateObj,
+    })
+  }
+  // 稳定排序：active 在最上，然后按 name 字母序
+  results.sort((a, b) => {
+    if (a.active !== b.active) return a.active ? -1 : 1
+    return a.name.localeCompare(b.name)
+  })
+  return results
+}
+
+/**
+ * 写一个账号的 state.json（atomic）
+ * @param {string} accountName
+ * @param {{ status: 'active' | 'paused' | 'invalid', permanentReason?: string, lastForceRefreshAt?: number }} state
+ */
+async function writeAccountStateV17(accountName, state) {
+  const home = getAccountHomeDir(accountName)
+  if (!fs.existsSync(home)) {
+    throw new Error(`ACCOUNT_DIR_MISSING:${accountName}`)
+  }
+  const statePath = path.join(home, 'state.json')
+  const tmp = `${statePath}.tmp-${crypto.randomBytes(6).toString('hex')}`
+  await fsp.writeFile(tmp, JSON.stringify(state, null, 2), { encoding: 'utf8', mode: 0o600 })
+  await fsp.rename(tmp, statePath)
+}
+
+/**
+ * 读一个账号的 state.json（不存在按 active 处理）
+ * @param {string} accountName
+ * @returns {Promise<{ status: 'active'|'paused'|'invalid', permanentReason?: string, lastForceRefreshAt?: number }>}
+ */
+async function readAccountStateV17(accountName) {
+  const home = getAccountHomeDir(accountName)
+  const statePath = path.join(home, 'state.json')
+  if (!fs.existsSync(statePath)) return { status: 'active' }
+  try {
+    const parsed = JSON.parse(await fsp.readFile(statePath, 'utf8'))
+    if (parsed && typeof parsed === 'object' && typeof parsed.status === 'string') return parsed
+  } catch { /* 损坏 → fallback */ }
+  return { status: 'active' }
+}
+
+/**
+ * V1.7 切换账号语义：验证目录 + force refresh + atomic 更新 active.json 指针
+ *
+ * **不再写 ~/.codex/auth.json**（V1.6 行为已废除）
+ *
+ * @param {string} targetName
+ * @param {{
+ *   refresher?: (opts: { accountName: string, force: boolean }) => Promise<{ ok: boolean, classification?: 'Permanent' | 'Transient', reason?: string }>,
+ *   forceOnTransient?: boolean, // Transient 失败时是否强制写 active.json（用户在 UI 确认）
+ *   now?: number,
+ * }} [opts]
+ * @returns {Promise<
+ *   | { ok: true, active: string, noop?: boolean }
+ *   | { ok: false, code: string, classification?: 'Permanent' | 'Transient', reason?: string }
+ * >}
+ */
+async function switchAccountV17(targetName, opts = {}) {
+  const startTs = Date.now()
+  // V1.7 日志补全：每条失败/成功路径都有结构化 log，方便用户测试时回溯
+  logSwitchEvent('info', 'v17-begin', { targetName, forceOnTransient: !!opts.forceOnTransient })
+
+  if (typeof targetName !== 'string' || !SAFE_NAME_REGEX.test(targetName)) {
+    logSwitchEvent('warn', 'v17-invalid-name', { targetName })
+    return { ok: false, code: 'INVALID_NAME' }
+  }
+  const homeDir = getAccountHomeDir(targetName)
+  if (!fs.existsSync(homeDir)) {
+    logSwitchEvent('warn', 'v17-account-dir-missing', { targetName, homeDir })
+    return { ok: false, code: 'ACCOUNT_DIR_MISSING' }
+  }
+  const authPath = path.join(homeDir, 'auth.json')
+  try {
+    const buf = await fsp.readFile(authPath, 'utf8')
+    JSON.parse(buf)
+  } catch (err) {
+    logSwitchEvent('warn', 'v17-auth-corrupt', { targetName, message: err?.message })
+    return { ok: false, code: 'AUTH_CORRUPT' }
+  }
+
+  // noop：已是激活账号
+  const active = await readActiveJsonV17()
+  if (active?.currentAccount === targetName) {
+    logSwitchEvent('info', 'v17-done-noop', { targetName, elapsedMs: Date.now() - startTs })
+    return { ok: true, active: targetName, noop: true }
+  }
+
+  // force refresh：从外部注入或走默认 refresher
+  const refresher = opts.refresher ?? defaultRefresher
+  let refreshResult = null
+  try {
+    refreshResult = await refresher({ accountName: targetName, force: true })
+  } catch (err) {
+    logSwitchEvent('warn', 'v17-refresh-throw', { targetName, message: err?.message || String(err) })
+    return { ok: false, code: 'REFRESH_THROW', classification: 'Transient', reason: err.message }
+  }
+
+  if (refreshResult && refreshResult.ok === false) {
+    if (refreshResult.classification === 'Permanent') {
+      logSwitchEvent('warn', 'v17-permanent', { targetName, reason: refreshResult.reason, code: refreshResult.code })
+      // 顺手把 state.json 标 invalid
+      try {
+        await writeAccountStateV17(targetName, {
+          status: 'invalid',
+          permanentReason: refreshResult.reason ?? 'Other',
+        })
+      } catch (err) {
+        logSwitchEvent('warn', 'v17-state-write-failed', { targetName, message: err?.message })
+      }
+      return { ok: false, code: 'TARGET_NEEDS_RELOGIN', classification: 'Permanent', reason: refreshResult.reason }
+    }
+    if (refreshResult.classification === 'Transient' && !opts.forceOnTransient) {
+      logSwitchEvent('info', 'v17-transient-blocked', { targetName, reason: refreshResult.reason })
+      return { ok: false, code: 'TARGET_TRANSIENT', classification: 'Transient', reason: refreshResult.reason }
+    }
+    // Transient + forceOnTransient → 继续切换
+    logSwitchEvent('info', 'v17-transient-force-through', { targetName, reason: refreshResult.reason })
+  }
+
+  // refresh 成功或用户允许强切 → atomic 更新 active.json
+  const now = opts.now ?? Date.now()
+  await writeActiveJsonV17({
+    currentAccount: targetName,
+    switchedAt: new Date(now).toISOString(),
+  })
+
+  // V1.7.1：同步重建 shared/.codex/auth.json symlink → 新激活账号
+  let farmDesynced = false
+  let farmError = null
+  try {
+    const farm = require('./codexHomeSymlinkFarm')
+    const farmResult = await farm.repointActiveAuthSymlink(targetName)
+    if (!farmResult.ok) {
+      farmDesynced = true
+      farmError = farmResult.error
+      logSwitchEvent('warn', 'v17-farm-repoint-failed', { targetName, error: farmResult.error })
+    }
+  } catch (err) {
+    farmDesynced = true
+    farmError = err.message
+    logSwitchEvent('warn', 'v17-farm-module-load-failed', { targetName, message: err?.message })
+  }
+
+  // V1.7.1.3：切换后自动重启 Codex.app（如果它正在跑）让它重新加载激活账号的 auth.json
+  // 不在跑就 noop——不会无意中拉起 Codex.app
+  // 默认 restartCodex=true（用户期望的 V1.6 行为），传 false 可禁用
+  let codexRestarted = false
+  let codexRestartError = null
+  const shouldRestartCodex = opts.restartCodex !== false
+  if (shouldRestartCodex) {
+    try {
+      const running = await codexProcessService.listCodexProcesses()
+      const wasRunning = running.success && running.processes.length > 0
+      if (wasRunning) {
+        logSwitchEvent('info', 'v17-codex-restart-begin', { targetName, processCount: running.processes.length })
+        const restart = await codexProcessService.restartCodex()
+        codexRestarted = restart.success
+        if (!restart.success) {
+          codexRestartError = restart.error
+          logSwitchEvent('warn', 'v17-codex-restart-failed', { targetName, error: restart.error })
+        } else {
+          logSwitchEvent('info', 'v17-codex-restart-done', { targetName })
+        }
+      } else {
+        logSwitchEvent('info', 'v17-codex-not-running-skip-restart', { targetName })
+      }
+    } catch (err) {
+      codexRestartError = err.message
+      logSwitchEvent('warn', 'v17-codex-restart-threw', { targetName, message: err?.message })
+    }
+  }
+
+  logSwitchEvent('info', 'v17-done', {
+    targetName,
+    elapsedMs: Date.now() - startTs,
+    farmDesynced,
+    codexRestarted,
+    transientForced: refreshResult?.classification === 'Transient' && opts.forceOnTransient,
+  })
+
+  const result = { ok: true, active: targetName }
+  if (farmDesynced) { result.farmDesynced = true; result.farmError = farmError }
+  if (codexRestarted) result.codexRestarted = true
+  if (codexRestartError) result.codexRestartError = codexRestartError
+  return result
+}
+
+/**
+ * 默认 refresher：调 codexTokenRefresherV17.ensureFreshCodexTokenV17（M4 已实现）
+ *
+ * 设计原因：switchAccountV17 不能硬 require codexTokenRefresherV17（避免循环依赖
+ * accountService ←→ refresherV17 ←→ accountService）。改用懒加载 + null 兜底——
+ * 测试可继续通过 opts.refresher 注入 mock，production 路径默认接 V1.7 refresher。
+ */
+let _v17Refresher = null
+function getV17Refresher() {
+  if (!_v17Refresher) {
+    try { _v17Refresher = require('./codexTokenRefresherV17') } catch { _v17Refresher = null }
+  }
+  return _v17Refresher
+}
+async function defaultRefresher({ accountName, force }) {
+  const r = getV17Refresher()
+  if (!r || typeof r.ensureFreshCodexTokenV17 !== 'function') {
+    // V1.7 refresher 未就绪 → fail-closed：拒绝切换，避免切到一个未验证的账号
+    return { ok: false, classification: 'Transient', reason: 'RefresherUnavailable' }
+  }
+  return r.ensureFreshCodexTokenV17({ accountName, force })
+}
+
 // ---------- 导出 ----------
 
 module.exports = {
@@ -826,6 +1253,13 @@ module.exports = {
   // 工具
   emailToDefaultName,
   openCodex,
+  // V1.7
+  readActiveJsonV17,
+  writeActiveJsonV17,
+  listSavedAccountsV17,
+  writeAccountStateV17,
+  readAccountStateV17,
+  switchAccountV17,
   // 供测试和 watcher 使用
   __INTERNAL__: {
     SAFE_NAME_REGEX,
@@ -836,6 +1270,13 @@ module.exports = {
     getCurrentFile,
     getConfigTomlFile,
     accountPath,
+    // V1.7：新结构路径
+    getStoreDir,
+    getSharedCodexDir,
+    getAccountHomeDir,
+    getActiveJsonFile,
+    getFakeHomeDir,
+    getCodexDir,
     ensureStore,
     atomicCopy,
     hashFile,

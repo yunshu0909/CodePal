@@ -403,3 +403,107 @@
   color: #92400e;
   line-height: 1.6;
 }
+
+/* ============================================================
+   V1.7 新增样式（M6.5 补丁）
+   ============================================================ */
+
+.codex-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 16px;
+  padding: 16px 0;
+}
+
+.codex-cloud-warning {
+  margin: 16px 0;
+  padding: 12px 14px;
+  background: var(--color-warning-bg, #fffbeb);
+  border: 1.5px solid #fde68a;
+  border-radius: 6px;
+  font-size: 13px;
+  color: #92400e;
+  line-height: 1.6;
+}
+.codex-cloud-warning strong {
+  display: block;
+  margin-bottom: 4px;
+}
+
+.codex-loading,
+.codex-error,
+.codex-empty {
+  padding: 40px 16px;
+  text-align: center;
+  color: var(--color-text-secondary, #6b7280);
+}
+.codex-error {
+  color: var(--color-danger, #dc2626);
+}
+.codex-empty p {
+  margin-bottom: 16px;
+}
+
+.codex-login-capture {
+  padding: 8px 0 16px;
+  font-size: 13px;
+  line-height: 1.7;
+}
+.codex-login-capture__hint {
+  margin-top: 8px;
+  color: var(--color-text-secondary, #6b7280);
+  font-size: 12px;
+}
+.codex-login-capture__name-input {
+  width: 100%;
+  margin-top: 12px;
+  padding: 8px 10px;
+  border: 1.5px solid var(--color-border, #d1d5db);
+  border-radius: 6px;
+  font-size: 13px;
+  font-family: inherit;
+}
+.codex-login-capture__name-input:focus {
+  outline: none;
+  border-color: var(--color-primary, #2563eb);
+}
+.codex-login-capture__name-input:disabled {
+  background: var(--color-bg-disabled, #f3f4f6);
+  cursor: not-allowed;
+}
+.codex-login-capture__error {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--color-danger, #dc2626);
+}
+
+.codex-migration {
+  padding: 12px 0 8px;
+  font-size: 13px;
+  line-height: 1.7;
+}
+.codex-migration--error {
+  color: var(--color-danger, #dc2626);
+}
+.codex-migration__spinner {
+  display: flex;
+  justify-content: center;
+  padding: 8px 0 16px;
+}
+.codex-migration__hint {
+  margin-top: 8px;
+  color: var(--color-text-secondary, #6b7280);
+  font-size: 12px;
+}
+.codex-migration__error-detail {
+  margin: 8px 0;
+  padding: 10px 12px;
+  background: var(--color-bg-subtle, #f9fafb);
+  border: 1.5px solid var(--color-border, #d1d5db);
+  border-radius: 6px;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 12px;
+  color: var(--color-text-secondary, #6b7280);
+  white-space: pre-wrap;
+  overflow-x: auto;
+}

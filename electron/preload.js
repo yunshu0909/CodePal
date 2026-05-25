@@ -659,6 +659,51 @@ contextBridge.exposeInMainWorld('electronAPI', {
     },
   },
 
+  // V1.7 Codex 账户管理 API（与 V1.6 并存；UI 由 useCodexAccountsV17 hook 接入）
+  codexAccountV17: {
+    list: () => ipcRenderer.invoke('codex:v17:list'),
+    readActive: () => ipcRenderer.invoke('codex:v17:read-active'),
+    switch: (accountName, options = {}) =>
+      ipcRenderer.invoke('codex:v17:switch', { accountName, ...options }),
+    forceRefresh: (accountName) =>
+      ipcRenderer.invoke('codex:v17:force-refresh', { accountName }),
+    judgeStatus: (accountName) =>
+      ipcRenderer.invoke('codex:v17:judge-status', { accountName }),
+    loginBegin: () => ipcRenderer.invoke('codex:v17:login-begin'),
+    loginFinalize: (sessionId, name) =>
+      ipcRenderer.invoke('codex:v17:login-finalize', { sessionId, name }),
+    loginCancel: (sessionId) =>
+      ipcRenderer.invoke('codex:v17:login-cancel', { sessionId }),
+    rename: (oldName, newName) =>
+      ipcRenderer.invoke('codex:v17:rename', { oldName, newName }),
+    delete: (accountName) =>
+      ipcRenderer.invoke('codex:v17:delete', { accountName }),
+    openCodex: (args = []) =>
+      ipcRenderer.invoke('codex:v17:open-codex', { args }),
+    getBootstrap: () => ipcRenderer.invoke('codex:v17:get-bootstrap'),
+
+    /**
+     * 订阅 codex login 闭环事件（auth-captured / finalized / aborted）
+     * @param {(payload: { type: string, sessionId: string, [k:string]: any }) => void} handler
+     * @returns {() => void} unsubscribe
+     */
+    onLoginEvent(handler) {
+      const wrapped = (_event, payload) => handler(payload)
+      ipcRenderer.on('codex:v17:login-event', wrapped)
+      return () => ipcRenderer.removeListener('codex:v17:login-event', wrapped)
+    },
+    onMigrationEvent(handler) {
+      const wrapped = (_event, payload) => handler(payload)
+      ipcRenderer.on('codex:v17:migration-event', wrapped)
+      return () => ipcRenderer.removeListener('codex:v17:migration-event', wrapped)
+    },
+    onCloudSyncWarning(handler) {
+      const wrapped = (_event, payload) => handler(payload)
+      ipcRenderer.on('codex:v17:cloud-sync-warning', wrapped)
+      return () => ipcRenderer.removeListener('codex:v17:cloud-sync-warning', wrapped)
+    },
+  },
+
   // 文档查阅 APIs
 
   /**

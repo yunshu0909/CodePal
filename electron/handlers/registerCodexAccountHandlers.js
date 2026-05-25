@@ -110,6 +110,10 @@ function registerCodexAccountHandlers({ ipcMain, app, getMainWindow }) {
     try {
       return await accountService.switchAccount(targetName, { restartCodex })
     } catch (error) {
+      // V1.6.5 日志审计修复第 14 路：IPC 顶层 catch 之前完全静默 → 用户看到 SWITCH_FAILED 但日志无线索
+      console.error('[switch-account] ipc-handler-threw', JSON.stringify({
+        targetName, restartCodex, message: error?.message || String(error), stack: error?.stack?.split('\n').slice(0, 3),
+      }))
       return { success: false, error: error?.message || 'SWITCH_FAILED' }
     }
   })

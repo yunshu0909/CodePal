@@ -342,11 +342,14 @@ async function ensureFreshCodexToken(opts = {}) {
 async function sweepAllSlots(opts = {}) {
   const { thresholdSec = SWEEP_THRESHOLD_SEC } = opts
   const accountsDir = accountService.__INTERNAL__.getAccountsDir()
+  const sweepStart = _now()
+  console.log(`[token-sweeper] start threshold=${thresholdSec}s`)
 
   let entries
   try {
     entries = await fsp.readdir(accountsDir)
-  } catch {
+  } catch (err) {
+    console.warn(`[token-sweeper] readdir failed: ${err?.message || err}`)
     return { total: 0, refreshed: 0, failed: 0, skipped: 0, needsRelogin: 0 }
   }
 
@@ -402,6 +405,11 @@ async function sweepAllSlots(opts = {}) {
     }
   }
 
+  // 一轮 sweep 的 summary——之前完全没打，用户/支持无法回溯后台到底做了什么
+  console.log(`[token-sweeper] done ${JSON.stringify({
+    elapsedMs: _now() - sweepStart,
+    ...stats,
+  })}`)
   return stats
 }
 
@@ -441,9 +449,13 @@ async function recoverFromCrash() {
       if (now - stat.mtimeMs > TMP_STALE_MS) {
         await fsp.unlink(tmpPath)
         tmpCleaned += 1
+        console.log(`[token-recovery] cleaned stale tmp: ${entry}`)
       }
-    } catch {
-      // 文件可能正在被另一个进程使用，忽略
+    } catch (err) {
+      // 文件可能正在被另一个进程使用，忽略——但记一笔 info 以便观察
+      if (err?.code && err.code !== 'ENOENT') {
+        console.log(`[token-recovery] tmp cleanup skipped ${entry}: ${err.code}`)
+      }
     }
   }
 
@@ -489,6 +501,7 @@ async function recoverFromCrash() {
     }
   }
 
+  console.log(`[token-recovery] done ${JSON.stringify({ recovered, failed, tmpCleaned })}`)
   return { recovered, failed, tmpCleaned }
 }
 

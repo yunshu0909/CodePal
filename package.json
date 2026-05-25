@@ -1,6 +1,6 @@
 {
   "name": "skill-manager",
-  "version": "1.6.5",
+  "version": "1.7.0",
   "description": "管理和推送你的 Skills 到各个工具",
   "main": "electron/main.js",
   "scripts": {
@@ -65,7 +65,9 @@
     "test:v153": "vitest run --config 自动化测试/V1.5.3/vitest.config.js",
     "test:v153:watch": "vitest --config 自动化测试/V1.5.3/vitest.config.js",
     "test:v165": "vitest run --config 自动化测试/V1.6.5/vitest.config.js",
-    "test:v165:watch": "vitest --config 自动化测试/V1.6.5/vitest.config.js"
+    "test:v165:watch": "vitest --config 自动化测试/V1.6.5/vitest.config.js",
+    "test:v17": "vitest run --config 自动化测试/V1.7/vitest.config.js",
+    "test:v17:watch": "vitest --config 自动化测试/V1.7/vitest.config.js"
   },
   "keywords": [
     "electron",
