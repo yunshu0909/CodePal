@@ -87,7 +87,9 @@ describe('模块 D · switchAccountV17 + state.json', () => {
       refresher: async (opts) => { refresherCalls.push(opts); return { ok: true } },
       now: 1700000000000,
     })
-    expect(result).toEqual({ ok: true, active: 'B' })
+    // V1.7.1.3：switchAccountV17 现在可能返额外的 codexRestarted / farmDesynced 字段（与平台和 Codex.app 状态有关）
+    // 用 toMatchObject 而非 toEqual，允许这些扩展字段
+    expect(result).toMatchObject({ ok: true, active: 'B' })
     expect(refresherCalls).toEqual([{ accountName: 'B', force: true }])
 
     // active.json 已切
@@ -123,7 +125,7 @@ describe('模块 D · switchAccountV17 + state.json', () => {
     const result = await switchAccountV17('A', {
       refresher: async () => { called = true; return { ok: true } },
     })
-    expect(result).toEqual({ ok: true, active: 'A', noop: true })
+    expect(result).toMatchObject({ ok: true, active: 'A', noop: true })
     expect(called).toBe(false) // noop 短路
   })
 

@@ -42,12 +42,12 @@ describe('模块 B · codexStatusJudge.judge', () => {
     expect(result.source).toBe('iat')
   })
 
-  test('TC-021 黄：state=active, iat=now-10h → yellow/未近期验证', async () => {
+  test('TC-021 黄：state=active, iat=now-10d → yellow/未近期验证（V1.7.1 阈值 7d）', async () => {
     await buildV17(env, {
       accounts: [
         {
           name: 'B',
-          auth: makeFakeAuth({ accountId: 'fake-acct-B', iatSecondsAgo: 10 * 3600 }),
+          auth: makeFakeAuth({ accountId: 'fake-acct-B', iatSecondsAgo: 10 * 24 * 3600 }),
           state: { status: 'active' },
         },
       ],
@@ -55,6 +55,61 @@ describe('模块 B · codexStatusJudge.judge', () => {
     const result = await judge('B')
     expect(result.color).toBe('yellow')
     expect(result.label).toBe('未近期验证')
+  })
+
+  // V1.7.1 新增：sweep 完成后即便 iat 老旧，state.lastForceRefreshAt 在 7d 内仍是绿
+  test('V1.7.1：iat 老但 sweep lastForceRefreshAt 在 7d 内 → 绿（sweep 证据胜出）', async () => {
+    const now = Date.now()
+    await buildV17(env, {
+      accounts: [
+        {
+          name: 'SWEPT',
+          // iat 10 天前（旧 access_token，按 V1.7.0 老逻辑应该黄）
+          auth: makeFakeAuth({ accountId: 'fake-acct-S', iatSecondsAgo: 10 * 24 * 3600 }),
+          // 但 sweep 2 天前刚成功刷过
+          state: { status: 'active', lastForceRefreshAt: now - 2 * 24 * 3600 * 1000 },
+        },
+      ],
+    })
+    const result = await judge('SWEPT')
+    expect(result.color).toBe('green')
+    expect(result.label).toBe('近期验证')
+    expect(result.source).toBe('sweep') // 走 sweep 证据，不是 iat
+  })
+
+  // V1.7.1 新增：iat 在 6h 内（V1.7.0 老逻辑判 绿）+ lastForceRefreshAt 8d 前 → 仍是绿（iat 胜出）
+  test('V1.7.1：iat 在 7d 内 + sweep 在 7d 外 → 绿（iat 证据胜出）', async () => {
+    const now = Date.now()
+    await buildV17(env, {
+      accounts: [
+        {
+          name: 'NATURAL',
+          // codex CLI 自然续期 1 小时前
+          auth: makeFakeAuth({ accountId: 'fake-acct-N', iatSecondsAgo: 1 * 3600 }),
+          // sweep 8 天前
+          state: { status: 'active', lastForceRefreshAt: now - 8 * 24 * 3600 * 1000 },
+        },
+      ],
+    })
+    const result = await judge('NATURAL')
+    expect(result.color).toBe('green')
+    expect(result.source).toBe('iat')
+  })
+
+  // V1.7.1 新增：iat 8d + sweep 10d → 黄（两个都过期）
+  test('V1.7.1：所有证据都超过 7d → 黄', async () => {
+    const now = Date.now()
+    await buildV17(env, {
+      accounts: [
+        {
+          name: 'STALE',
+          auth: makeFakeAuth({ accountId: 'fake-acct-T', iatSecondsAgo: 8 * 24 * 3600 }),
+          state: { status: 'active', lastForceRefreshAt: now - 10 * 24 * 3600 * 1000 },
+        },
+      ],
+    })
+    const result = await judge('STALE')
+    expect(result.color).toBe('yellow')
   })
 
   test('TC-021 红：state=invalid, permanentReason=Revoked → red/已撤销', async () => {

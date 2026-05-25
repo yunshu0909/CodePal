@@ -257,17 +257,18 @@ function makeFakeJwt(opts = {}) {
  * @returns {object}
  */
 function makeFakeAuth(opts = {}) {
+  const iatSecondsAgo = opts.iatSecondsAgo ?? 60
   return {
     OPENAI_API_KEY: null,
     tokens: {
       id_token: makeFakeJwt({
-        iatSecondsAgo: opts.iatSecondsAgo,
+        iatSecondsAgo,
         accountId: opts.accountId,
         email: opts.email,
         plan: opts.plan,
       }),
       access_token: makeFakeJwt({
-        iatSecondsAgo: opts.iatSecondsAgo,
+        iatSecondsAgo,
         accountId: opts.accountId,
         email: opts.email,
         plan: opts.plan,
@@ -275,7 +276,9 @@ function makeFakeAuth(opts = {}) {
       refresh_token: opts.refreshToken ?? `fake-rt-${crypto.randomBytes(4).toString('hex')}`,
       account_id: opts.accountId ?? 'fake-acct-0001',
     },
-    last_refresh: opts.lastRefresh ?? new Date().toISOString(),
+    // V1.7.1：last_refresh 应当跟 iat 同步（同一次铸票事件的两个表达）
+    // 之前默认 new Date() 让 last_refresh 永远是"现在"，污染 codexStatusJudge 取最新证据的判定
+    last_refresh: opts.lastRefresh ?? new Date(Date.now() - iatSecondsAgo * 1000).toISOString(),
   }
 }
 

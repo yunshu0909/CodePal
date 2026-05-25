@@ -35,10 +35,11 @@ export default function CodexStatusBadgeV17({ status, title }) {
 }
 
 function buildTooltip(status) {
-  if (status.color === 'green') return '最近 6 小时内有过一次成功铸票；refresh_token 大概率仍活，但服务端可能在窗口内已撤销'
+  // V1.7.1：阈值与 sweep 周期对齐（7 天），文案体现"保活窗口"语义
+  if (status.color === 'green') return '保活窗口内（最近 7 天有过成功铸票，refresh_token 大概率仍活）'
   if (status.color === 'yellow') {
     if (status.reason === 'Paused') return '近 3 次刷新都网络异常已暂停，恢复联网或手动重试'
-    return '上次铸票距今超过 6 小时；可能仍可用但不保证'
+    return '超过 7 天没有铸票证据（sweep 该跑没跑 / 系统长期挂起）——可点"立即重新验证"'
   }
   if (status.color === 'red') {
     if (status.reason === 'Revoked') return '已在 chatgpt.com 撤销授权 / 改密 / 账号被封'
