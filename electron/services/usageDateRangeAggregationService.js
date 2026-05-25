@@ -81,9 +81,12 @@ function buildDateRange(startDate, endDate) {
  * 获取预设周期对应的日期区间
  * @param {'week'|'month'|'allTime'} period - 预设周期
  * @param {Date} now - 当前时间
- * @returns {{startDate: string, endDate: string}}
+ * @param {{earliestDate?: string|null}} [options] - 可选参数。
+ *   allTime 必须传 earliestDate；未传或为 null 时返回 {startDate: null, endDate: null}，
+ *   表示"没有任何日志数据"，由上游短路成空态而非空扫几千天。
+ * @returns {{startDate: string|null, endDate: string|null}}
  */
-function getPresetPeriodDateRange(period, now = new Date()) {
+function getPresetPeriodDateRange(period, now = new Date(), options = {}) {
   switch (period) {
     case 'week':
       return {
@@ -95,11 +98,16 @@ function getPresetPeriodDateRange(period, now = new Date()) {
         startDate: getBeijingRelativeDayKey(-30, now),
         endDate: getBeijingRelativeDayKey(-1, now)
       }
-    case 'allTime':
+    case 'allTime': {
+      const earliestDate = options.earliestDate || null
+      if (!earliestDate) {
+        return { startDate: null, endDate: null }
+      }
       return {
-        startDate: '2020-01-01',
+        startDate: earliestDate,
         endDate: getBeijingRelativeDayKey(-1, now)
       }
+    }
     default:
       return {
         startDate: getBeijingRelativeDayKey(-1, now),
@@ -198,6 +206,46 @@ async function aggregateUsageDateRange(params, deps = {}) {
     startDate,
     endDate,
   } = params
+
+  // 没有任何日志数据（如新装机用户、Claude/Codex 目录不存在）→ 短路成空态
+  // 不进按天循环、也不撞 AGGREGATE_FAILED，让 UI 能清楚区分"没数据"vs"扫描出错"
+  if (!startDate || !endDate || startDate > endDate) {
+    const progressReporter = createProgressReporter(deps.onProgress)
+    await progressReporter.emit({
+      taskId,
+      status: 'completed',
+      period,
+      startDate: startDate || null,
+      endDate: endDate || null,
+      totalDays: 0,
+      processedDays: 0,
+      cachedDays: 0,
+      recomputedDays: 0,
+      failedDays: 0,
+      progressPercent: 100,
+      currentDate: null,
+      currentSource: null
+    })
+
+    const emptyViewData = buildUsageViewData(new Map(), new Map())
+    return {
+      success: true,
+      data: {
+        ...emptyViewData,
+        period,
+        startDate: startDate || null,
+        endDate: endDate || null
+      },
+      meta: {
+        fromDailySummaryDays: 0,
+        cachedDays: 0,
+        recomputedDays: 0,
+        totalDays: 0,
+        failedDays: 0,
+        empty: true
+      }
+    }
+  }
 
   const readDailySummaryFn = deps.readDailySummaryFn || readDailySummary
   const writeDailySummaryFn = deps.writeDailySummaryFn || writeDailySummary

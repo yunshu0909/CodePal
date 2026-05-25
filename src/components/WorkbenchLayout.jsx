@@ -60,8 +60,9 @@ function WorkbenchLayout({ children, activeModule, onModuleChange, hasUpdate, on
     {
       label: '技能中心',
       items: [
-        { id: 'skills', label: 'Skills 管理', icon: '🛠️', beta: true },
-        { id: 'mcp', label: 'MCP 管理', icon: '📡', beta: true }
+        { id: 'skills', label: 'Skills 管理', icon: '🛠️', beta: true }
+        // 'mcp' 模块从侧栏隐藏：短期内不使用，代码和路由保留，未来需要时恢复此条即可
+        // { id: 'mcp', label: 'MCP 管理', icon: '📡', beta: true }
       ]
     }
   ]

@@ -14,6 +14,7 @@ const { scanLogFilesInRange } = require('../logScanner')
 const { handleScanLogFiles } = require('../scanLogFilesHandler')
 const { handleAggregateUsageRange } = require('../aggregateUsageRangeHandler')
 const { handleAggregateUsagePeriod } = require('../aggregateUsagePeriodHandler')
+const { findEarliestLogDate } = require('../services/usageLogScanService')
 
 /**
  * 注册用量聚合相关 IPC handlers
@@ -88,9 +89,26 @@ function registerUsageAggregationHandlers({
     return handleAggregateUsagePeriod(params, {
       nowFn,
       homeDir,
+      pathExistsFn: pathExists,
       scanLogFilesInRangeFn: scanLogFilesInRange,
       onProgress: (progress) => sendProgress(event, progress)
     })
+  })
+
+  /**
+   * 获取 Claude/Codex 日志最早日期（北京时间），用于「累计至今」动态起点
+   * @returns {Promise<{success: boolean, earliestDate: string|null, error?: string}>}
+   */
+  ipcMain.handle('get-earliest-log-date', async () => {
+    try {
+      const earliestDate = await findEarliestLogDate({
+        homeDir,
+        pathExistsFn: pathExists
+      })
+      return { success: true, earliestDate }
+    } catch (error) {
+      return { success: false, earliestDate: null, error: error?.message || 'GET_EARLIEST_FAILED' }
+    }
   })
 }
 

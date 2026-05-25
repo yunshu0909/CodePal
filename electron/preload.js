@@ -236,6 +236,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
    */
   aggregateUsagePeriod: (params) => ipcRenderer.invoke('aggregate-usage-period', params),
 
+  /**
+   * 获取 Claude/Codex 日志最早日期（北京时间），用于「累计至今」动态起点
+   * @returns {Promise<{success: boolean, earliestDate: string|null, error?: string}>}
+   */
+  getEarliestLogDate: () => ipcRenderer.invoke('get-earliest-log-date'),
+
   // V0.7 API 配置 - 供应商切换
 
   /**

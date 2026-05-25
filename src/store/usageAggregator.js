@@ -69,19 +69,25 @@ function getBeijingDateParts(date = new Date()) {
 
 /**
  * 根据周期获取时间窗口（北京时间）
- * @param {string} period - 周期：'today' | 'week' | 'month'
- * @returns {{start: Date, end: Date}} 时间窗口
+ * @param {string} period - 周期：'today' | 'week' | 'month' | 'allTime'
+ * @param {{earliestDate?: string|null}} [options] - allTime 需要传 earliestDate（YYYY-MM-DD）
+ * @returns {{start: Date|null, end: Date}|{start: null, end: null}} 时间窗口；
+ *   allTime 在没有任何日志时返回 {start: null, end: null}，由上游短路成空态
  */
-function getBeijingTimeWindow(period) {
+function getBeijingTimeWindow(period, options = {}) {
   const now = new Date();
   const { year, month, day } = getBeijingDateParts(now);
   const todayStart = new Date(`${year}-${month}-${day}T00:00:00+08:00`);
 
-  // 累计至今：从 2020-01-01 到今日 00:00，不含今日
+  // 累计至今：从最早日志日期到今日 00:00，不含今日
   // 口径与 week/month 保持一致：除"今日"tab 外，其他时间段都不重复包含今天
   if (period === 'allTime') {
+    const earliestDate = options.earliestDate || null;
+    if (!earliestDate) {
+      return { start: null, end: null };
+    }
     return {
-      start: new Date('2020-01-01T00:00:00+08:00'),
+      start: new Date(`${earliestDate}T00:00:00+08:00`),
       end: new Date(todayStart)
     };
   }
@@ -706,8 +712,38 @@ export async function aggregateUsage(period) {
       return { success: false, error: 'INVALID_PERIOD' };
     }
 
+    // 累计至今需要先拿最早日志日期（主进程提供）。
+    // 注：这条 fallback 路径只在 electronAPI.aggregateUsagePeriod 不可用时才会被调到，
+    //   生产 Electron 环境通常走 IPC 主进程路径，这里只是兜底。
+    let allTimeOptions = {};
+    if (period === 'allTime' && typeof window !== 'undefined' && window.electronAPI?.getEarliestLogDate) {
+      try {
+        const earliestResult = await window.electronAPI.getEarliestLogDate();
+        allTimeOptions.earliestDate = earliestResult?.earliestDate || null;
+      } catch {
+        allTimeOptions.earliestDate = null;
+      }
+    }
+
     // 1. 计算时间窗口（北京时间）
-    const { start, end } = getBeijingTimeWindow(period);
+    const { start, end } = getBeijingTimeWindow(period, allTimeOptions);
+
+    // 没有任何日志数据 → 短路成空态
+    if (!start || !end) {
+      const emptyView = generateViewData(new Map());
+      return {
+        success: true,
+        data: {
+          ...emptyView,
+          projectDistribution: [],
+          period,
+          startTime: null,
+          endTime: null,
+          recordCount: 0,
+          empty: true
+        }
+      };
+    }
 
     // 2. 扫描日志文件
     const [claudeRecords, codexRecords] = await Promise.all([

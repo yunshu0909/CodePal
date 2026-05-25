@@ -14,6 +14,7 @@ const {
   scanCodexLogs,
   aggregateByModel,
   aggregateByProject,
+  findEarliestLogDate,
 } = require('./services/usageLogScanService')
 const { buildUsageViewData } = require('./services/usageViewDataService')
 const {
@@ -96,15 +97,27 @@ async function handleAggregateUsagePeriod(params, deps = {}) {
     return aggregateTodayUsage({ period }, deps)
   }
 
-  const now = deps.nowFn ? deps.nowFn() : new Date()
-  const { startDate, endDate } = getPresetPeriodDateRange(period, now)
+  try {
+    const now = deps.nowFn ? deps.nowFn() : new Date()
+    const findEarliestFn = deps.findEarliestLogDateFn || findEarliestLogDate
+    // 仅 allTime 需要动态起点，week/month 走相对偏移没必要扫盘
+    const earliestDate = period === 'allTime' ? await findEarliestFn(deps) : null
+    const { startDate, endDate } = getPresetPeriodDateRange(period, now, { earliestDate })
 
-  return aggregateUsageDateRange({
-    taskId,
-    period,
-    startDate,
-    endDate
-  }, deps)
+    return await aggregateUsageDateRange({
+      taskId,
+      period,
+      startDate,
+      endDate
+    }, deps)
+  } catch (error) {
+    // 顶层兜底：findEarliestLogDate 或 aggregateUsageDateRange 抛错时不让 IPC 整个 reject，
+    // 给前端一个明确的失败态而不是 unhandled rejection
+    if (error?.code === 'EACCES' || error?.code === 'EPERM') {
+      return { success: false, error: 'PERMISSION_DENIED' }
+    }
+    return { success: false, error: error?.message || 'AGGREGATE_FAILED' }
+  }
 }
 
 module.exports = {

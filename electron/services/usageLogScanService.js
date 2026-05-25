@@ -462,6 +462,231 @@ function aggregateByProject(records) {
   return aggregated
 }
 
+/**
+ * 把 Date 转成北京时间日期 key（YYYY-MM-DD）。
+ * 就地实现避免与 usageDateRangeAggregationService 循环依赖。
+ * @param {Date} date - 时间
+ * @returns {string}
+ */
+function toBeijingDateKey(date) {
+  const formatter = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Shanghai',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  })
+
+  const parts = formatter.formatToParts(date)
+  const map = {}
+  for (const part of parts) {
+    if (part.type === 'year' || part.type === 'month' || part.type === 'day') {
+      map[part.type] = part.value
+    }
+  }
+  return `${map.year}-${map.month}-${map.day}`
+}
+
+/**
+ * Codex 目录天然按 YYYY/MM/DD 分层，readdir 即可拿到最早日期，不需要读任何文件。
+ * 三层升序遍历，遇到空目录回溯到下一个：
+ *   例如 2024/01/01/ 被手动删空了，但 2024/01/02/ 有数据，则返回 2024-01-02
+ * @param {string} codexBasePath - ~/.codex/sessions
+ * @param {object} deps - 依赖注入
+ * @returns {Promise<string|null>} YYYY-MM-DD（北京时间）或 null
+ */
+async function findEarliestCodexDate(codexBasePath, deps = {}) {
+  const fs = deps.fsPromises || require('fs/promises')
+
+  async function listSortedSubdirs(dirPath, validator) {
+    try {
+      const entries = await fs.readdir(dirPath, { withFileTypes: true })
+      return entries
+        .filter((entry) => entry.isDirectory() && validator(entry.name))
+        .map((entry) => entry.name)
+        .sort()
+    } catch {
+      return []
+    }
+  }
+
+  async function hasJsonl(dirPath) {
+    try {
+      const entries = await fs.readdir(dirPath)
+      return entries.some((name) => name.endsWith('.jsonl'))
+    } catch {
+      return false
+    }
+  }
+
+  const isYear = (name) => /^\d{4}$/.test(name)
+  const isMonthOrDay = (name) => /^\d{2}$/.test(name)
+
+  const years = await listSortedSubdirs(codexBasePath, isYear)
+  for (const year of years) {
+    const months = await listSortedSubdirs(path.join(codexBasePath, year), isMonthOrDay)
+    for (const month of months) {
+      const days = await listSortedSubdirs(path.join(codexBasePath, year, month), isMonthOrDay)
+      for (const day of days) {
+        const dayPath = path.join(codexBasePath, year, month, day)
+        if (await hasJsonl(dayPath)) {
+          return `${year}-${month}-${day}`
+        }
+      }
+    }
+  }
+  return null
+}
+
+/**
+ * 在文件流中按行读取，找到第一条带 timestamp 的 Claude 记录就返回。
+ * @param {string} filePath - 日志文件路径
+ * @param {object} deps - 依赖注入
+ * @returns {Promise<Date|null>}
+ */
+async function findFirstClaudeTimestampInFile(filePath, deps = {}) {
+  const fsSync = deps.fsSync || require('fs')
+  const readline = deps.readline || require('readline')
+
+  return new Promise((resolve) => {
+    let resolved = false
+    let stream
+    try {
+      stream = fsSync.createReadStream(filePath, { encoding: 'utf-8' })
+    } catch {
+      resolve(null)
+      return
+    }
+
+    const rl = readline.createInterface({ input: stream, crlfDelay: Infinity })
+
+    const finish = (value) => {
+      if (resolved) return
+      resolved = true
+      rl.close()
+      stream.destroy()
+      resolve(value)
+    }
+
+    rl.on('line', (line) => {
+      const record = parseClaudeLog(line)
+      // parseClaudeLog 只在有 message.usage 时才返回；
+      // 早期 config 行（permission-mode 等）不会命中，正是我们想跳过的
+      if (record?.timestamp) {
+        finish(record.timestamp)
+      }
+    })
+
+    rl.on('close', () => finish(null))
+    rl.on('error', () => finish(null))
+    stream.on('error', () => finish(null))
+  })
+}
+
+/**
+ * 递归列出目录下所有 .jsonl 文件路径
+ * @param {string} dir - 起始目录
+ * @param {object} deps - 依赖注入
+ * @returns {Promise<string[]>}
+ */
+async function listJsonlFilesRecursive(dir, deps = {}) {
+  const fs = deps.fsPromises || require('fs/promises')
+  const result = []
+
+  async function walk(current) {
+    let entries
+    try {
+      entries = await fs.readdir(current, { withFileTypes: true })
+    } catch {
+      return
+    }
+
+    for (const entry of entries) {
+      const full = path.join(current, entry.name)
+      if (entry.isDirectory()) {
+        await walk(full)
+      } else if (entry.isFile() && entry.name.endsWith('.jsonl')) {
+        result.push(full)
+      }
+    }
+  }
+
+  await walk(dir)
+  return result
+}
+
+/**
+ * 找 Claude 日志最早日期。
+ * 策略：按 mtime 升序遍历所有 jsonl 文件，读首条带 timestamp 的记录，取最小值。
+ * 不用 mtime 当锚点：rsync / Time Machine / touch 都会让 mtime 失真，
+ *   但记录内 timestamp 是写入时的真值，更可靠。
+ * 不限制采样数：早期文件可能全是 config-only（无 usage 记录），
+ *   截断 K 个会让函数返回 null 即使后面有数据。
+ *   每个文件 readline 命中首条 timestamp 即停，单文件成本通常 < 几 KB，全量扫描可控。
+ * @param {string} claudeBasePath - ~/.claude/projects
+ * @param {object} deps - 依赖注入
+ * @returns {Promise<string|null>} YYYY-MM-DD（北京时间）或 null
+ */
+async function findEarliestClaudeDate(claudeBasePath, deps = {}) {
+  const fs = deps.fsPromises || require('fs/promises')
+  const listFiles = deps.listJsonlFilesRecursiveFn || listJsonlFilesRecursive
+  const findFirstTs = deps.findFirstClaudeTimestampInFileFn || findFirstClaudeTimestampInFile
+
+  const files = await listFiles(claudeBasePath, deps)
+  if (files.length === 0) return null
+
+  const stated = []
+  for (const file of files) {
+    try {
+      const st = await fs.stat(file)
+      stated.push({ file, mtimeMs: st.mtimeMs })
+    } catch {
+      // 单个 stat 失败不影响整体
+    }
+  }
+
+  stated.sort((a, b) => a.mtimeMs - b.mtimeMs)
+
+  let earliest = null
+  for (const { file } of stated) {
+    const ts = await findFirstTs(file, deps)
+    if (ts && (!earliest || ts < earliest)) {
+      earliest = ts
+    }
+  }
+
+  return earliest ? toBeijingDateKey(earliest) : null
+}
+
+/**
+ * 找 Claude/Codex 日志中最早的日期（北京时区）。
+ * 用于「累计至今」周期的动态起点，避免对新装机用户从 2020-01-01 空扫几千天。
+ * @param {object} [deps] - 依赖注入（测试用）
+ * @returns {Promise<string|null>} YYYY-MM-DD 或 null（两边都没数据）
+ */
+async function findEarliestLogDate(deps = {}) {
+  const pathExistsFn = deps.pathExistsFn || pathExists
+  const homeDir = deps.homeDir || os.homedir()
+  const findClaudeFn = deps.findEarliestClaudeDateFn || findEarliestClaudeDate
+  const findCodexFn = deps.findEarliestCodexDateFn || findEarliestCodexDate
+
+  const claudeBasePath = path.join(homeDir, '.claude', 'projects')
+  const codexBasePath = path.join(homeDir, '.codex', 'sessions')
+
+  const [claudeExists, codexExists] = await Promise.all([
+    pathExistsFn(claudeBasePath),
+    pathExistsFn(codexBasePath)
+  ])
+
+  const [claudeDate, codexDate] = await Promise.all([
+    claudeExists ? findClaudeFn(claudeBasePath, deps).catch(() => null) : Promise.resolve(null),
+    codexExists ? findCodexFn(codexBasePath, deps).catch(() => null) : Promise.resolve(null)
+  ])
+
+  if (!claudeDate && !codexDate) return null
+  if (claudeDate && codexDate) return claudeDate < codexDate ? claudeDate : codexDate
+  return claudeDate || codexDate
+}
+
 module.exports = {
   toSafeInt,
   normalizeModelName,
@@ -475,4 +700,10 @@ module.exports = {
   aggregateByModel,
   aggregateByProject,
   pathExists,
+  toBeijingDateKey,
+  findEarliestCodexDate,
+  findFirstClaudeTimestampInFile,
+  listJsonlFilesRecursive,
+  findEarliestClaudeDate,
+  findEarliestLogDate,
 }
