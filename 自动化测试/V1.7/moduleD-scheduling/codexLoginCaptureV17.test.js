@@ -120,8 +120,9 @@ describe('模块 D · US-02 codexLoginCaptureV17', () => {
     // my-work 目录就位
     expect(fs.existsSync(path.join(env.switcherDir, 'accounts', 'my-work', '.codex', 'auth.json'))).toBe(true)
     // D12：active.json 指针保持不变（新增 ≠ 切换）
+    // 注：测试场景下 active.json 可能根本不存在 → 两侧都该是 null
     const activeAfter = await accountService.readActiveJsonV17()
-    expect(activeAfter.currentAccount).toBe(activeBefore.currentAccount)
+    expect(activeAfter?.currentAccount ?? null).toBe(activeBefore?.currentAccount ?? null)
   })
 
   test('finalizeLogin 非法名 → INVALID_NAME，不动 anon', async () => {
