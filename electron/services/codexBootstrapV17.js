@@ -93,6 +93,19 @@ async function bootstrapV17(opts = {}) {
     logger.info?.('[codexBootstrapV17] V1.7 already migrated, skipping')
   }
 
+  // Step 2.5（V1.7.3）：扫 accounts/ 顶层的 V1.6 .json 残留，自动升级成目录格式
+  // 不影响 ok：失败只报警告，不阻塞 app 启动
+  result.stage = 'residue-cleanup'
+  try {
+    result.residueCleanup = await codexMigrator.upgradeV16ResidueAccounts({ logger })
+    const { upgraded, conflicts } = result.residueCleanup
+    if (upgraded.length || conflicts.length) {
+      logger.info?.(`[codexBootstrapV17] residue cleanup: upgraded=${upgraded.length} conflicts=${conflicts.length}`)
+    }
+  } catch (err) {
+    logger.warn?.(`[codexBootstrapV17] residue cleanup threw: ${err.message}`)
+  }
+
   // Step 3: 崩溃恢复
   result.stage = 'recover'
   try {

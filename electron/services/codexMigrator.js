@@ -447,10 +447,76 @@ async function writeFailedLog(switcherDir, stage, info, audit, logger) {
   }
 }
 
+/**
+ * 把 accounts/ 顶层遗留的 V1.6 单文件账号（<name>.json）升级到 V1.7 目录格式（<name>/.codex/auth.json）
+ *
+ * 触发原因：V1.7 listSavedAccountsV17 只扫目录，旧 .json 单文件账号会"隐身" → UI 看不到、用户以为账号丢了。
+ *
+ * @param {{ logger?: object, now?: number }} [opts]
+ * @returns {Promise<{ upgraded: string[], conflicts: { name: string, reason: string }[] }>}
+ */
+async function upgradeV16ResidueAccounts(opts = {}) {
+  const I = accountService.__INTERNAL__
+  const logger = opts.logger ?? console
+  const now = opts.now ?? Date.now()
+  const accountsDir = I.getAccountsDir()
+  const upgraded = []
+  const conflicts = []
+
+  if (!fs.existsSync(accountsDir)) return { upgraded, conflicts }
+
+  let entries
+  try {
+    entries = await fsp.readdir(accountsDir, { withFileTypes: true })
+  } catch (err) {
+    logger.warn?.(`[codexMigrator] residue scan failed: ${err.message}`)
+    return { upgraded, conflicts }
+  }
+
+  for (const ent of entries) {
+    if (!ent.isFile()) continue
+    if (ent.name.startsWith('.')) continue
+    if (!ent.name.endsWith('.json')) continue
+    const name = ent.name.slice(0, -5)
+    if (!name) continue
+
+    const jsonPath = path.join(accountsDir, ent.name)
+    const dirPath = path.join(accountsDir, name)
+    const targetCodexDir = I.getAccountHomeDir(name)
+    const targetAuthFile = path.join(targetCodexDir, 'auth.json')
+
+    if (fs.existsSync(dirPath)) {
+      const conflictName = `${ent.name}.conflict-${now}`
+      try {
+        await fsp.rename(jsonPath, path.join(accountsDir, conflictName))
+        logger.warn?.(`[codexMigrator] residue conflict: ${ent.name} → ${conflictName} (dir exists)`)
+        conflicts.push({ name, reason: 'directory-already-exists' })
+      } catch (err) {
+        logger.warn?.(`[codexMigrator] residue conflict isolation failed: ${ent.name}: ${err.message}`)
+        conflicts.push({ name, reason: `isolation-failed: ${err.message}` })
+      }
+      continue
+    }
+
+    try {
+      await fsp.mkdir(targetCodexDir, { recursive: true })
+      await fsp.rename(jsonPath, targetAuthFile)
+      logger.info?.(`[codexMigrator] residue upgraded: ${ent.name} → ${name}/.codex/auth.json`)
+      upgraded.push(name)
+    } catch (err) {
+      logger.warn?.(`[codexMigrator] residue upgrade failed: ${ent.name}: ${err.message}`)
+      conflicts.push({ name, reason: `upgrade-failed: ${err.message}` })
+    }
+  }
+
+  return { upgraded, conflicts }
+}
+
 module.exports = {
   shouldMigrate,
   runMigration,
   validateStaging,
+  upgradeV16ResidueAccounts,
   // 供测试 hook
   __INTERNAL__: {
     readLegacySlots,
