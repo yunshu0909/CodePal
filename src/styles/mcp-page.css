@@ -47,11 +47,11 @@
 }
 
 .tool-dot--claude {
-  background: var(--color-claude);
+  background: var(--brand-claude);
 }
 
 .tool-dot--codex {
-  background: var(--color-codex);
+  background: var(--brand-codex);
 }
 
 /* ============================================================

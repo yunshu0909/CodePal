@@ -97,7 +97,7 @@ describe('模块 D · US-02 codexLoginCaptureV17', () => {
     expect(captured[0].anonName).toBe(anonName)
   })
 
-  test('finalizeLogin 把 anon-<ts> atomic rename 为指定名字 + 设为 active', async () => {
+  test('finalizeLogin 把 anon-<ts> atomic rename 为指定名字 + 不动 active.json（D12）', async () => {
     capture = new CodexLoginCaptureV17({
       spawnFn: () => ({ on() {}, kill() {} }),
       watchFn: () => ({ close() {} }),
@@ -108,6 +108,9 @@ describe('模块 D · US-02 codexLoginCaptureV17', () => {
     // 模拟 auth.json 已就位
     await fsp.writeFile(path.join(codexHome, 'auth.json'), JSON.stringify(makeFakeAuth({ accountId: 'fresh' })))
 
+    // D12：记录 finalize 前 active.json 状态，断言 finalize 不改它
+    const activeBefore = await accountService.readActiveJsonV17()
+
     const result = await capture.finalizeLogin(sessionId, 'my-work')
     expect(result.ok).toBe(true)
     expect(result.name).toBe('my-work')
@@ -116,9 +119,9 @@ describe('模块 D · US-02 codexLoginCaptureV17', () => {
     expect(fs.existsSync(path.join(env.switcherDir, 'accounts', anonName))).toBe(false)
     // my-work 目录就位
     expect(fs.existsSync(path.join(env.switcherDir, 'accounts', 'my-work', '.codex', 'auth.json'))).toBe(true)
-    // active.json 已切到 my-work
-    const active = await accountService.readActiveJsonV17()
-    expect(active.currentAccount).toBe('my-work')
+    // D12：active.json 指针保持不变（新增 ≠ 切换）
+    const activeAfter = await accountService.readActiveJsonV17()
+    expect(activeAfter.currentAccount).toBe(activeBefore.currentAccount)
   })
 
   test('finalizeLogin 非法名 → INVALID_NAME，不动 anon', async () => {

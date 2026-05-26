@@ -15,19 +15,28 @@
   --color-primary: #2563eb;
   --color-primary-hover: #1d4ed8;
   --color-primary-light: #eff6ff;
+  --color-primary-tint: #bfdbfe;            /* 选中卡片边框 */
 
   /* ── Color: Semantic ────────────────────────────────── */
   --color-success: #16a34a;
   --color-success-bg: #f0fdf4;
+  --color-success-solid: #5a9a6e;           /* "已推送"沉绿，比 success 暗一档 */
+  --color-success-solid-bg: #eef6f0;
   --color-danger: #dc2626;
   --color-danger-bg: #fef2f2;
   --color-warning: #d97706;
   --color-warning-bg: #fffbeb;
   --color-warning-border: #fcd34d;
+  --color-warning-pill-bg: #fef3c7;         /* 侧栏新版本 pill 背景 */
+  --color-warning-pill-fg: #92400e;         /* 侧栏新版本 pill 文字 */
 
-  /* ── Color: Brand ───────────────────────────────────── */
-  --color-claude: #6b5ce7;
-  --color-codex: #e67e22;
+  /* ── Color: Brand ─────────────────────────────────────
+     工具品牌色，仅用于 36px 工具方块和偶尔的 pill，不上正文。 */
+  --brand-claude: #6b5ce7;
+  --brand-codex: #e67e22;
+  --brand-cursor: #2ecc71;
+  --brand-trae: #1a9aff;
+  --brand-custom: #9b9b9b;
 
   /* ── Color: Text ────────────────────────────────────── */
   --text-primary: #1a1d23;
@@ -39,6 +48,9 @@
   --bg-base: #fff;
   --bg-subtle: #f8f9fb;
   --bg-muted: #eef0f4;
+  --bg-titlebar: #eef0f4;                   /* macOS 标题栏占位 */
+  --bg-content: #eef0f4;                    /* 白卡背后的画布 */
+  --bg-sidebar: #f8f9fb;                    /* 侧栏 */
 
   /* ── Color: Border ──────────────────────────────────── */
   --border-light: #f0f1f4;
@@ -47,6 +59,16 @@
 
   /* ── Shadow ─────────────────────────────────────────── */
   --shadow-card: 0 2px 20px rgba(0, 0, 0, 0.05), 0 0 0 1px rgba(0, 0, 0, 0.03);
+  --shadow-modal: 0 10px 40px rgba(0, 0, 0, 0.12);
+
+  /* Toast 语义阴影：颜色与 toast 自身配色一致，看起来"由内透出" */
+  --shadow-toast-info: 0 4px 16px rgba(37, 99, 235, 0.25);
+  --shadow-toast-success: 0 4px 16px rgba(22, 163, 74, 0.25);
+  --shadow-toast-error: 0 4px 16px rgba(220, 38, 38, 0.25);
+  --shadow-toast-warning: 0 4px 16px rgba(217, 119, 6, 0.25);
+
+  /* 品牌 logo 的蓝色 drop-shadow（chrome 中唯一的"暖"元素） */
+  --shadow-brand-logo: drop-shadow(0 2px 8px rgba(37, 99, 235, 0.2));
 
   /* ── Typography ─────────────────────────────────────── */
   --font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC',
@@ -70,6 +92,7 @@
   --space-7: 28px;
   --space-8: 32px;
   --space-10: 40px;
+  --space-12: 48px;
 
   /* ── Border Radius ──────────────────────────────────── */
   --radius-sm: 6px;

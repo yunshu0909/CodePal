@@ -18,6 +18,18 @@ import Toggle from '../components/Toggle'
 import Checkbox from '../components/Checkbox'
 import './ComponentPreviewPage.css'
 
+const COLOR_TOKEN_PREVIEW = [
+  { name: 'Primary', token: '--color-primary', value: '#2563eb' },
+  { name: 'Success', token: '--color-success', value: '#16a34a' },
+  { name: 'Warning', token: '--color-warning', value: '#d97706' },
+  { name: 'Danger', token: '--color-danger', value: '#dc2626' },
+  { name: 'Text', token: '--text-primary', value: '#1a1d23' },
+  { name: 'Muted', token: '--bg-muted', value: '#eef0f4' },
+]
+
+const TEXT_TOKEN_PREVIEW = ['--text-xl', '--text-lg', '--text-md', '--text-base', '--text-sm', '--text-xs']
+const RADIUS_TOKEN_PREVIEW = ['--radius-sm', '--radius-md', '--radius-lg', '--radius-xl', '--radius-2xl', '--radius-3xl']
+
 // ── 区块容器 ──────────────────────────────────────────────
 function Section({ title, children }) {
   return (
@@ -38,6 +50,10 @@ function Row({ label, children }) {
   )
 }
 
+/**
+ * 组件库预览页
+ * @returns {React.ReactElement}
+ */
 export default function ComponentPreviewPage() {
   // SearchInput
   const [searchVal, setSearchVal] = useState('')
@@ -61,6 +77,40 @@ export default function ComponentPreviewPage() {
 
   return (
     <PageShell title="组件库预览" subtitle="所有基础组件的变体与状态一览">
+
+      {/* ── Tokens ─────────────────────────────────────── */}
+      <Section title="Design Tokens">
+        <Row label="颜色">
+          <div className="cp-token-grid">
+            {COLOR_TOKEN_PREVIEW.map((color) => (
+              <div className="cp-color-token" key={color.token}>
+                <span className="cp-color-token__swatch" style={{ background: `var(${color.token})` }} />
+                <span className="cp-color-token__name">{color.name}</span>
+                <code>{color.token}</code>
+                <span className="cp-color-token__value">{color.value}</span>
+              </div>
+            ))}
+          </div>
+        </Row>
+        <Row label="字号">
+          <div className="cp-token-inline">
+            {TEXT_TOKEN_PREVIEW.map((token) => (
+              <span className="cp-text-token" style={{ fontSize: `var(${token})` }} key={token}>
+                {token}
+              </span>
+            ))}
+          </div>
+        </Row>
+        <Row label="圆角">
+          <div className="cp-token-inline">
+            {RADIUS_TOKEN_PREVIEW.map((token) => (
+              <span className="cp-radius-token" style={{ borderRadius: `var(${token})` }} key={token}>
+                {token}
+              </span>
+            ))}
+          </div>
+        </Row>
+      </Section>
 
       {/* ── Button ─────────────────────────────────────── */}
       <Section title="Button">

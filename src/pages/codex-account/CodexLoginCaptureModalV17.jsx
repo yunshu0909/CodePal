@@ -153,6 +153,7 @@ export default function CodexLoginCaptureModalV17({
               onKeyDown={(e) => { if (e.key === 'Enter') handleSubmit() }}
               disabled={isSubmitting}
             />
+            <p className="codex-login-capture__hint">保存后会加入到账户列表，但不会切换为当前账号。需要使用时在卡片上点「切换」。</p>
             {errorMsg && <div className="codex-login-capture__error">{errorMsg}</div>}
           </div>
         )}

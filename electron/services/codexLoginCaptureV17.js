@@ -8,7 +8,7 @@
  *   4. chokidar 监听 anon-<ts>/.codex/auth.json 出现
  *   5. 出现后 emit 'auth-captured' 事件，等用户输入账户名
  *   6. 用户输入 → 调 finalizeLogin(name)
- *   7. atomic rename anon-<ts> → name；可选暖 .system；更新 active.json
+ *   7. atomic rename anon-<ts> → name；可选暖 .system；**不**更新 active.json（D12：新增 ≠ 切换）
  *
  * 异常：
  *   - 5 分钟内 auth.json 未出现 → 自动清理 anon → emit 'login-timeout'
@@ -143,8 +143,9 @@ class CodexLoginCaptureV17 extends EventEmitter {
       this.logger.warn?.(`[login-capture] warm .system after finalize failed (continuing): ${err.message}`)
     }
 
-    // 设为 active
-    await accountService.writeActiveJsonV17({ currentAccount: desiredName })
+    // D12：新增账号不再自动激活——保持当前 active.json 指针不变。
+    // 新账号以 inactive 状态加入列表，用户需要时再点卡片上的"切换"。
+    // 避免新增动作打断用户在原账号上的工作上下文。
 
     // 清理 session
     this._cleanupSession(sessionId, /* preserveDir= */ true)
