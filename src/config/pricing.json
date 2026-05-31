@@ -1,8 +1,15 @@
 {
-  "version": "2026-04-25",
-  "updatedAt": "2026-04-25",
+  "version": "2026-05-31",
+  "updatedAt": "2026-05-31",
   "exchangeRate": 7.22,
   "models": {
+    "claude-opus-4-8": {
+      "displayName": "Claude Opus 4.8",
+      "input": 5.00,
+      "output": 25.00,
+      "cacheRead": 0.50,
+      "cacheWrite": 6.25
+    },
     "claude-opus-4-7": {
       "displayName": "Claude Opus 4.7",
       "input": 5.00,

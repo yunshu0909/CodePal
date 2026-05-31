@@ -25,6 +25,7 @@ const HARDCODED_PRICING_FALLBACK = Object.freeze({
   updatedAt: null,
   exchangeRate: 7.22,
   models: {
+    'claude-opus-4-8': { displayName: 'Claude Opus 4.8', input: 5.0, output: 25.0, cacheRead: 0.5, cacheWrite: 6.25 },
     'claude-opus-4-7': { displayName: 'Claude Opus 4.7', input: 5.0, output: 25.0, cacheRead: 0.5, cacheWrite: 6.25 },
     'claude-opus-4-6': { displayName: 'Claude Opus 4.6', input: 5.0, output: 25.0, cacheRead: 0.5, cacheWrite: 6.25 },
     'claude-sonnet-4-6': { displayName: 'Claude Sonnet 4.6', input: 3.0, output: 15.0, cacheRead: 0.3, cacheWrite: 3.75 },
