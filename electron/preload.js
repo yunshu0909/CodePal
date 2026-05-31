@@ -405,6 +405,53 @@ contextBridge.exposeInMainWorld('electronAPI', {
    */
   getPricingRegistry: () => ipcRenderer.invoke('pricing-registry:get'),
 
+  // K28 状态灯 APIs
+
+  /**
+   * 获取 K28 状态灯配置与运行状态
+   * @returns {Promise<{success: boolean, data?: object, error?: string|null}>}
+   */
+  getK28StatusLightState: () => ipcRenderer.invoke('k28-status-light:get-state'),
+
+  /**
+   * 一键安装或修复 K28 状态灯底层脚本、Python 依赖和 hooks
+   * @returns {Promise<{success: boolean, steps?: Array, state?: object|null, error?: string|null}>}
+   */
+  installK28StatusLight: () => ipcRenderer.invoke('k28-status-light:install'),
+
+  /**
+   * 保存 K28 状态灯配置；API Key 空值表示保留旧值
+   * @param {Object} updates - 配置更新
+   * @returns {Promise<{success: boolean, data?: object, backupPath?: string|null, error?: string|null}>}
+   */
+  saveK28StatusLightConfig: (updates) => ipcRenderer.invoke('k28-status-light:save-config', updates),
+
+  /**
+   * 测试 K28 豆包语音播报
+   * @param {string} text - 测试文本
+   * @returns {Promise<{success: boolean, error?: string|null}>}
+   */
+  testK28Voice: (text) => ipcRenderer.invoke('k28-status-light:test-voice', text),
+
+  /**
+   * 测试 K28 状态灯颜色
+   * @param {'busy'|'done'|'attention'|'idle'} state - 状态
+   * @returns {Promise<{success: boolean, error?: string|null}>}
+   */
+  testK28Light: (state) => ipcRenderer.invoke('k28-status-light:test-light', state),
+
+  /**
+   * 清空 K28 状态文件并回到待机图案
+   * @returns {Promise<{success: boolean, error?: string|null}>}
+   */
+  clearK28States: () => ipcRenderer.invoke('k28-status-light:clear-states'),
+
+  /**
+   * 打开 K28 全局工具目录
+   * @returns {Promise<{success: boolean, error?: string|null}>}
+   */
+  openK28Directory: () => ipcRenderer.invoke('k28-status-light:open-directory'),
+
   // Claude Code 会员额度状态 APIs
 
   /**

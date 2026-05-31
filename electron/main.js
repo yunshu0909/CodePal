@@ -67,6 +67,7 @@ const { registerCodexAccountHandlers, stopCodexAccountWatcher } = require('./han
 const { registerCodexAccountHandlersV17 } = require('./handlers/registerCodexAccountHandlersV17')
 const { bootstrapV17 } = require('./services/codexBootstrapV17')
 const { registerDocBrowserHandlers } = require('./handlers/registerDocBrowserHandlers')
+const { registerK28StatusLightHandlers } = require('./handlers/registerK28StatusLightHandlers')
 const { initDocBrowserStore } = require('./services/docBrowserService')
 const { startIpMonitor } = require('./services/networkDiagnosticsService')
 const { registerRepoWatcherHandlers } = require('./handlers/registerRepoWatcherHandlers')
@@ -195,6 +196,7 @@ app.whenReady().then(async () => {
 
   registerModelRegistryHandlers({ ipcMain })
   registerPricingRegistryHandlers({ ipcMain })
+  registerK28StatusLightHandlers({ ipcMain, shell })
 
   createWindow()
 

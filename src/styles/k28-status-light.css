@@ -1,0 +1,348 @@
+/**
+ * K28 状态灯页面样式（方案 A：状态条 + 双栏控制台）
+ *
+ * 使用 Cool Steel design tokens，保持桌面工具密度。
+ * 子卡片一律 1.5px 边框 + radius-2xl，不叠阴影。
+ *
+ * @module styles/k28-status-light
+ */
+
+.k28-page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+  padding: var(--space-6) var(--space-8) var(--space-8);
+}
+
+.k28-mono {
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+  color: var(--text-primary);
+}
+
+/* ===== 状态小圆点 ===== */
+.k28-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: var(--radius-full);
+  flex-shrink: 0;
+  display: inline-block;
+}
+.k28-dot--success { background: var(--color-success); }
+.k28-dot--danger { background: var(--color-danger); }
+.k28-dot--warning { background: var(--color-warning); }
+.k28-dot--idle { background: var(--text-placeholder); }
+
+/* ===== 状态总览条 ===== */
+.k28-statusbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-5);
+  flex-wrap: wrap;
+  background: var(--bg-subtle);
+  border: 1.5px solid var(--border-default);
+  border-radius: var(--radius-2xl);
+  padding: var(--space-4) var(--space-5);
+}
+
+.k28-statusbar-lead {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.k28-statusbar-state {
+  font-size: var(--text-base);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.k28-statusbar-path {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+  margin-left: var(--space-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 280px;
+}
+
+.k28-statusbar-divider {
+  width: 1.5px;
+  align-self: stretch;
+  background: var(--border-default);
+  margin: 0 var(--space-1);
+}
+
+.k28-statusbar-metrics {
+  display: flex;
+  align-items: center;
+  gap: var(--space-5);
+  flex-wrap: wrap;
+}
+
+.k28-metric {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+  min-width: 0;
+}
+
+.k28-metric-label { color: var(--text-tertiary); }
+
+.k28-metric-value {
+  color: var(--text-primary);
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 200px;
+}
+
+/* ===== 双栏 ===== */
+.k28-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 5fr) minmax(0, 6fr);
+  gap: var(--space-5);
+  align-items: start;
+}
+
+.k28-col {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+
+/* ===== 子卡 ===== */
+.k28-card {
+  background: var(--bg-base);
+  border: 1.5px solid var(--border-default);
+  border-radius: var(--radius-2xl);
+  overflow: hidden;
+}
+
+.k28-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-5);
+  border-bottom: 1.5px solid var(--border-light);
+}
+
+.k28-card-title {
+  font-size: var(--text-md);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.k28-card-sub {
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+  margin-top: 3px;
+}
+
+.k28-card-body { padding: var(--space-4) var(--space-5); }
+
+/* 「已关闭态」配置卡顶部提示条：浅灰底 + 1.5px 下边框，非警示色 */
+.k28-card-hint {
+  padding: var(--space-3) var(--space-5);
+  background: var(--bg-subtle);
+  border-bottom: 1.5px solid var(--border-light);
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+}
+
+/* ===== 分隔 ===== */
+.k28-sep {
+  height: 0;
+  border-top: 1.5px solid var(--border-light);
+  margin: var(--space-4) 0;
+}
+
+/* ===== 开关行 ===== */
+.k28-switch {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: var(--space-3) 0;
+}
+.k28-switch + .k28-switch { border-top: 1.5px solid var(--border-light); }
+
+.k28-switch-info { flex: 1; min-width: 0; }
+
+.k28-switch-name {
+  font-size: var(--text-base);
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.k28-switch-desc {
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+  margin-top: 3px;
+  line-height: 1.45;
+}
+
+/* ===== 自检 / session 行 ===== */
+.k28-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-3) 0;
+}
+.k28-row + .k28-row { border-top: 1.5px solid var(--border-light); }
+
+.k28-row-main {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 0;
+  flex: 1;
+}
+
+.k28-row-info { min-width: 0; }
+
+.k28-row-name {
+  font-size: var(--text-base);
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.k28-row-desc {
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+  margin-top: 2px;
+}
+
+/* ===== 活跃 session ===== */
+.k28-session-scroll {
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.k28-sess-name-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.k28-sess-name {
+  font-size: var(--text-base);
+  font-weight: 500;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* session 来源标：品牌色文字 + 同色 1.5px 边框，不上正文色 */
+.k28-source {
+  flex-shrink: 0;
+  font-size: var(--text-2xs);
+  font-weight: 600;
+  line-height: 1.4;
+  padding: 1px 7px;
+  border-radius: var(--radius-full);
+  border: 1.5px solid currentColor;
+  background: var(--bg-subtle);
+}
+
+.k28-source--claude { color: var(--brand-claude); }
+.k28-source--codex { color: var(--brand-codex); }
+
+.k28-sess-task {
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  margin-top: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.k28-sess-aside {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-shrink: 0;
+}
+
+.k28-sess-time {
+  font-size: var(--text-2xs);
+  color: var(--text-tertiary);
+  font-family: var(--font-mono);
+  white-space: nowrap;
+}
+
+/* ===== 空态 ===== */
+.k28-empty {
+  padding: var(--space-6) var(--space-5);
+  border: 1.5px dashed var(--border-default);
+  border-radius: var(--radius-xl);
+  background: var(--bg-base);
+  color: var(--text-tertiary);
+  font-size: var(--text-sm);
+  text-align: center;
+}
+
+.k28-empty-hint {
+  margin-top: var(--space-1);
+  font-size: var(--text-xs);
+  color: var(--text-placeholder);
+}
+
+/* ===== 未安装引导卡 ===== */
+.k28-install {
+  max-width: 520px;
+  margin: 0 auto;
+  border: 1.5px solid var(--border-default);
+  border-radius: var(--radius-2xl);
+  background: var(--bg-base);
+  padding: var(--space-7);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: var(--space-3);
+}
+
+.k28-install-title {
+  font-size: var(--text-lg);
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.k28-install-text {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+
+.k28-install-steps {
+  margin: 0;
+  padding-left: var(--space-5);
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
+
+.k28-install-hint {
+  margin-top: var(--space-2);
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+}
+
+@media (max-width: 980px) {
+  .k28-grid {
+    grid-template-columns: 1fr;
+  }
+}

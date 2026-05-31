@@ -20,7 +20,7 @@ import brandLogo from '../assets/codepal-logo.png'
  * 工作台布局组件
  * @param {Object} props
  * @param {React.ReactNode} props.children - 内容区域要渲染的子元素
- * @param {'skills'|'mcp'|'usage'|'claude-usage'|'codex-accounts'|'api'|'project-init'|'permission'|'network'|'sessions'|'doc-browser'} props.activeModule - 当前激活的模块
+ * @param {'skills'|'mcp'|'usage'|'claude-usage'|'codex-accounts'|'api'|'project-init'|'permission'|'network'|'k28-status-light'|'sessions'|'doc-browser'} props.activeModule - 当前激活的模块
  * @param {function} props.onModuleChange - 模块切换回调函数
  * @param {boolean} props.hasUpdate - 是否有新版本可用
  * @param {function} props.onUpdateClick - 点击更新按钮的回调
@@ -39,7 +39,8 @@ function WorkbenchLayout({ children, activeModule, onModuleChange, hasUpdate, on
         // 'api' 模块 v1.5.0 起从侧栏隐藏：短期内不使用，代码和路由保留，未来需要时恢复此条即可
         { id: 'permission', label: '启动模式', icon: '🛡️' },
         { id: 'project-init', label: '新建项目', icon: '🚀' },
-        { id: 'network', label: '网络诊断', icon: '🌐' }
+        { id: 'network', label: '网络诊断', icon: '🌐' },
+        { id: 'k28-status-light', label: '状态灯', icon: '🚦' }
       ]
     },
     {

@@ -1,0 +1,97 @@
+/**
+ * API Key 字段样式
+ *
+ * 展示态 / 编辑态 / 未配置态共用一套行布局，遵守 Cool Steel 视觉不变量。
+ *
+ * @module components/ApiKeyField
+ */
+
+.api-key {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: var(--space-3) 0;
+}
+
+.api-key + .api-key {
+  border-top: 1.5px solid var(--border-light);
+}
+
+/* 编辑态下输入框在标签下方，操作按钮底对齐 */
+.api-key--editing {
+  align-items: flex-end;
+}
+
+.api-key-info {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+}
+
+.api-key-label {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+
+.api-key-status {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: 4px;
+  font-size: var(--text-base);
+  color: var(--text-primary);
+}
+
+.api-key-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: var(--radius-full);
+  background: var(--color-success);
+  flex-shrink: 0;
+}
+
+.api-key-mask {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--text-tertiary);
+  letter-spacing: 1px;
+}
+
+.api-key-input {
+  width: 100%;
+  min-width: 0;
+  height: 34px;
+  margin-top: 6px;
+  padding: 0 var(--space-3);
+  border: 1.5px solid var(--border-default);
+  border-radius: var(--radius-md);
+  background: var(--bg-base);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.api-key-input::placeholder {
+  color: var(--text-placeholder);
+  font-family: var(--font-family);
+}
+
+.api-key-input:hover {
+  border-color: var(--border-strong);
+}
+
+.api-key-input:focus {
+  outline: none;
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+}
+
+.api-key-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-shrink: 0;
+}
