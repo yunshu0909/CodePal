@@ -11,6 +11,7 @@ vi.mock('@/store/fs.js', () => ({
   writeConfig: vi.fn(),
   selectFolder: vi.fn(),
   scanCustomPath: vi.fn(),
+  compareSkillContent: vi.fn(),
 }))
 
 import { ensureDir, readConfig, writeConfig } from '@/store/fs.js'
@@ -90,8 +91,10 @@ describe('dataStore V0.5 单元测试', () => {
       },
     })
 
-    ensureDir.mockResolvedValueOnce({ success: true })
-    writeConfig.mockResolvedValueOnce({ success: true })
+    // setRepoPath 现在除目标路径外，还会在默认路径写一份锚点配置（多一轮 ensureDir + writeConfig），
+    // 因此成功路径用默认 mock 覆盖全部调用，失败路径再用 mockResolvedValueOnce 优先命中。
+    ensureDir.mockResolvedValue({ success: true })
+    writeConfig.mockResolvedValue({ success: true })
 
     const ok = await dataStore.setRepoPath('/tmp/v05-repo')
     expect(ok.success).toBe(true)

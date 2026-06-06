@@ -26,6 +26,14 @@ vi.mock('@/store/data.js', () => ({
     isPushed: vi.fn(),
     pushSkills: vi.fn(),
     unpushSkills: vi.fn(),
+    // ManagePage 现在通过 useTagManagement 加载标签数据，补齐相关方法避免 mock 缺失
+    getTags: vi.fn(),
+    getSkillTags: vi.fn(),
+    setSkillTag: vi.fn(),
+    removeSkillTag: vi.fn(),
+    createTag: vi.fn(),
+    renameTag: vi.fn(),
+    deleteTag: vi.fn(),
   },
 }))
 
@@ -70,6 +78,8 @@ describe('ManagePage 历史回归批量流 (V0.4)', () => {
     dataStore.isPushed.mockImplementation(async (_toolId, skillName) => skillName === 'beta')
     dataStore.pushSkills.mockResolvedValue({ success: true, pushedCount: 1, errors: null })
     dataStore.unpushSkills.mockResolvedValue({ success: true, unpushedCount: 1, errors: null })
+    dataStore.getTags.mockResolvedValue([])
+    dataStore.getSkillTags.mockResolvedValue({})
   })
 
   afterEach(() => {
@@ -147,7 +157,8 @@ describe('ManagePage 历史回归批量流 (V0.4)', () => {
     })
 
     await waitUntil(() => {
-      expect(container.textContent).toContain('Skill Manager')
+      // 页面标题由历史的 "Skill Manager" 改为当前的 "Skills 管理"
+      expect(container.textContent).toContain('Skills 管理')
     })
 
     const configButton = findButtonByText(container, '配置')

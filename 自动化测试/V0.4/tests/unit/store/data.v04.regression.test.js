@@ -21,6 +21,7 @@ vi.mock('@/store/fs.js', () => ({
   writeConfig: vi.fn(),
   selectFolder: vi.fn(),
   scanCustomPath: vi.fn(),
+  compareSkillContent: vi.fn(),
 }))
 
 import {

@@ -22,6 +22,7 @@ vi.mock('@/store/fs.js', () => ({
   writeConfig: vi.fn(),
   selectFolder: vi.fn(),
   scanCustomPath: vi.fn(),
+  compareSkillContent: vi.fn(),
 }))
 
 import {
@@ -34,6 +35,7 @@ import {
   writeConfig,
   scanCustomPath,
   selectFolder,
+  compareSkillContent,
 } from '@/store/fs.js'
 
 /**
@@ -458,6 +460,13 @@ describe('dataStore V0.4 Full Coverage (Unit)', () => {
     })
     copySkill.mockResolvedValue({ success: true, error: null })
     writeConfig.mockResolvedValue({ success: true, error: null })
+    // 已存在的 existing-skill 走内容比对分支：内容一致则跳过，保证 skipped=1
+    compareSkillContent.mockResolvedValue({
+      success: true,
+      isDifferent: false,
+      sourceMtime: 0,
+      targetMtime: 0,
+    })
 
     const result = await dataStore.autoIncrementalRefresh()
 

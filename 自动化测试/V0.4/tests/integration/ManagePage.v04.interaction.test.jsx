@@ -25,6 +25,14 @@ vi.mock('@/store/data.js', () => ({
     isPushed: vi.fn(),
     pushSkills: vi.fn(),
     unpushSkills: vi.fn(),
+    // ManagePage 现在通过 useTagManagement 加载标签数据，补齐相关方法避免 mock 缺失
+    getTags: vi.fn(),
+    getSkillTags: vi.fn(),
+    setSkillTag: vi.fn(),
+    removeSkillTag: vi.fn(),
+    createTag: vi.fn(),
+    renameTag: vi.fn(),
+    deleteTag: vi.fn(),
   },
 }))
 
@@ -52,6 +60,8 @@ describe('ManagePage V0.4 Interaction (Integration)', () => {
     dataStore.isPushed.mockImplementation(async (_toolId, skillName) => skillName === 'beta')
     dataStore.pushSkills.mockResolvedValue({ success: true, pushedCount: 1, errors: null })
     dataStore.unpushSkills.mockResolvedValue({ success: true, unpushedCount: 1, errors: null })
+    dataStore.getTags.mockResolvedValue([])
+    dataStore.getSkillTags.mockResolvedValue({})
   })
 
   afterEach(() => {
@@ -93,7 +103,7 @@ describe('ManagePage V0.4 Interaction (Integration)', () => {
     fireEvent.click(screen.getByRole('button', { name: '推送' }))
     await flushMicrotasks()
 
-    expect(screen.getByText('未配置推送目标，请先点击右上角“配置”')).toBeTruthy()
+    expect(screen.getByText('未配置推送目标，请先点击右上角”配置”')).toBeTruthy()
     expect(dataStore.pushSkills).toHaveBeenCalledTimes(0)
   })
 

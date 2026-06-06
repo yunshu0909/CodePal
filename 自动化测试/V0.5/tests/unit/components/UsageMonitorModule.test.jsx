@@ -20,13 +20,16 @@ describe('UsageMonitorModule (V0.5)', () => {
     container.remove()
   })
 
-  it('渲染用量监测占位页', () => {
+  it('渲染真实用量监测页', () => {
+    // 用量监测已从占位页演进为真实用量页（UsageMonitorPage）。
+    // 这些文案在无 electronAPI 时也会同步渲染，校验页面骨架已正确挂载。
     act(() => {
       root.render(<UsageMonitorModule />)
     })
 
     expect(container.textContent).toContain('用量监测')
-    expect(container.textContent).toContain('当前版本为模块占位')
-    expect(container.textContent).toContain('指标卡片占位')
+    expect(container.textContent).toContain('追踪 Token 消耗与预算执行情况')
+    expect(container.textContent).toContain('总 Token')
+    expect(container.textContent).toContain('预估费用')
   })
 })

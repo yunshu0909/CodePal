@@ -229,7 +229,8 @@ describe('AddPathModal V0.4 Behavior (Unit)', () => {
     })
 
     expect(onConfirm).toHaveBeenCalledTimes(1)
-    expect(screen.getByRole('button', { name: '添加中...' }).disabled).toBe(true)
+    // 确认按钮在提交中保持文案为“确认添加”，仅通过 loading 态自动 disabled
+    expect(screen.getByRole('button', { name: '确认添加' }).disabled).toBe(true)
 
     resolveSubmit()
     await flushMicrotasks()

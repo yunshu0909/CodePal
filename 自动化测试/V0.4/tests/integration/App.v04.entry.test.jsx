@@ -65,6 +65,10 @@ describe('App 历史回归入口流 (V0.4)', () => {
     document.body.appendChild(container)
     root = createRoot(container)
 
+    // App 现在默认进入 permission 模块，并从 localStorage 恢复上次模块。
+    // 这些用例验证的是 skills 模块的启动分流，渲染前先钉到 skills 模块。
+    localStorage.setItem('codepal-active-module', 'skills')
+
     vi.clearAllMocks()
     dataStore.hasCentralSkills.mockResolvedValue(true)
     dataStore.isFirstEntryAfterImport.mockResolvedValue(false)
@@ -85,6 +89,7 @@ describe('App 历史回归入口流 (V0.4)', () => {
       root.unmount()
     })
     container.remove()
+    localStorage.clear()
   })
 
   it('IT-01: 中央仓库有数据时进入 workbench', async () => {

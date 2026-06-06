@@ -11,18 +11,25 @@ vi.mock('@/store/data.js', () => ({
     getLastImportedToolIds: vi.fn(),
     initPushTargetsAfterImport: vi.fn(),
     setFirstEntryAfterImport: vi.fn(),
+    // App 进入工作台后会触发一次自动增量刷新，补齐以避免运行时缺方法
+    autoIncrementalRefresh: vi.fn(),
   },
 }))
 
+// SkillManagerModule 现在内部托管 manage/import 子页面路由：
+// App 仅通过 initialPage 决定初始子页，并在导入完成时收到 onAfterImport 回调。
+// mock 据此还原当前真实行为：import 初始页渲染“导入页”并提供“完成导入”入口。
 vi.mock('@/components/SkillManagerModule.jsx', () => ({
-  default: () => <div data-testid="skills-module">技能管理模块</div>,
-}))
-
-vi.mock('@/pages/ImportPage.jsx', () => ({
-  default: ({ onImportComplete }) => (
-    <div>
-      <div data-testid="import-page">导入页</div>
-      <button onClick={onImportComplete}>完成导入</button>
+  default: ({ initialPage, onAfterImport }) => (
+    <div data-testid="skills-module">
+      {initialPage === 'import' ? (
+        <>
+          <div data-testid="import-page">导入页</div>
+          <button onClick={onAfterImport}>完成导入</button>
+        </>
+      ) : (
+        <div>技能管理模块</div>
+      )}
     </div>
   ),
 }))
@@ -51,12 +58,23 @@ describe('App Workbench Flow (V0.5)', () => {
     document.body.appendChild(container)
     root = createRoot(container)
 
+    // App 现在默认进入 permission 模块，并从 localStorage 恢复上次模块。
+    // 这些用例验证 skills 模块的启动分流，渲染前先钉到 skills 模块。
+    localStorage.setItem('codepal-active-module', 'skills')
+
     vi.clearAllMocks()
     dataStore.hasCentralSkills.mockResolvedValue(true)
     dataStore.isFirstEntryAfterImport.mockResolvedValue(false)
     dataStore.getLastImportedToolIds.mockReturnValue(['claude-code'])
     dataStore.initPushTargetsAfterImport.mockResolvedValue({ success: true })
     dataStore.setFirstEntryAfterImport.mockResolvedValue({ success: true })
+    dataStore.autoIncrementalRefresh.mockResolvedValue({
+      success: true,
+      added: 0,
+      skipped: 0,
+      scannedSources: 0,
+      errors: null,
+    })
   })
 
   afterEach(() => {
@@ -64,6 +82,7 @@ describe('App Workbench Flow (V0.5)', () => {
       root.unmount()
     })
     container.remove()
+    localStorage.clear()
   })
 
   it('有中央仓库数据时默认进入 workbench', async () => {
@@ -115,16 +134,19 @@ describe('App Workbench Flow (V0.5)', () => {
     const usageButton = [...navButtons].find((button) =>
       button.textContent.includes('用量监测')
     )
+    // 技能导航标签由历史的 "技能管理" 改为当前的 "Skills 管理"
     const skillsButton = [...navButtons].find((button) =>
-      button.textContent.includes('技能管理')
+      button.textContent.includes('Skills 管理')
     )
 
     await act(async () => {
       usageButton.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     })
 
+    // 用量监测已从占位页演进为真实用量页，校验其特有的“总 Token”概览卡片
+    // （该文案只出现在用量页，不会与侧栏导航标签重叠）
     await waitUntil(() => {
-      expect(container.textContent).toContain('当前版本为模块占位')
+      expect(container.textContent).toContain('总 Token')
     })
 
     await act(async () => {

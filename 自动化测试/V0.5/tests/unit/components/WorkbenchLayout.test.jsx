@@ -30,7 +30,8 @@ describe('WorkbenchLayout (V0.5)', () => {
     })
 
     const buttons = container.querySelectorAll('.nav-item')
-    const skillsButton = [...buttons].find((button) => button.textContent.includes('技能管理'))
+    // 技能导航标签由历史的 "技能管理" 改为当前的 "Skills 管理"
+    const skillsButton = [...buttons].find((button) => button.textContent.includes('Skills 管理'))
     const usageButton = [...buttons].find((button) => button.textContent.includes('用量监测'))
 
     expect(skillsButton).toBeTruthy()
@@ -73,7 +74,8 @@ describe('WorkbenchLayout (V0.5)', () => {
     })
 
     const buttons = container.querySelectorAll('.nav-item')
-    const skillsButton = [...buttons].find((button) => button.textContent.includes('技能管理'))
+    // 技能导航标签由历史的 "技能管理" 改为当前的 "Skills 管理"
+    const skillsButton = [...buttons].find((button) => button.textContent.includes('Skills 管理'))
 
     act(() => {
       skillsButton.dispatchEvent(new MouseEvent('click', { bubbles: true }))
