@@ -159,13 +159,12 @@ export function createImportService(deps) {
     }
 
     const config = await deps.getConfig()
+    // 保留式重建：重新导入只该重置推送状态（随后 importSkills 会重新填充）
+    // 和首次进入标记；绝不能顺手清掉 tags / skillTags 等其它用户配置，
+    // 也不能漏掉未来新增的字段，因此用 ...config 展开保留全部现有配置。
     const newConfig = {
-      version: '0.4',
-      repoPath: config.repoPath || deps.DEFAULT_REPO_PATH,
-      customPaths: config.customPaths || [],
+      ...config,
       pushStatus: {},
-      pushTargets: config.pushTargets || [],
-      importSources: config.importSources || [],
       firstEntryAfterImport: false,
     }
     await deps.saveConfig(newConfig)
@@ -258,7 +257,7 @@ export function createImportService(deps) {
   }
 
   /**
-   * 自动增量刷新导入来源（仅新增，不覆盖，不删除）
+   * 自动增量刷新导入来源（新增 + 仅当来源比中央更新时回拉覆盖，从不删除）
    * @returns {Promise<{success: boolean, added: number, skipped: number, scannedSources: number, errors: Array|null}>}
    */
   async function autoIncrementalRefresh() {
@@ -334,8 +333,10 @@ export function createImportService(deps) {
               const sourcePath = deps.getToolSkillPath(tool.path, skill.name)
               const targetPath = await deps.getCentralSkillPath(skill.name, repoPath)
               const cmp = await deps.compareSkillContent(sourcePath, targetPath)
-              if (cmp.success && cmp.isDifferent) {
-                // mtime 最新的来源赢
+              // 只有来源比中央更新时才回拉覆盖；中央更新或同时则跳过，
+              // 保护用户在中央侧的编辑不被工具目录里的旧版本冲掉
+              if (cmp.success && cmp.isDifferent && cmp.sourceMtime > cmp.targetMtime) {
+                // 多来源之间仍按 mtime 最新的来源赢
                 if (!updateCandidates[skill.name] || cmp.sourceMtime > updateCandidates[skill.name].mtime) {
                   updateCandidates[skill.name] = { sourcePath, mtime: cmp.sourceMtime }
                 }
@@ -398,7 +399,9 @@ export function createImportService(deps) {
                 const sourcePath = deps.getToolSkillPath(customToolPath, skill.name)
                 const targetPath = await deps.getCentralSkillPath(skill.name, repoPath)
                 const cmp = await deps.compareSkillContent(sourcePath, targetPath)
-                if (cmp.success && cmp.isDifferent) {
+                // 只有来源比中央更新时才回拉覆盖；中央更新或同时则跳过，
+                // 保护用户在中央侧的编辑不被来源里的旧版本冲掉
+                if (cmp.success && cmp.isDifferent && cmp.sourceMtime > cmp.targetMtime) {
                   if (!updateCandidates[skill.name] || cmp.sourceMtime > updateCandidates[skill.name].mtime) {
                     updateCandidates[skill.name] = { sourcePath, mtime: cmp.sourceMtime }
                   }

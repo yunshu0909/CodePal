@@ -719,7 +719,7 @@ ipcMain.handle('select-folder', async (event) => {
   }
 })
 
-// scan-preset-tools, scan-custom-path, check-path-exists, change-repo-path
+// scan-preset-tools, scan-custom-path, check-path-exists
 // 已迁移到 handlers/registerImportPageHandlers.js
 
 /**
@@ -734,12 +734,11 @@ registerSkillHandlers({
 })
 
 /**
- * 注册导入页面相关 IPC handlers（预设工具扫描、自定义路径、仓库迁移）
+ * 注册导入页面相关 IPC handlers（预设工具扫描、自定义路径、路径重复检查）
  */
 registerImportPageHandlers({
   ipcMain,
   expandHome,
-  pathExists,
 })
 
 /**

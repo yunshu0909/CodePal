@@ -138,7 +138,7 @@ export async function scanCustomPath(basePath) {
  * 比较两个技能目录的 SKILL.md 内容 hash
  * @param {string} sourcePath - 来源技能目录路径
  * @param {string} targetPath - 目标技能目录路径
- * @returns {Promise<{success: boolean, isDifferent: boolean, sourceMtime: number}>}
+ * @returns {Promise<{success: boolean, isDifferent: boolean, sourceMtime: number, targetMtime: number}>}
  */
 export async function compareSkillContent(sourcePath, targetPath) {
   if (!window.electronAPI?.compareSkillContent) {

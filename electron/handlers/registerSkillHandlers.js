@@ -633,7 +633,7 @@ async function scanCustomPathForSkills(customPath) {
  * @param {Object} params - 比较参数
  * @param {string} params.sourcePath - 来源技能目录路径
  * @param {string} params.targetPath - 目标技能目录路径
- * @returns {Promise<{success: boolean, isDifferent: boolean, sourceMtime: number}>}
+ * @returns {Promise<{success: boolean, isDifferent: boolean, sourceMtime: number, targetMtime: number}>}
  */
 ipcMain.handle('compare-skill-content', async (event, { sourcePath, targetPath }) => {
   try {
@@ -647,13 +647,15 @@ ipcMain.handle('compare-skill-content', async (event, { sourcePath, targetPath }
     const sourceExists = await pathExists(sourceSkillMd)
     const targetExists = await pathExists(targetSkillMd)
     if (!sourceExists || !targetExists) {
-      return { success: true, isDifferent: false, sourceMtime: 0 }
+      return { success: true, isDifferent: false, sourceMtime: 0, targetMtime: 0 }
     }
 
-    const [sourceContent, targetContent, sourceStat] = await Promise.all([
+    // 同时取两侧 mtime，供调用方判断方向（仅来源比中央更新时才回拉覆盖）
+    const [sourceContent, targetContent, sourceStat, targetStat] = await Promise.all([
       fs.readFile(sourceSkillMd, 'utf-8'),
       fs.readFile(targetSkillMd, 'utf-8'),
       fs.stat(sourceSkillMd),
+      fs.stat(targetSkillMd),
     ])
 
     const sourceHash = crypto.createHash('sha256').update(sourceContent).digest('hex')
@@ -663,10 +665,11 @@ ipcMain.handle('compare-skill-content', async (event, { sourcePath, targetPath }
       success: true,
       isDifferent: sourceHash !== targetHash,
       sourceMtime: sourceStat.mtimeMs,
+      targetMtime: targetStat.mtimeMs,
     }
   } catch (error) {
     console.error('Error comparing skill content:', error)
-    return { success: false, isDifferent: false, sourceMtime: 0 }
+    return { success: false, isDifferent: false, sourceMtime: 0, targetMtime: 0 }
   }
 })
 }

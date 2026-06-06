@@ -134,14 +134,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
   checkPathExists: (checkPath, existingPaths) => ipcRenderer.invoke('check-path-exists', checkPath, existingPaths),
 
   /**
-   * 更改中央仓库位置
-   * @param {string} newPath - 新仓库路径
-   * @param {string} currentPath - 当前仓库路径（用于数据迁移）
-   * @returns {Promise<{success: boolean, path: string, error: string|null}>} 更改结果
-   */
-  changeRepoPath: (newPath, currentPath) => ipcRenderer.invoke('change-repo-path', newPath, currentPath),
-
-  /**
    * 执行导入操作
    * 将选中的来源 skills 去重合并到中央仓库
    * @param {Object} params - 导入参数
@@ -485,7 +477,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   /**
    * 比较两个技能目录的 SKILL.md 内容 hash
    * @param {Object} params - { sourcePath, targetPath }
-   * @returns {Promise<{success: boolean, isDifferent: boolean, sourceMtime: number}>}
+   * @returns {Promise<{success: boolean, isDifferent: boolean, sourceMtime: number, targetMtime: number}>}
    */
   compareSkillContent: (params) => ipcRenderer.invoke('compare-skill-content', params),
 

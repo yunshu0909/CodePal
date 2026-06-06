@@ -454,13 +454,12 @@ export const dataStore = {
     }
 
     const config = await this.getConfig()
+    // 保留式重建：重新导入只该重置推送状态（随后 importSkills 会重新填充）
+    // 和首次进入标记；绝不能顺手清掉 tags / skillTags 等其它用户配置，
+    // 也不能漏掉未来新增的字段，因此用 ...config 展开保留全部现有配置。
     const newConfig = {
-      version: '0.4',
-      repoPath: config.repoPath || DEFAULT_REPO_PATH,
-      customPaths: config.customPaths || [],
+      ...config,
       pushStatus: {},
-      pushTargets: config.pushTargets || [],
-      importSources: config.importSources || [],
       firstEntryAfterImport: false,
     }
     await this.saveConfig(newConfig)
