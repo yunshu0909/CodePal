@@ -1,6 +1,6 @@
 {
-  "version": "2026-05-31",
-  "updatedAt": "2026-05-31",
+  "version": "2026-06-02",
+  "updatedAt": "2026-06-02",
   "exchangeRate": 7.22,
   "models": {
     "claude-opus-4-8": {

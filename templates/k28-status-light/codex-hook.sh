@@ -22,10 +22,17 @@ try:
     d=json.load(sys.stdin)
 except Exception:
     d={}
-is_internal = d.get('transcript_path') is None
+prompt = d.get('prompt') or ''
+hook_event = d.get('hook_event_name') or ''
+is_ambient = (
+    d.get('transcript_path') is None
+    or 'hyperpersonalized suggestions' in prompt
+    or 'Codex ambient suggestions' in prompt
+)
+is_internal = is_ambient and hook_event in ('SessionStart', 'UserPromptSubmit', 'Stop', '')
 print('1' if is_internal else '0')" 2>/dev/null)
 if [ "$IS_INTERNAL" = "1" ]; then
-  date +%s > "$DIR/codex-hook.last"
+  echo "skip_internal" >> "$DIR/codex-debug.log" 2>&1
   exit 0
 fi
 

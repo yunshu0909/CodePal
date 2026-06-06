@@ -33,6 +33,8 @@ CACHE = os.path.join(DIR, "tts_cache")
 LOCK = os.path.join(DIR, ".tts.lock")
 LOG = os.path.join(DIR, "tts-debug.log")
 API = "https://openspeech.bytedance.com/api/v3/tts/unidirectional"
+STRICT = os.environ.get("K28_TTS_STRICT") == "1"
+LAST_SYNTH_ERROR = ""
 
 
 def log(msg):
@@ -42,6 +44,14 @@ def log(msg):
             f.write(msg + "\n")
     except Exception:
         pass
+
+
+def fail(reason):
+    """Hook 默认静默失败；CodePal 测试模式下把失败暴露给页面。"""
+    log(reason)
+    if STRICT:
+        print(reason, file=sys.stderr)
+        sys.exit(1)
 
 
 def load_conf():
@@ -80,6 +90,15 @@ def ensure_local_output(cfg):
             ["SwitchAudioSource", "-s", target],
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
         )
+
+
+def play_audio(path):
+    """使用系统 afplay 直接播放豆包原始音频。"""
+    return subprocess.run(
+        ["afplay", path],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
 
 
 def _collect_audio(raw):
@@ -124,6 +143,8 @@ def _collect_audio(raw):
 
 def synth(text, cfg):
     """调用豆包 V3 TTS 合成并返回 mp3 字节；失败返回 None。"""
+    global LAST_SYNTH_ERROR
+    LAST_SYNTH_ERROR = ""
     try:
         timeout = max(3, min(60, int(float(cfg.get("TTS_TIMEOUT_SECONDS") or 30))))
     except ValueError:
@@ -155,10 +176,16 @@ def synth(text, cfg):
             return _collect_audio(resp.read())
     except urllib.error.HTTPError as e:
         # 鉴权/授权错误等，读出来便于排查；不回退系统 say，避免突然冒出 macOS 原声。
-        log(f"synth_http_error status={getattr(e, 'code', '')}")
+        try:
+            detail = e.read().decode("utf-8", "ignore").strip()[:500]
+        except Exception:
+            detail = ""
+        log(f"synth_http_error status={getattr(e, 'code', '')} body={detail}")
+        LAST_SYNTH_ERROR = f"豆包 TTS 鉴权失败，HTTP {getattr(e, 'code', '')}。请检查 VOLC_API_KEY 是否有效，以及资源 ID 是否有 seed-tts 权限。"
         return None
     except (urllib.error.URLError, TimeoutError, ValueError) as e:
         log(f"synth_error type={type(e).__name__} msg={e}")
+        LAST_SYNTH_ERROR = f"豆包 TTS 请求失败：{type(e).__name__}"
         return None
 
 
@@ -175,7 +202,7 @@ def main():
     elif len(sys.argv) > 1:
         text = sys.argv[1]
     if not text:
-        log("skip_empty_text")
+        fail("skip_empty_text")
         return
     cfg = load_conf()
 
@@ -191,7 +218,7 @@ def main():
 
         # 凭据不全时静默失败，避免突然冒出 macOS 原声。
         if not all(cfg.get(k) for k in ("VOLC_API_KEY", "VOLC_SPEAKER")):
-            log("skip_missing_config")
+            fail("skip_missing_config")
             return
 
         # 缓存键 = 音色 + 文本（换音色自动重新生成）
@@ -202,7 +229,7 @@ def main():
             log(f"cache_miss path={path}")
             audio = synth(text, cfg)
             if not audio:
-                log("skip_synth_failed")
+                fail(LAST_SYNTH_ERROR or "skip_synth_failed")
                 return
             with open(path, "wb") as f:
                 f.write(audio)
@@ -210,8 +237,10 @@ def main():
         else:
             log(f"cache_hit path={path}")
 
-        result = subprocess.run(["afplay", path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        result = play_audio(path)
         log(f"afplay_exit code={result.returncode} path={path}")
+        if result.returncode != 0:
+            fail(f"afplay_exit code={result.returncode}")
 
 
 if __name__ == "__main__":

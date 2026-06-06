@@ -63,6 +63,21 @@ if [ "$STATE" != "clear" ]; then
   case "$NAME" in /|.|"") exit 0 ;; esac
 fi
 
+# Codex Desktop 可能同时跑 ambient suggestions / title 生成等内部会话。
+# 同项目真实会话开始工作时，清掉同项目同来源的旧 done，避免页面出现两个同名 session。
+if [ "$STATE" = "busy" ] && [ "$SRC" = "Codex" ]; then
+  for OLD in "$STATES"/*.txt; do
+    [ -e "$OLD" ] || continue
+    [ "$OLD" = "$FILE" ] && continue
+    OLD_STATE=$(awk -F '\t' '{print $1}' "$OLD" 2>/dev/null)
+    OLD_NAME=$(awk -F '\t' '{print $3}' "$OLD" 2>/dev/null)
+    OLD_SRC=$(awk -F '\t' '{print $4}' "$OLD" 2>/dev/null)
+    if [ "$OLD_STATE" = "done" ] && [ "$OLD_NAME" = "$NAME" ] && [ "$OLD_SRC" = "$SRC" ]; then
+      rm -f "$OLD" "${OLD%.txt}.task"
+    fi
+  done
+fi
+
 # 写/清本窗口状态。idle(开窗)=绿灯但不播报。
 WSTATE="$STATE"
 [ "$STATE" = "idle" ] && WSTATE="done"

@@ -24,6 +24,7 @@ const K28_STATUS_SCRIPT = path.join(K28_DIR, 'k28_status.sh')
 const K28_SET_SCRIPT = path.join(K28_DIR, 'k28_set.py')
 const K28_TTS_SCRIPT = path.join(K28_DIR, 'tts_say.py')
 const K28_RENDER_SCRIPT = path.join(K28_DIR, 'k28_render.py')
+const K28_CODEX_NOTIFY_SCRIPT = path.join(K28_DIR, 'codex-notify.sh')
 const K28_PYTHON = path.join(K28_DIR, '.venv', 'bin', 'python')
 const K28_BACKUP_DIR = path.join(K28_DIR, 'backups')
 
@@ -71,6 +72,13 @@ const PUBLIC_CONFIG_KEYS = [
 
 const SECRET_CONFIG_KEYS = new Set(['VOLC_API_KEY', 'DEEPSEEK_API_KEY'])
 const VALID_LIGHT_STATES = new Set(['busy', 'done', 'attention', 'idle'])
+const K28_PYTHON_PACKAGES = [
+  'bleak>=0.22,<1.2',
+  'pyobjc-core<12',
+  'pyobjc-framework-Cocoa<12',
+  'pyobjc-framework-CoreBluetooth<12',
+  'pyobjc-framework-libdispatch<12',
+]
 
 /**
  * 判断路径是否存在
@@ -102,6 +110,29 @@ function parseKeyValueConfig(content) {
     if (key) config[key] = value
   }
   return config
+}
+
+/**
+ * 在 config.toml 顶层写入 Codex notify 分发器
+ * @param {string} content - 原始 TOML
+ * @returns {string}
+ */
+function installCodexNotify(content) {
+  const notifyLine = `notify = ["bash", "${K28_CODEX_NOTIFY_SCRIPT.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"]`
+  if (/^notify\s*=\s*\[\s*"bash"\s*,\s*"[^"]*k28-status-light\/codex-notify\.sh"\s*\]/m.test(content)) {
+    return content
+  }
+  if (/^notify\s*=\s*\[[^\n]*\]/m.test(content)) {
+    return content.replace(/^notify\s*=\s*\[[^\n]*\]/m, notifyLine)
+  }
+
+  const firstSectionIndex = content.search(/^\[/m)
+  if (firstSectionIndex === -1) {
+    return `${content.trimEnd()}\n${notifyLine}\n`
+  }
+  const before = content.slice(0, firstSectionIndex).trimEnd()
+  const after = content.slice(firstSectionIndex)
+  return `${before ? `${before}\n` : ''}${notifyLine}\n\n${after}`
 }
 
 /**
@@ -210,6 +241,46 @@ function runFile(command, args = [], options = {}) {
 }
 
 /**
+ * 判断 K28 Python venv 是否已装好 BLE 依赖
+ * @returns {Promise<boolean>}
+ */
+async function hasPythonBleDependency() {
+  if (!(await pathExists(K28_PYTHON))) return false
+  try {
+    await runFile(K28_PYTHON, ['-c', 'import bleak'], {
+      cwd: K28_DIR,
+      timeout: 10000,
+    })
+    return true
+  } catch {
+    return false
+  }
+}
+
+/**
+ * 把底层 Python/BLE 命令错误转成页面可读提示
+ * @param {Error & {stdout?: string, stderr?: string}} error - execFile 错误
+ * @returns {string}
+ */
+function formatK28CommandError(error) {
+  const raw = `${error?.stderr || ''}\n${error?.stdout || ''}\n${error?.message || ''}`
+  if (/No module named ['"]bleak['"]/.test(raw)) {
+    return 'Python BLE 依赖缺失，请点击“安装 / 修复”补齐依赖后重试'
+  }
+  if (/Bluetooth device is turned off/i.test(raw)) {
+    return '蓝牙当前关闭，请先打开 macOS 蓝牙后重试'
+  }
+  if (/未找到设备\s+ERAZER K28LED/i.test(raw) || /No device named ERAZER K28LED/i.test(raw)) {
+    return '未找到 ERAZER K28LED，请确认设备已开机、在附近，并且可被蓝牙扫描到'
+  }
+  if (/not authorized|unauthorized|permission|denied/i.test(raw) && /bluetooth/i.test(raw)) {
+    return '当前 Python 进程没有蓝牙权限，请在 macOS 系统设置里允许终端 / CodePal 使用蓝牙'
+  }
+  const lines = raw.split(/\r?\n/).map((line) => line.trim()).filter(Boolean)
+  return lines.at(-1) || 'K28 命令执行失败'
+}
+
+/**
  * 备份原始配置文件
  * @param {string} rawContent - 原始配置内容
  * @returns {Promise<string|null>}
@@ -261,10 +332,14 @@ async function ensurePythonEnvironment() {
       timeout: 120000,
     })
   }
-  await runFile(K28_PYTHON, ['-m', 'pip', 'install', '--quiet', 'bleak'], {
+  if (await hasPythonBleDependency()) return
+  await runFile(K28_PYTHON, ['-m', 'pip', 'install', '--quiet', ...K28_PYTHON_PACKAGES], {
     cwd: K28_DIR,
     timeout: 180000,
   })
+  if (!(await hasPythonBleDependency())) {
+    throw new Error('Python 依赖安装后仍无法导入 bleak，请检查 pip 安装日志或本机 Python 环境')
+  }
 }
 
 /**
@@ -333,6 +408,8 @@ async function installCodexHooks() {
   }
 
   let nextContent = content
+  nextContent = installCodexNotify(nextContent)
+
   if (/\[features\]/.test(nextContent)) {
     if (/(\[features\][\s\S]*?)(?=\n\[|$)/.test(nextContent)) {
       nextContent = nextContent.replace(/(\[features\][\s\S]*?)(?=\n\[|$)/, (block) => {
@@ -525,6 +602,7 @@ async function getK28StatusLightState() {
       ttsScript: await pathExists(K28_TTS_SCRIPT),
       renderScript: await pathExists(K28_RENDER_SCRIPT),
       python: await pathExists(K28_PYTHON),
+      pythonBle: await hasPythonBleDependency(),
     }
 
     return {
@@ -532,7 +610,13 @@ async function getK28StatusLightState() {
       data: {
         basePath: K28_DIR,
         configPath: K28_CONF_PATH,
-        installed: requiredFiles.directory && requiredFiles.statusScript && requiredFiles.ttsScript,
+        installed: requiredFiles.directory
+          && requiredFiles.statusScript
+          && requiredFiles.setScript
+          && requiredFiles.ttsScript
+          && requiredFiles.renderScript
+          && requiredFiles.python
+          && requiredFiles.pythonBle,
         requiredFiles,
         config: toPublicConfig(config),
         currentOutputDevice,
@@ -569,7 +653,6 @@ async function saveK28StatusLightConfig(updates = {}) {
       3,
       60
     )
-
     for (const key of ['VOLC_SPEAKER', 'VOLC_RESOURCE_ID', 'OUTPUT_DEVICE', 'TASK_SUMMARY_MODEL', 'DEEPSEEK_BASE_URL']) {
       if (typeof updates[key] === 'string' && updates[key].trim()) {
         nextConfig[key] = updates[key].trim()
@@ -639,10 +722,13 @@ async function installK28StatusLight() {
 async function testK28Voice(text) {
   const safeText = String(text || 'CodePal 语音测试').trim().slice(0, 120)
   try {
-    await runFile(K28_PYTHON, [K28_TTS_SCRIPT, safeText], { timeout: 75000 })
+    await runFile(K28_PYTHON, [K28_TTS_SCRIPT, safeText], {
+      timeout: 75000,
+      env: { K28_TTS_STRICT: '1' },
+    })
     return { success: true, error: null }
   } catch (error) {
-    return { success: false, error: error.message }
+    return { success: false, error: formatK28CommandError(error) }
   }
 }
 
@@ -654,11 +740,12 @@ async function testK28Voice(text) {
 async function testK28Light(state) {
   const safeState = VALID_LIGHT_STATES.has(state) ? state : 'done'
   try {
+    await ensurePythonEnvironment()
     const color = safeState === 'idle' ? 'done' : safeState
     await runFile(K28_PYTHON, [K28_SET_SCRIPT, color], { timeout: 25000 })
     return { success: true, error: null }
   } catch (error) {
-    return { success: false, error: error.message }
+    return { success: false, error: formatK28CommandError(error) }
   }
 }
 
@@ -676,11 +763,12 @@ async function clearK28States() {
         .map((entry) => fs.unlink(path.join(K28_STATES_DIR, entry.name)).catch(() => {}))
     )
     if (await pathExists(K28_RENDER_SCRIPT)) {
+      await ensurePythonEnvironment()
       await runFile(K28_PYTHON, [K28_RENDER_SCRIPT], { timeout: 15000 })
     }
     return { success: true, error: null }
   } catch (error) {
-    return { success: false, error: error.message }
+    return { success: false, error: formatK28CommandError(error) }
   }
 }
 
