@@ -78,9 +78,16 @@ if [ "$STATE" = "busy" ] && [ "$SRC" = "Codex" ]; then
   done
 fi
 
-# 写/清本窗口状态。idle(开窗)=绿灯但不播报。
+# 写/清本窗口状态。
+# Codex 的 SessionStart 常代表 subagent/新工作线程已开始运行；视觉上应按 busy 处理，但保留 idle 事件本身不播报。
 WSTATE="$STATE"
-[ "$STATE" = "idle" ] && WSTATE="done"
+if [ "$STATE" = "idle" ]; then
+  if [ "$SRC" = "Codex" ]; then
+    WSTATE="busy"
+  else
+    WSTATE="done"
+  fi
+fi
 if [ "$STATE" = "clear" ]; then
   rm -f "$FILE" "$TASKFILE"
 else
