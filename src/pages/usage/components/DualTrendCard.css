@@ -1,0 +1,232 @@
+/**
+ * 满载率趋势双栏特有样式（外壳/品牌块/grid 复用 DualUsageCard.css）
+ *
+ * 颜色规则：满载率高 = 用得值 = 好事 → 统一品牌蓝（不用告警色）
+ *
+ * @module pages/usage/components/DualTrendCard.css
+ */
+
+.dual-trend__sub {
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+}
+
+.trend-col {
+  padding: var(--space-4) var(--space-5) var(--space-5);
+  min-width: 0;
+}
+
+/* 栏头：品牌块 + 名 + 满载率大数字 */
+.trend-col__head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.trend-col__name {
+  font-size: var(--text-base);
+  font-weight: 700;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.trend-col__spacer { flex: 1; min-width: 8px; }
+
+.trend-col__avg {
+  display: flex;
+  align-items: baseline;
+  gap: 2px;
+  flex-shrink: 0;
+}
+.trend-col__avg-num {
+  font-size: 24px;
+  font-weight: 800;
+  color: var(--color-primary);
+  line-height: 1;
+  letter-spacing: -0.5px;
+  font-variant-numeric: tabular-nums;
+}
+.trend-col__avg-unit {
+  font-size: var(--text-xs);
+  font-weight: 700;
+  color: var(--color-primary);
+  opacity: 0.6;
+}
+.trend-col__avg--insufficient {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--text-tertiary);
+}
+
+.trend-col__cap {
+  font-size: var(--text-2xs);
+  color: var(--text-tertiary);
+  margin: 4px 0 var(--space-3);
+  line-height: 1.5;
+}
+
+/* 本周进行中（蓝底浅容器 + 呼吸点） */
+.cur-week {
+  padding: 10px 12px;
+  background: var(--color-primary-light);
+  border: 1px solid #dbeafe;
+  border-radius: var(--radius-lg);
+  margin-bottom: var(--space-4);
+}
+.cur-week__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 7px;
+}
+.cur-week__label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--text-2xs);
+  font-weight: 600;
+  color: var(--color-primary);
+}
+.cur-week__dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--color-primary);
+  display: inline-block;
+  animation: trend-cw-pulse 2s ease-in-out infinite;
+}
+@keyframes trend-cw-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+.cur-week__pct {
+  font-size: var(--text-sm);
+  font-weight: 700;
+  color: var(--color-primary);
+  font-variant-numeric: tabular-nums;
+}
+.cur-week__track {
+  height: 6px;
+  background: #dbeafe;
+  border-radius: var(--radius-full);
+  overflow: hidden;
+  margin-bottom: 7px;
+}
+.cur-week__fill {
+  height: 100%;
+  border-radius: var(--radius-full);
+  background: var(--color-primary);
+  opacity: 0.6;
+  transition: width 400ms cubic-bezier(.4, 0, .2, 1);
+}
+.cur-week__meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: var(--text-2xs);
+  color: var(--color-primary);
+  opacity: 0.78;
+  line-height: 1.5;
+}
+.cur-week__tag {
+  display: inline-block;
+  padding: 1px 6px;
+  background: rgba(37, 99, 235, 0.1);
+  border-radius: var(--radius-sm);
+  font-weight: 500;
+  flex-shrink: 0;
+}
+
+/* 周期区小标题 */
+.trend-sec-label {
+  font-size: var(--text-2xs);
+  font-weight: 600;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  margin-bottom: var(--space-2);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.trend-sec-label::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border-light);
+}
+.trend-sec-label--anomaly {
+  color: var(--color-warning);
+  margin-top: var(--space-4);
+}
+.trend-sec-label--anomaly::after {
+  background: rgba(217, 119, 6, 0.2);
+}
+
+/* 周期行 */
+.trend-list { display: flex; flex-direction: column; }
+.hrow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 7px 0;
+  border-bottom: 1px solid var(--border-light);
+}
+.hrow:last-child { border-bottom: none; }
+.hrow__date {
+  flex-shrink: 0;
+  width: 88px;
+  font-size: var(--text-2xs);
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+.hrow__bar {
+  flex: 1;
+  height: 8px;
+  background: var(--bg-muted);
+  border-radius: var(--radius-full);
+  overflow: hidden;
+}
+.hrow__fill {
+  height: 100%;
+  border-radius: var(--radius-full);
+  background: var(--color-primary);
+  opacity: 0.45;
+  transition: width 400ms cubic-bezier(.4, 0, .2, 1);
+}
+.hrow__pct {
+  flex-shrink: 0;
+  width: 40px;
+  text-align: right;
+  font-size: var(--text-xs);
+  font-weight: 700;
+  color: var(--color-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 异常行（暖橙） */
+.hrow--anomaly {
+  background: var(--color-warning-bg);
+  border-radius: var(--radius-md);
+  padding: 8px 10px;
+  border-bottom: none;
+  margin-bottom: 6px;
+}
+.hrow--anomaly .hrow__date { color: var(--color-warning); width: auto; font-weight: 500; }
+.hrow--anomaly .hrow__bar { background: rgba(217, 119, 6, 0.12); }
+.hrow--anomaly .hrow__fill { background: var(--color-warning); opacity: 0.5; }
+.hrow--anomaly .hrow__pct { color: var(--color-warning); }
+
+/* 无数据引导 */
+.trend-empty {
+  padding: var(--space-3) var(--space-4);
+  background: var(--bg-subtle);
+  border-radius: var(--radius-lg);
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+  line-height: 1.7;
+  text-align: center;
+}

@@ -228,6 +228,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
    */
   aggregateUsagePeriod: (params) => ipcRenderer.invoke('aggregate-usage-period', params),
 
+  // Skill 使用次数（近 N 天 Claude+Codex 调用统计）
+  aggregateSkillUsage: (params) => ipcRenderer.invoke('aggregate-skill-usage', params),
+
   /**
    * 获取 Claude/Codex 日志最早日期（北京时间），用于「累计至今」动态起点
    * @returns {Promise<{success: boolean, earliestDate: string|null, error?: string}>}
@@ -477,6 +480,18 @@ contextBridge.exposeInMainWorld('electronAPI', {
    * @returns {Promise<{success: boolean, exists: boolean, currentCycle: object|null, completedCycles: Array}>}
    */
   getClaudeUsageHistory: () => ipcRenderer.invoke('claude-usage-status:get-history'),
+
+  /**
+   * 获取 Codex 会员额度状态（最新 rate_limits，只读 ~/.codex/sessions 日志，零配置）
+   * @returns {Promise<{success: boolean, integrationState: string, snapshot: object|null}>}
+   */
+  getCodexUsageStatusState: () => ipcRenderer.invoke('codex-usage-status:get-state'),
+
+  /**
+   * 获取 Codex 满载率趋势（按自然周聚合 7 天窗口峰值，输出与 Claude history 同形）
+   * @returns {Promise<{success: boolean, currentCycle: object|null, completedCycles: Array}>}
+   */
+  getCodexUsageTrend: () => ipcRenderer.invoke('codex-usage-status:get-trend'),
 
   // V0.14 双向自动同步 APIs
 

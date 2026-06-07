@@ -47,7 +47,7 @@ function WorkbenchLayout({ children, activeModule, onModuleChange, hasUpdate, on
       label: '账户与用量',
       items: [
         { id: 'usage', label: '用量监测', icon: '📊' },
-        { id: 'claude-usage', label: 'Claude 会员额度', icon: '🪄' }
+        { id: 'claude-usage', label: '会员额度', icon: '🪄' }
       ]
     },
     {

@@ -59,6 +59,7 @@ const EXECUTABLE_TEMPLATE_FILES = new Set([
 ])
 
 const CLAUDE_SETTINGS_PATH = path.join(os.homedir(), '.claude', 'settings.json')
+const CLAUDE_PROJECTS_DIR = path.join(os.homedir(), '.claude', 'projects')
 const CODEX_CONFIG_PATH = path.join(os.homedir(), '.codex', 'config.toml')
 
 const PUBLIC_CONFIG_KEYS = [
@@ -77,6 +78,19 @@ const PUBLIC_CONFIG_KEYS = [
 
 const SECRET_CONFIG_KEYS = new Set(['VOLC_API_KEY', 'DEEPSEEK_API_KEY'])
 const VALID_LIGHT_STATES = new Set(['busy', 'done', 'attention', 'idle'])
+const CLAUDE_WORKFLOW_FINISHED_STATUSES = new Set([
+  'completed',
+  'complete',
+  'done',
+  'failed',
+  'failure',
+  'error',
+  'cancelled',
+  'canceled',
+  'aborted',
+])
+const CLAUDE_WORKFLOW_RECENT_MS = 24 * 60 * 60 * 1000
+const CLAUDE_WORKFLOW_MAX_FILES = 200
 const K28_PYTHON_PACKAGES = [
   'bleak>=0.22,<1.2',
   'pyobjc-core<12',
@@ -538,14 +552,185 @@ async function tailFile(filePath, lineCount = 40) {
 }
 
 /**
+ * 把秒级或毫秒级时间戳统一成毫秒
+ * @param {unknown} value - 原始时间戳
+ * @returns {number}
+ */
+function normalizeTimestampMs(value) {
+  const num = Number(value)
+  if (!Number.isFinite(num) || num <= 0) return 0
+  return num > 1e12 ? num : num * 1000
+}
+
+/**
+ * 从 Claude workflow 脚本文本里提取 meta 字段
+ * @param {string} script - workflow 脚本文本
+ * @param {string} field - meta 字段名
+ * @returns {string}
+ */
+function extractWorkflowMetaValue(script, field) {
+  const match = String(script || '').match(new RegExp(`${field}:\\s*(['"\`])([\\s\\S]*?)\\1`))
+  return match?.[2]?.trim() || ''
+}
+
+/**
+ * 判断 Claude workflow 是否仍应作为活跃任务展示
+ * @param {unknown} status - workflow 状态
+ * @returns {boolean}
+ */
+function isActiveClaudeWorkflowStatus(status) {
+  const normalized = String(status || '').trim().toLowerCase()
+  return Boolean(normalized) && !CLAUDE_WORKFLOW_FINISHED_STATUSES.has(normalized)
+}
+
+/**
+ * 生成 Claude workflow 的 agent 进度文案
+ * @param {object} workflow - Claude workflow JSON
+ * @returns {string}
+ */
+function buildClaudeWorkflowProgressText(workflow) {
+  const progressItems = Array.isArray(workflow.workflowProgress) ? workflow.workflowProgress : []
+  const agents = progressItems.filter((item) => item?.type === 'workflow_agent')
+  const explicitTotal = Number(workflow.agentCount)
+  const total = Number.isFinite(explicitTotal) && explicitTotal > 0 ? explicitTotal : agents.length
+  if (!total) return ''
+
+  const doneCount = agents.filter((item) => {
+    const status = String(item?.status || item?.state || '').trim().toLowerCase()
+    return status === 'done' || status === 'completed' || status === 'complete' || status === 'success'
+  }).length
+
+  return `${doneCount}/${total} agents done`
+}
+
+/**
+ * 把 Claude workflow JSON 映射成 K28 活跃状态行
+ * @param {object} workflow - Claude workflow JSON
+ * @param {{filePath: string, mtimeMs: number}} context - 文件上下文
+ * @returns {object|null}
+ */
+function toClaudeWorkflowState(workflow, context) {
+  if (!workflow || typeof workflow !== 'object') return null
+  if (!isActiveClaudeWorkflowStatus(workflow.status)) return null
+
+  const metaName = extractWorkflowMetaValue(workflow.script, 'name')
+  const metaDescription = extractWorkflowMetaValue(workflow.script, 'description')
+  const name = String(workflow.workflowName || workflow.name || metaName || workflow.runId || 'Claude workflow').trim()
+  const description = String(
+    workflow.summary
+      || workflow.description
+      || metaDescription
+      || 'Claude dynamic workflow'
+  ).trim()
+  const progress = buildClaudeWorkflowProgressText(workflow)
+  const updatedMs = Math.max(
+    normalizeTimestampMs(workflow.updatedAt),
+    normalizeTimestampMs(workflow.endTime),
+    normalizeTimestampMs(workflow.startTime),
+    context.mtimeMs || 0
+  )
+
+  return {
+    key: `claude-workflow:${workflow.runId || context.filePath}`,
+    state: 'busy',
+    epoch: Math.floor(updatedMs / 1000),
+    name,
+    task: progress ? `${description} · ${progress}` : description,
+    source: 'Claude',
+  }
+}
+
+/**
+ * 收集 Claude Code dynamic workflow JSON 文件
+ * @param {string} projectsDir - ~/.claude/projects 目录
+ * @returns {Promise<string[]>}
+ */
+async function collectClaudeWorkflowFiles(projectsDir) {
+  const files = []
+  let projectEntries = []
+  try {
+    projectEntries = await fs.readdir(projectsDir, { withFileTypes: true })
+  } catch {
+    return files
+  }
+
+  for (const projectEntry of projectEntries) {
+    if (!projectEntry.isDirectory()) continue
+    const projectDir = path.join(projectsDir, projectEntry.name)
+    let sessionEntries = []
+    try {
+      sessionEntries = await fs.readdir(projectDir, { withFileTypes: true })
+    } catch {
+      continue
+    }
+
+    for (const sessionEntry of sessionEntries) {
+      if (!sessionEntry.isDirectory()) continue
+      const workflowsDir = path.join(projectDir, sessionEntry.name, 'workflows')
+      let workflowEntries = []
+      try {
+        workflowEntries = await fs.readdir(workflowsDir, { withFileTypes: true })
+      } catch {
+        continue
+      }
+      for (const workflowEntry of workflowEntries) {
+        if (workflowEntry.isFile() && workflowEntry.name.endsWith('.json')) {
+          files.push(path.join(workflowsDir, workflowEntry.name))
+        }
+      }
+    }
+  }
+
+  return files
+}
+
+/**
+ * 读取 Claude Code dynamic workflow 的活跃状态
+ * @param {object} options - 读取选项
+ * @param {string} [options.projectsDir] - Claude projects 目录
+ * @param {number} [options.nowMs] - 当前毫秒时间戳
+ * @param {number} [options.maxAgeMs] - 最大扫描年龄
+ * @returns {Promise<Array<{key: string, state: string, epoch: number, name: string, task: string, source: string}>>}
+ */
+async function readClaudeWorkflowStates({
+  projectsDir = CLAUDE_PROJECTS_DIR,
+  nowMs = Date.now(),
+  maxAgeMs = CLAUDE_WORKFLOW_RECENT_MS,
+} = {}) {
+  const workflowFiles = await collectClaudeWorkflowFiles(projectsDir)
+  const candidates = []
+
+  for (const filePath of workflowFiles) {
+    try {
+      const stat = await fs.stat(filePath)
+      if (nowMs - stat.mtimeMs > maxAgeMs) continue
+      candidates.push({ filePath, mtimeMs: stat.mtimeMs })
+    } catch {}
+  }
+
+  candidates.sort((a, b) => b.mtimeMs - a.mtimeMs)
+
+  const states = []
+  for (const candidate of candidates.slice(0, CLAUDE_WORKFLOW_MAX_FILES)) {
+    try {
+      const workflow = JSON.parse(await fs.readFile(candidate.filePath, 'utf-8'))
+      const state = toClaudeWorkflowState(workflow, candidate)
+      if (state) states.push(state)
+    } catch {}
+  }
+
+  return states
+}
+
+/**
  * 读取活跃状态文件
  * @returns {Promise<Array<{key: string, state: string, epoch: number, name: string, task: string}>>}
  */
 async function readActiveStates() {
+  let states = []
   try {
     const entries = await fs.readdir(K28_STATES_DIR, { withFileTypes: true })
     const textFiles = entries.filter((entry) => entry.isFile() && entry.name.endsWith('.txt'))
-    const states = []
     for (const entry of textFiles) {
       const key = entry.name.replace(/\.txt$/, '')
       const filePath = path.join(K28_STATES_DIR, entry.name)
@@ -567,10 +752,11 @@ async function readActiveStates() {
         })
       } catch {}
     }
-    return states.sort((a, b) => b.epoch - a.epoch)
-  } catch {
-    return []
-  }
+  } catch {}
+
+  const workflowStates = await readClaudeWorkflowStates()
+  states = [...states, ...workflowStates]
+  return states.sort((a, b) => b.epoch - a.epoch)
 }
 
 /**
@@ -790,4 +976,8 @@ module.exports = {
   testK28Light,
   clearK28States,
   openK28Directory,
+  _private: {
+    readClaudeWorkflowStates,
+    toClaudeWorkflowState,
+  },
 }

@@ -1,0 +1,90 @@
+/**
+ * Skill 使用次数 — 徽标 / 列头 / 说明浮层样式
+ *
+ * 全部复用 design tokens，不新造颜色/圆角/阴影；边框 1.5px；浮层只用 shadow-card。
+ */
+
+/* ── 徽标态：加载骨架 / 读取失败「—」(0次与N次复用 Tag) ── */
+.usage-skel {
+  display: inline-block;
+  width: 46px;
+  height: 18px;
+  border-radius: var(--radius-full);
+  background: linear-gradient(90deg, var(--bg-muted) 25%, var(--bg-subtle) 50%, var(--bg-muted) 75%);
+  background-size: 200% 100%;
+  animation: usage-shimmer 1.2s infinite;
+}
+@keyframes usage-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+.usage-dash {
+  color: var(--text-placeholder);
+  font-size: var(--text-base);
+}
+
+/* ── 行内「调用」列容器（与表头同宽，保持对齐）── */
+.skill-usage-column {
+  width: 116px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+}
+
+/* ── 表头「调用」列：排序 + ⓘ + 浮层 ── */
+.header-usage {
+  width: 116px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  position: relative;
+}
+.header-usage-sort {
+  cursor: pointer;
+  color: var(--color-primary);
+  font-weight: 600;
+}
+.header-usage-info {
+  border: none;
+  background: none;
+  cursor: pointer;
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
+  padding: 0;
+  line-height: 1;
+}
+.header-usage-info:hover {
+  color: var(--text-secondary);
+}
+.usage-help-pop {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  z-index: 20;
+  width: 268px;
+  background: var(--bg-base);
+  border: 1.5px solid var(--border-default);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-card);
+  padding: 10px 12px;
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  font-weight: 400;
+  line-height: 1.6;
+}
+.usage-help-pop strong {
+  display: block;
+  color: var(--text-primary);
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+.usage-help-pop code {
+  background: var(--bg-muted);
+  border-radius: 4px;
+  padding: 1px 5px;
+}
+.usage-help-note {
+  margin-top: 6px;
+  color: var(--color-warning);
+}

@@ -15,10 +15,11 @@ import { useCallback, useState } from 'react'
 import PageShell from '../components/PageShell'
 import Button from '../components/Button/Button'
 import Toast from '../components/Toast'
-import ClaudeUsageStatusCard from './usage/components/ClaudeUsageStatusCard'
-import ClaudeUsageTrendCard from './usage/components/ClaudeUsageTrendCard'
+import DualUsageCard from './usage/components/DualUsageCard'
+import DualTrendCard from './usage/components/DualTrendCard'
 import ClaudeUsageSettingsModal from './usage/components/ClaudeUsageSettingsModal'
 import useClaudeUsageStatus from './usage/useClaudeUsageStatus'
+import useCodexUsageStatus from './usage/useCodexUsageStatus'
 import './usage.css'
 
 /**
@@ -32,33 +33,21 @@ const SETTINGS_DISABLED_STATES = new Set([
   'setup_failed',
 ])
 
-/**
- * 是否展示满载率趋势卡
- * 规则：仅在已接入且有 rate_limits 数据时展示（ready / off 模式 / stale 态）
- *
- * @param {object|null} statusState - 后端 IPC 返回的状态
- * @returns {boolean}
- */
-function shouldShowTrendCard(statusState) {
-  if (!statusState) return false
-  if (statusState.integrationState !== 'ready') return false
-  // 必须有 rate_limits 数据才有意义算满载率
-  return Boolean(statusState.snapshot?.hasRateLimits)
-}
+const ONE_WEEK_SECONDS = 7 * 86400
 
 /**
- * 判断快照是否过期（与 ClaudeUsageStatusCard 的判定对齐：updatedAt 距今 > 2 小时）
- *
- * @param {object|null} statusState
- * @returns {boolean}
+ * 从 Claude 快照构造「本周进行中」窗口（满载率趋势用）
+ * @param {object|null} snapshot - Claude 额度快照
+ * @returns {{periodStart: number, periodEnd: number, peakPercentage: number}|null}
  */
-function isSnapshotStale(statusState) {
-  if (!statusState || statusState.integrationState !== 'ready') return false
-  const updatedAt = statusState.snapshot?.updatedAt
-  if (!updatedAt) return false
-  // v1.4.1: 与 ClaudeUsageStatusCard.jsx 的 STALE_MS 严格一致（2 小时）
-  const STALE_MS = 2 * 60 * 60 * 1000
-  return (Date.now() - Number(updatedAt) * 1000) > STALE_MS
+function buildClaudeCurrentCycle(snapshot) {
+  const resetsAt = Number(snapshot?.sevenDayResetsAt)
+  if (!Number.isFinite(resetsAt)) return null
+  return {
+    periodStart: resetsAt - ONE_WEEK_SECONDS,
+    periodEnd: resetsAt,
+    peakPercentage: snapshot?.sevenDayUsedPercentage,
+  }
 }
 
 /**
@@ -79,6 +68,16 @@ export default function ClaudeUsageStatusPage() {
     saveConfig,
   } = useClaudeUsageStatus()
 
+  // Codex 额度（独立 hook，只读 ~/.codex/sessions 日志，零接入）
+  const {
+    statusState: codexState,
+    loading: codexLoading,
+    error: codexError,
+    trend: codexTrend,
+    loadStatus: loadCodexStatus,
+    loadTrend: loadCodexTrend,
+  } = useCodexUsageStatus()
+
   // Toast 提示状态
   const [toast, setToast] = useState(null)
   // 显示设置弹窗开关
@@ -90,7 +89,9 @@ export default function ClaudeUsageStatusPage() {
   const handleRefresh = useCallback(() => {
     loadStatus()
     loadHistory()
-  }, [loadStatus, loadHistory])
+    loadCodexStatus()
+    loadCodexTrend()
+  }, [loadStatus, loadHistory, loadCodexStatus, loadCodexTrend])
 
   /**
    * 保存配置 — 接收弹窗传来的 draft 并保存，成功弹 Toast
@@ -105,8 +106,10 @@ export default function ClaudeUsageStatusPage() {
     return ok
   }, [saveConfig])
 
-  const trendVisible = shouldShowTrendCard(statusState)
-  const staleFlag = isSnapshotStale(statusState)
+  const claudeCurrentCycle = buildClaudeCurrentCycle(statusState?.snapshot)
+  const claudeHasTrend = statusState?.integrationState === 'ready' && Boolean(statusState?.snapshot?.hasRateLimits)
+  const codexHasTrend = Boolean(codexTrend?.currentCycle) || (codexTrend?.completedCycles?.length > 0)
+  const trendVisible = claudeHasTrend || codexHasTrend
   const integrationState = statusState?.integrationState
   const settingsDisabled = !statusState || SETTINGS_DISABLED_STATES.has(integrationState)
 
@@ -126,26 +129,42 @@ export default function ClaudeUsageStatusPage() {
 
   return (
     <PageShell
-      title="Claude 会员额度"
-      subtitle="查看 Claude Code 官方 rate_limits，管理底部状态栏的显示方式。"
+      title="会员额度"
+      subtitle="对比 Claude Code 与 Codex 的官方 rate_limits 与满载率趋势。"
       actions={headerActions}
     >
-      {/* 卡片 1：会员额度（实时 5h/7d） */}
-      <ClaudeUsageStatusCard
-        statusState={statusState}
-        loading={loading}
-        installing={installing}
-        error={error}
+      {/* 卡片 1：会员额度双栏对比（Claude / Codex 5h+7d 当前额度） */}
+      <DualUsageCard
+        claude={{
+          statusState,
+          loading,
+          installing,
+          error,
+          onRefresh: handleRefresh,
+          onEnsureInstalled: ensureInstalled,
+        }}
+        codex={{
+          statusState: codexState,
+          loading: codexLoading,
+          error: codexError,
+          onRefresh: loadCodexStatus,
+        }}
         onRefresh={handleRefresh}
-        onEnsureInstalled={ensureInstalled}
       />
 
-      {/* 卡片 2：满载率趋势（仅在 ready + hasRateLimits 时渲染） */}
+      {/* 卡片 2：满载率趋势双栏对比（Claude 固定 7 天周期 / Codex 自然周峰值） */}
       {trendVisible && (
-        <ClaudeUsageTrendCard
-          snapshot={statusState?.snapshot}
-          completedCycles={history.completedCycles}
-          stale={staleFlag}
+        <DualTrendCard
+          claude={{
+            currentCycle: claudeCurrentCycle,
+            completedCycles: history.completedCycles,
+            avgCaption: '近 4 个 7 天周期峰值平均',
+          }}
+          codex={{
+            currentCycle: codexTrend.currentCycle,
+            completedCycles: codexTrend.completedCycles,
+            avgCaption: '近 4 个自然周峰值平均',
+          }}
         />
       )}
 

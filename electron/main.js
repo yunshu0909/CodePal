@@ -46,6 +46,7 @@ const { registerSkillHandlers } = require('./handlers/registerSkillHandlers')
 const { registerImportPageHandlers } = require('./handlers/registerImportPageHandlers')
 const { registerAppUpdateHandlers } = require('./handlers/registerAppUpdateHandlers')
 const { registerUsageAggregationHandlers } = require('./handlers/registerUsageAggregationHandlers')
+const { registerSkillUsageHandlers } = require('./handlers/registerSkillUsageHandlers')
 const { registerProviderHandlers } = require('./handlers/registerProviderHandlers')
 const { registerProjectInitHandlers } = require('./handlers/registerProjectInitHandlers')
 const { registerPermissionModeHandlers } = require('./handlers/permissionModeHandlers')
@@ -59,6 +60,7 @@ const {
 const { modelRegistrySpec } = require('./services/registries/modelRegistry')
 const { pricingRegistrySpec } = require('./services/registries/pricingRegistry')
 const { registerClaudeUsageStatusHandlers } = require('./handlers/registerClaudeUsageStatusHandlers')
+const { registerCodexUsageStatusHandlers } = require('./handlers/registerCodexUsageStatusHandlers')
 const { registerMcpHandlers } = require('./handlers/registerMcpHandlers')
 const { registerNetworkDiagnosticsHandlers } = require('./handlers/registerNetworkDiagnosticsHandlers')
 const { registerSessionBrowserHandlers } = require('./handlers/registerSessionBrowserHandlers')
@@ -700,6 +702,12 @@ registerUsageAggregationHandlers({
   nowFn: () => new Date()
 })
 
+registerSkillUsageHandlers({
+  ipcMain,
+  pathExists,
+  homeDir: os.homedir(),
+})
+
 
 /**
  * 注册 Claude 供应商相关 IPC handlers
@@ -732,6 +740,14 @@ registerModelConfigHandlers({
  * 注册 Claude Code 会员额度状态相关 IPC handlers
  */
 registerClaudeUsageStatusHandlers({
+  ipcMain,
+  pathExists,
+})
+
+/**
+ * 注册 Codex 会员额度状态相关 IPC handlers（只读 ~/.codex/sessions 日志，零配置）
+ */
+registerCodexUsageStatusHandlers({
   ipcMain,
   pathExists,
 })

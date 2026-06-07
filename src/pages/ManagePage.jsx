@@ -23,6 +23,9 @@ import TagFilterChips from '../components/TagFilterChips/TagFilterChips'
 import TagSelector from '../components/TagSelector/TagSelector'
 import TagManagementModal from '../components/TagManagementModal/TagManagementModal'
 import useTagManagement from '../hooks/useTagManagement'
+import useSkillUsage from '../hooks/useSkillUsage'
+import SkillUsageBadge from '../components/skillUsage/SkillUsageBadge'
+import SkillUsageColumnHeader from '../components/skillUsage/SkillUsageColumnHeader'
 
 // 勾选图标
 const checkSvg = (
@@ -124,6 +127,13 @@ export default function ManagePage({ onReimport, onNavigateToConfig, refreshSign
     handleCreateTag, handleRenameTag, handleDeleteTag,
   } = useTagManagement(setToast)
 
+  // 调用次数（近30天，Claude+Codex 合计）—— 逻辑在 useSkillUsage hook，列表不被扫描阻塞
+  const skillNames = useMemo(() => skills.map((s) => s.name), [skills])
+  const { status: usageStatus, usageMap, sources: usageSources } = useSkillUsage(skillNames)
+  // 「调用」列排序（默认降序）+ 说明浮层开关
+  const [usageSort, setUsageSort] = useState('desc')
+  const [usageHelpOpen, setUsageHelpOpen] = useState(false)
+
   /**
    * 加载技能数据和推送目标配置
    */
@@ -215,6 +225,14 @@ export default function ManagePage({ onReimport, onNavigateToConfig, refreshSign
 
     return result
   }, [skills, searchQuery, activeTagFilter, skillTags])
+
+  // 在标签/搜索过滤之后按「调用」列排序（V8 sort 稳定，等值保持原顺序）
+  const sortedSkills = useMemo(() => {
+    if (!usageSort) return filteredSkills
+    const dir = usageSort === 'asc' ? 1 : -1
+    const countOf = (s) => usageMap.get(s.name)?.total || 0
+    return [...filteredSkills].sort((a, b) => (countOf(a) - countOf(b)) * dir)
+  }, [filteredSkills, usageSort, usageMap])
 
   /**
    * 计算全选复选框的状态
@@ -532,6 +550,13 @@ export default function ManagePage({ onReimport, onNavigateToConfig, refreshSign
                 </div>
                 <span className="header-text">Skill ({filteredSkills.length})</span>
               </div>
+              <SkillUsageColumnHeader
+                sort={usageSort}
+                onToggleSort={() => setUsageSort((p) => (p === 'desc' ? 'asc' : 'desc'))}
+                helpOpen={usageHelpOpen}
+                onToggleHelp={() => setUsageHelpOpen((v) => !v)}
+                sources={usageSources}
+              />
               <div className="header-tag">标签</div>
               <div className="header-status">
                 <span className="header-status-text">状态</span>
@@ -539,7 +564,7 @@ export default function ManagePage({ onReimport, onNavigateToConfig, refreshSign
             </div>
 
             {/* Skill Rows */}
-            {filteredSkills.map((skill) => {
+            {sortedSkills.map((skill) => {
               const isSelected = selected.has(skill.id)
               return (
                 <div
@@ -558,6 +583,13 @@ export default function ManagePage({ onReimport, onNavigateToConfig, refreshSign
                       {skill.displayName || skill.name}
                     </div>
                     <div className="skill-desc">{skill.desc}</div>
+                  </div>
+                  <div className="skill-usage-column">
+                    <SkillUsageBadge
+                      usage={usageMap.get(skill.name)}
+                      loading={usageStatus === 'loading'}
+                      error={usageStatus === 'error'}
+                    />
                   </div>
                   <div className="skill-tag-column" onClick={(e) => e.stopPropagation()}>
                     <TagSelector

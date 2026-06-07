@@ -195,6 +195,38 @@ function parseCodexTokenSnapshot(line) {
 }
 
 /**
+ * 解析 Codex rate_limits 快照行
+ *
+ * rate_limits 只出现在 event_msg / token_count 行的 payload.rate_limits 里。
+ * 必须 JSON.parse 后判结构（payload.rate_limits 为对象），不能用字符串预筛——
+ * 对话正文里也可能出现 "rate_limits" 文本，字符串匹配会误命中。
+ *
+ * @param {string} line - JSONL 行
+ * @returns {{timestamp: Date|null, rateLimits: object}|null} 非额度行/解析失败返回 null
+ */
+function parseCodexRateLimits(line) {
+  try {
+    const data = JSON.parse(line)
+
+    if (data.type !== 'event_msg' || data.payload?.type !== 'token_count') {
+      return null
+    }
+
+    const rateLimits = data.payload.rate_limits
+    if (!rateLimits || typeof rateLimits !== 'object') {
+      return null
+    }
+
+    return {
+      timestamp: data.timestamp ? new Date(data.timestamp) : null,
+      rateLimits
+    }
+  } catch {
+    return null
+  }
+}
+
+/**
  * 从 Codex 文件路径提取 session ID
  * @param {string} filePath - 日志文件路径
  * @returns {string}
@@ -692,6 +724,7 @@ module.exports = {
   normalizeModelName,
   parseClaudeLog,
   parseCodexTokenSnapshot,
+  parseCodexRateLimits,
   extractCodexSessionId,
   pickCodexMaxSnapshot,
   pickLatestClaudeRecord,
