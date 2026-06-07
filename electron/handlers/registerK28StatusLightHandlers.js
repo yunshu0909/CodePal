@@ -17,6 +17,10 @@ const {
   clearK28States,
   openK28Directory,
 } = require('../services/k28StatusLightService')
+const {
+  fixK28AudioOutput,
+  startK28AudioGuard,
+} = require('../services/k28AudioGuardService')
 
 /**
  * 注册 K28 状态灯 IPC handlers
@@ -25,6 +29,8 @@ const {
  * @param {import('electron').Shell} deps.shell - Electron shell
  */
 function registerK28StatusLightHandlers({ ipcMain, shell }) {
+  startK28AudioGuard()
+
   ipcMain.handle('k28-status-light:get-state', () => {
     return getK28StatusLightState()
   })
@@ -47,6 +53,10 @@ function registerK28StatusLightHandlers({ ipcMain, shell }) {
 
   ipcMain.handle('k28-status-light:clear-states', () => {
     return clearK28States()
+  })
+
+  ipcMain.handle('k28-status-light:fix-audio-output', () => {
+    return fixK28AudioOutput()
   })
 
   ipcMain.handle('k28-status-light:open-directory', () => {

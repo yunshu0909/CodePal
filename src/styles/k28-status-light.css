@@ -102,6 +102,46 @@
   max-width: 200px;
 }
 
+.k28-metric--warning .k28-metric-value {
+  color: var(--color-warning);
+}
+
+/* ===== 音频保护提示 ===== */
+.k28-audio-notice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  background: var(--bg-subtle);
+  border: 1.5px solid var(--border-default);
+  border-radius: var(--radius-2xl);
+  padding: var(--space-3) var(--space-5);
+}
+
+.k28-audio-notice--muted {
+  border-color: var(--border-light);
+}
+
+.k28-audio-notice-title {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.k28-audio-notice-desc {
+  margin-top: 2px;
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+  line-height: 1.45;
+}
+
+.k28-audio-notice-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-shrink: 0;
+}
+
 /* ===== 双栏 ===== */
 .k28-grid {
   display: grid;

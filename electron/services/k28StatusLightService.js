@@ -13,6 +13,7 @@ const fs = require('fs/promises')
 const path = require('path')
 const os = require('os')
 const { execFile } = require('child_process')
+const { getK28AudioState } = require('./k28AudioGuardService')
 
 const K28_DIR = path.join(os.homedir(), '.claude', 'k28-status-light')
 const K28_TEMPLATE_DIR = path.resolve(__dirname, '..', '..', 'templates', 'k28-status-light')
@@ -37,6 +38,9 @@ const DEFAULT_CONFIG = Object.freeze({
   VOLC_SPEED: '1.0',
   TTS_TIMEOUT_SECONDS: '30',
   OUTPUT_DEVICE: 'MacBook Air扬声器',
+  AUDIO_GUARD_ENABLED: '1',
+  LAST_SAFE_OUTPUT_DEVICE: '',
+  LAST_SAFE_INPUT_DEVICE: '',
   TASK_SUMMARY_ENABLED: '1',
   TASK_SUMMARY_MODEL: 'deepseek-v4-flash',
   DEEPSEEK_BASE_URL: 'https://api.deepseek.com',
@@ -65,6 +69,7 @@ const PUBLIC_CONFIG_KEYS = [
   'VOLC_SPEED',
   'TTS_TIMEOUT_SECONDS',
   'OUTPUT_DEVICE',
+  'AUDIO_GUARD_ENABLED',
   'TASK_SUMMARY_ENABLED',
   'TASK_SUMMARY_MODEL',
   'DEEPSEEK_BASE_URL',
@@ -188,6 +193,11 @@ TTS_TIMEOUT_SECONDS=${config.TTS_TIMEOUT_SECONDS || DEFAULT_CONFIG.TTS_TIMEOUT_S
 
 # 【选填】播报输出设备：K28 只当显示屏，声音走本机扬声器。
 OUTPUT_DEVICE=${config.OUTPUT_DEVICE || DEFAULT_CONFIG.OUTPUT_DEVICE}
+
+# 【开关】0=允许 K28 当系统音频设备；1=CodePal 运行时防止 K28 抢默认输出
+AUDIO_GUARD_ENABLED=${config.AUDIO_GUARD_ENABLED || '1'}
+LAST_SAFE_OUTPUT_DEVICE=${config.LAST_SAFE_OUTPUT_DEVICE || ''}
+LAST_SAFE_INPUT_DEVICE=${config.LAST_SAFE_INPUT_DEVICE || ''}
 
 # 【选填】任务播报摘要：busy 时把原始 prompt 压成短任务名，done 时复用。
 TASK_SUMMARY_ENABLED=${config.TASK_SUMMARY_ENABLED || '1'}
@@ -513,22 +523,6 @@ function toPublicConfig(config) {
 }
 
 /**
- * 获取当前音频输出设备
- * @returns {Promise<string|null>}
- */
-function getCurrentOutputDevice() {
-  return new Promise((resolve) => {
-    execFile('SwitchAudioSource', ['-c'], { timeout: 2000 }, (error, stdout) => {
-      if (error) {
-        resolve(null)
-        return
-      }
-      resolve(String(stdout || '').trim() || null)
-    })
-  })
-}
-
-/**
  * 读取文件最后若干行
  * @param {string} filePath - 文件路径
  * @param {number} lineCount - 行数
@@ -585,10 +579,10 @@ async function readActiveStates() {
  */
 async function getK28StatusLightState() {
   try {
-    const [{ config, exists }, installed, currentOutputDevice, states, ttsLogs, codexLogs] = await Promise.all([
+    const [{ config, exists }, installed, audio, states, ttsLogs, codexLogs] = await Promise.all([
       readRawConfig(),
       pathExists(K28_DIR),
-      getCurrentOutputDevice(),
+      getK28AudioState(),
       readActiveStates(),
       tailFile(K28_TTS_LOG_PATH, 40),
       tailFile(K28_CODEX_LOG_PATH, 20),
@@ -619,7 +613,8 @@ async function getK28StatusLightState() {
           && requiredFiles.pythonBle,
         requiredFiles,
         config: toPublicConfig(config),
-        currentOutputDevice,
+        currentOutputDevice: audio.currentOutputDevice,
+        audio,
         activeStates: states,
         logs: {
           tts: ttsLogs,
@@ -646,6 +641,7 @@ async function saveK28StatusLightConfig(updates = {}) {
     nextConfig.STATUS_LIGHT_ENABLED = normalizeBooleanFlag(updates.STATUS_LIGHT_ENABLED, config.STATUS_LIGHT_ENABLED)
     nextConfig.VOICE_ENABLED = normalizeBooleanFlag(updates.VOICE_ENABLED, config.VOICE_ENABLED)
     nextConfig.TASK_SUMMARY_ENABLED = normalizeBooleanFlag(updates.TASK_SUMMARY_ENABLED, config.TASK_SUMMARY_ENABLED)
+    nextConfig.AUDIO_GUARD_ENABLED = normalizeBooleanFlag(updates.AUDIO_GUARD_ENABLED, config.AUDIO_GUARD_ENABLED)
     nextConfig.VOLC_SPEED = normalizeNumberString(updates.VOLC_SPEED ?? config.VOLC_SPEED, 1, 0.5, 2)
     nextConfig.TTS_TIMEOUT_SECONDS = normalizeNumberString(
       updates.TTS_TIMEOUT_SECONDS ?? config.TTS_TIMEOUT_SECONDS,

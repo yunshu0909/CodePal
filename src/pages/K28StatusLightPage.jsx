@@ -32,6 +32,7 @@ const LIGHT_TESTS = [
 const DEFAULT_SWITCHES = Object.freeze({
   STATUS_LIGHT_ENABLED: '1',
   VOICE_ENABLED: '1',
+  AUDIO_GUARD_ENABLED: '1',
   TASK_SUMMARY_ENABLED: '1',
 })
 
@@ -93,15 +94,19 @@ export default function K28StatusLightPage() {
   const [isTestingVoice, setIsTestingVoice] = useState(false)
   // 正在清理状态文件
   const [isClearing, setIsClearing] = useState(false)
+  // 正在修复 K28 抢占系统音频输出
+  const [isFixingAudio, setIsFixingAudio] = useState(false)
   // 正在保存的 Key 字段名
   const [savingKey, setSavingKey] = useState(null)
   // Toast 提示消息
   const [toast, setToast] = useState(null)
 
   const config = state?.config || {}
+  const audio = state?.audio || null
   const activeStates = state?.activeStates || []
   const isInstalled = Boolean(state?.installed)
   const isStatusEnabled = switches.STATUS_LIGHT_ENABLED === '1'
+  const isAudioGuardEnabled = switches.AUDIO_GUARD_ENABLED === '1'
 
   const statusTag = useMemo(() => {
     if (!state) return { tone: 'idle', label: '读取中' }
@@ -130,6 +135,7 @@ export default function K28StatusLightPage() {
         setSwitches({
           STATUS_LIGHT_ENABLED: nextConfig.STATUS_LIGHT_ENABLED || '1',
           VOICE_ENABLED: nextConfig.VOICE_ENABLED || '1',
+          AUDIO_GUARD_ENABLED: nextConfig.AUDIO_GUARD_ENABLED || '1',
           TASK_SUMMARY_ENABLED: nextConfig.TASK_SUMMARY_ENABLED || '1',
         })
       }
@@ -279,6 +285,25 @@ export default function K28StatusLightPage() {
     }
   }
 
+  /**
+   * 立即修复 K28 抢占系统音频输出
+   */
+  const handleFixAudio = async () => {
+    try {
+      setIsFixingAudio(true)
+      const result = await window.electronAPI.fixK28AudioOutput()
+      if (!result?.success) {
+        throw new Error(result?.error || '音频修复失败')
+      }
+      setToast({ message: '音频输出已修复', type: 'success' })
+      await loadState({ silent: true, syncSwitches: false })
+    } catch (err) {
+      setToast({ message: err?.message || '音频修复失败', type: 'error' })
+    } finally {
+      setIsFixingAudio(false)
+    }
+  }
+
   const isVoiceEnabled = switches.VOICE_ENABLED === '1'
   // 同一时刻只允许一个链路测试在跑（灯色或语音）
   const busyTesting = Boolean(testingLight) || isTestingVoice
@@ -304,8 +329,16 @@ export default function K28StatusLightPage() {
             installed={isInstalled}
             activeCount={activeStates.length}
             outputDevice={state?.currentOutputDevice}
+            audio={audio}
             hasVolcKey={config.hasVolcApiKey}
             hasDeepSeekKey={config.hasDeepSeekApiKey}
+          />
+          <AudioGuardNotice
+            audio={audio}
+            guardEnabled={isAudioGuardEnabled}
+            fixing={isFixingAudio}
+            onFix={handleFixAudio}
+            onDisable={() => handleToggle('AUDIO_GUARD_ENABLED', false)}
           />
 
           {!isInstalled ? (
@@ -331,9 +364,15 @@ export default function K28StatusLightPage() {
                   />
                   <SwitchRow
                     title="启用语音"
-                    desc="关闭后只保留屏幕状态，不提交豆包 TTS 播报"
+                    desc="只控制豆包 TTS 播报，不控制音乐和系统声音"
                     checked={isVoiceEnabled}
                     onChange={(checked) => handleToggle('VOICE_ENABLED', checked)}
+                  />
+                  <SwitchRow
+                    title="保护系统音频"
+                    desc="开启后 K28 抢默认输出时，切回最近使用的非 K28 设备"
+                    checked={isAudioGuardEnabled}
+                    onChange={(checked) => handleToggle('AUDIO_GUARD_ENABLED', checked)}
                   />
                   <SwitchRow
                     title="任务摘要"
@@ -469,11 +508,16 @@ export default function K28StatusLightPage() {
  * @param {boolean} props.installed - 是否已安装
  * @param {number} props.activeCount - 活跃 session 数
  * @param {string} [props.outputDevice] - 当前输出设备
+ * @param {object|null} [props.audio] - 音频保护状态
  * @param {boolean} props.hasVolcKey - 豆包 Key 是否已配置
  * @param {boolean} props.hasDeepSeekKey - DeepSeek Key 是否已配置
  * @returns {JSX.Element}
  */
-function StatusBar({ statusTag, basePath, installed, activeCount, outputDevice, hasVolcKey, hasDeepSeekKey }) {
+function StatusBar({ statusTag, basePath, installed, activeCount, outputDevice, audio, hasVolcKey, hasDeepSeekKey }) {
+  const audioUnavailable = audio && audio.available === false
+  const audioHijacked = Boolean(audio?.outputRouteHijacked)
+  const audioLabel = audioUnavailable ? '无法检测' : outputDevice || '未检测到'
+
   return (
     <div className="k28-statusbar">
       <div className="k28-statusbar-lead">
@@ -489,9 +533,14 @@ function StatusBar({ statusTag, basePath, installed, activeCount, outputDevice, 
               <span className="k28-metric-label">活跃</span>
               <span className="k28-metric-value">{activeCount}</span>
             </div>
-            <div className="k28-metric">
+            <div className={`k28-metric ${audioHijacked ? 'k28-metric--warning' : ''}`}>
               <span className="k28-metric-label">输出</span>
-              <span className="k28-metric-value">{outputDevice || '未检测到'}</span>
+              <span className="k28-metric-value">{audioLabel}</span>
+              {audioHijacked && (
+                <Tag variant={audio?.guardEnabled ? 'warning' : 'default'} size="sm">
+                  {audio?.guardEnabled ? '需修复' : '保护关闭'}
+                </Tag>
+              )}
             </div>
             <div className="k28-metric">
               <span className="k28-metric-label">豆包</span>
@@ -504,6 +553,47 @@ function StatusBar({ statusTag, basePath, installed, activeCount, outputDevice, 
           </div>
         </>
       )}
+    </div>
+  )
+}
+
+/**
+ * K28 音频抢占提示条
+ * @param {Object} props
+ * @param {object|null} props.audio - 音频保护状态
+ * @param {boolean} props.guardEnabled - 音频保护是否开启
+ * @param {boolean} props.fixing - 是否正在修复
+ * @param {() => void} props.onFix - 手动修复回调
+ * @param {() => void} props.onDisable - 关闭保护回调
+ * @returns {JSX.Element|null}
+ */
+function AudioGuardNotice({ audio, guardEnabled, fixing, onFix, onDisable }) {
+  if (!audio) return null
+
+  if (audio.available === false) {
+    return (
+      <div className="k28-audio-notice k28-audio-notice--muted">
+        <div>
+          <div className="k28-audio-notice-title">无法检测系统音频输出</div>
+          <div className="k28-audio-notice-desc">未找到 SwitchAudioSource，状态灯仍可用，但不能自动防止 K28 抢声音</div>
+        </div>
+      </div>
+    )
+  }
+
+  if (!audio.outputRouteHijacked || !guardEnabled) return null
+
+  const target = audio.lastSafeOutputDevice || audio.fallbackOutputDevice || 'MacBook Air扬声器'
+  return (
+    <div className="k28-audio-notice">
+      <div>
+        <div className="k28-audio-notice-title">K28 正在占用系统音频</div>
+        <div className="k28-audio-notice-desc">音乐和系统声音可能会从 K28 输出，可切回 {target}</div>
+      </div>
+      <div className="k28-audio-notice-actions">
+        <Button variant="secondary" size="sm" onClick={onFix} loading={fixing}>修复</Button>
+        <Button variant="ghost" size="sm" onClick={onDisable}>关闭保护</Button>
+      </div>
     </div>
   )
 }

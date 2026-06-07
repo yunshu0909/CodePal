@@ -439,6 +439,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   clearK28States: () => ipcRenderer.invoke('k28-status-light:clear-states'),
 
   /**
+   * 立即修复 K28 抢占系统音频输出
+   * @returns {Promise<{success: boolean, data?: object|null, error?: string|null}>}
+   */
+  fixK28AudioOutput: () => ipcRenderer.invoke('k28-status-light:fix-audio-output'),
+
+  /**
    * 打开 K28 全局工具目录
    * @returns {Promise<{success: boolean, error?: string|null}>}
    */
