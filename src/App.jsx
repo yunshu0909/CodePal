@@ -25,16 +25,13 @@ import NetworkDiagnosticsPage from './pages/NetworkDiagnosticsPage'
 import SessionBrowserPage from './pages/SessionBrowserPage'
 import DocBrowserPage from './pages/DocBrowserPage'
 import K28StatusLightPage from './pages/K28StatusLightPage'
-import CodexAccountPage from './pages/CodexAccountPage'
-import CodexAccountPageV17 from './pages/CodexAccountPageV17'
-import { CodexAccountRouter } from './pages/codex-account/CodexAccountRouter'
 import Toast from './components/Toast'
 import { dataStore } from './store/data'
 import { setPricingOverride } from './store/costCalculator'
 
 const AUTO_INCREMENTAL_REFRESH_INTERVAL_MS = 5 * 60 * 1000
 const DEFAULT_ACTIVE_MODULE = 'permission'
-const VALID_ACTIVE_MODULES = new Set(['skills', 'mcp', 'usage', 'claude-usage', 'codex-accounts', 'api', 'project-init', 'permission', 'network', 'k28-status-light', 'sessions', 'doc-browser'])
+const VALID_ACTIVE_MODULES = new Set(['skills', 'mcp', 'usage', 'claude-usage', 'api', 'project-init', 'permission', 'network', 'k28-status-light', 'sessions', 'doc-browser'])
 const INITIAL_APP_UPDATE_STATE = Object.freeze({
   checked: false,
   checking: false,
@@ -318,12 +315,6 @@ export default function App() {
           </div>
         )}
         {activeModule === 'claude-usage' && <ClaudeUsageStatusPage />}
-        {activeModule === 'codex-accounts' && (
-          <CodexAccountRouter
-            v17={<CodexAccountPageV17 />}
-            legacy={<CodexAccountPage />}
-          />
-        )}
         {activeModule === 'api' && <ApiConfigPage />}
         {activeModule === 'project-init' && <ProjectInitPage />}
         {activeModule === 'permission' && <PermissionModePage />}

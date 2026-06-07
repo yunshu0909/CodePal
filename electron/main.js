@@ -63,9 +63,6 @@ const { registerMcpHandlers } = require('./handlers/registerMcpHandlers')
 const { registerNetworkDiagnosticsHandlers } = require('./handlers/registerNetworkDiagnosticsHandlers')
 const { registerSessionBrowserHandlers } = require('./handlers/registerSessionBrowserHandlers')
 const { registerSessionResumeHandlers } = require('./handlers/registerSessionResumeHandlers')
-const { registerCodexAccountHandlers, stopCodexAccountWatcher } = require('./handlers/registerCodexAccountHandlers')
-const { registerCodexAccountHandlersV17 } = require('./handlers/registerCodexAccountHandlersV17')
-const { bootstrapV17 } = require('./services/codexBootstrapV17')
 const { registerDocBrowserHandlers } = require('./handlers/registerDocBrowserHandlers')
 const { registerK28StatusLightHandlers } = require('./handlers/registerK28StatusLightHandlers')
 const { initDocBrowserStore } = require('./services/docBrowserService')
@@ -95,10 +92,6 @@ process.stderr.on('error', (err) => {
 let mainWindow
 // 中央仓库监听服务清理函数
 let repoWatcherCleanup = null
-// V1.7 启动 bootstrap 结果 + scheduler 句柄 + V1.7 IPC handler 句柄
-let v17BootstrapResult = null
-let v17Scheduler = null
-let v17Handlers = null
 /**
  * 配置文件写入队列（按文件路径串行）
  * 解决同一文件并发写入时的临时文件冲突与写入顺序不确定问题
@@ -242,62 +235,10 @@ app.whenReady().then(async () => {
     expandHome,
     initialRepoPath,
   })
-
-  // V1.7 启动编排：cloud detect → migrate → recover → integrity → scheduler 起灶
-  // 失败不阻塞 app（migration 失败时 UI 走降级模式提示用户）
-  try {
-    v17BootstrapResult = await bootstrapV17({
-      powerMonitor,
-      net: typeof net?.online === 'boolean' || typeof net?.on === 'function' ? net : null,
-      logger: console,
-      appVersion: app.getVersion?.() ?? 'unknown',
-      onMigrationStarted: () => {
-        mainWindow?.webContents?.send('codex:v17:migration-event', { type: 'started' })
-      },
-      onMigrationDone: (result) => {
-        mainWindow?.webContents?.send('codex:v17:migration-event', { type: 'done', result })
-      },
-      onCloudSyncDetected: (info) => {
-        mainWindow?.webContents?.send('codex:v17:cloud-sync-warning', info)
-      },
-    })
-    v17Scheduler = v17BootstrapResult.scheduler
-    if (!v17BootstrapResult.ok) {
-      console.warn('[v17-bootstrap] failed at stage', v17BootstrapResult.stage, v17BootstrapResult.error)
-    }
-  } catch (err) {
-    console.error('[v17-bootstrap] unexpected failure:', err?.message || err)
-  }
-})
-
-// V1.7 before-quit drain：等 scheduler 内 inflight sweep + handlers stop 清空（最长 3 秒）
-// P0-6 修复：preventDefault 必须同步调用；v17Handlers.stop() 也纳入 drain 计时一起 race
-let v17BeforeQuitFired = false
-app.on('before-quit', (event) => {
-  if (v17BeforeQuitFired) return
-  v17BeforeQuitFired = true
-  const hasInflight = v17Scheduler && v17Scheduler.isInflight()
-  if (hasInflight) {
-    event.preventDefault() // 同步调用——异步 await 之后调 preventDefault 是无效的
-    const drainAll = Promise.all([
-      v17Scheduler.stop(),
-      v17Handlers?.stop() ?? Promise.resolve(),
-    ])
-    const timeout = new Promise((r) => setTimeout(r, 3000))
-    Promise.race([drainAll, timeout]).finally(() => {
-      // drain 完或超时都进入真正退出
-      app.exit(0)
-    })
-  } else {
-    // 没 inflight 也要让 scheduler + handlers 同步清理；可不 await
-    v17Scheduler?.stop().catch(() => {})
-    v17Handlers?.stop().catch(() => {})
-  }
 })
 
 app.on('window-all-closed', () => {
   repoWatcherCleanup?.stopWatching().catch(() => {})
-  stopCodexAccountWatcher().catch(() => {})
   if (process.platform !== 'darwin') {
     app.quit()
   }
@@ -812,21 +753,6 @@ registerSessionBrowserHandlers({
 
 registerSessionResumeHandlers({
   ipcMain,
-})
-
-registerCodexAccountHandlers({
-  ipcMain,
-  app,
-  getMainWindow: () => mainWindow,
-})
-
-// V1.7 IPC handlers（与 V1.6 并存，名字加 :v17 后缀）
-v17Handlers = registerCodexAccountHandlersV17({
-  ipcMain,
-  getMainWindow: () => mainWindow,
-  getBootstrapResult: () => v17BootstrapResult,
-  getScheduler: () => v17Scheduler,
-  logger: console,
 })
 
 registerDocBrowserHandlers({
