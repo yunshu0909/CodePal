@@ -19,55 +19,16 @@ import Toast from '../components/Toast'
 import '../styles/project-init.css'
 import PageShell from '../components/PageShell'
 import Button from '../components/Button/Button'
-
-const DEFAULT_TARGET_PATH = '~/Documents/projects/'
-const PROJECT_NAME_INVALID_CHARS = /[\\/:*?"<>|]/
-const PREVIEW_COLLAPSE_BREAKPOINT = 1024
-const PREVIEW_MEDIA_QUERY = `(max-width: ${PREVIEW_COLLAPSE_BREAKPOINT}px)`
-const DEFAULT_SUCCESS_MODAL_SUMMARY = Object.freeze({
-  projectPath: '',
-  createdDirectoryCount: 0,
-  configStatus: '未生成',
-})
-
-const TEMPLATE_OPTIONS = [
-  {
-    key: 'agents',
-    label: 'AGENTS.md',
-    desc: 'Codex 项目指引文件 — 包含编程规范、注释标准、文件体量红线，让 Codex 按统一标准写代码',
-    isGuideFile: true,
-  },
-  {
-    key: 'claude',
-    label: 'CLAUDE.md',
-    desc: 'Claude Code 项目指引文件 — 包含编程规范、注释标准、文件体量红线，让 Claude Code 按统一标准写代码',
-    isGuideFile: true,
-  },
-  {
-    key: 'memory',
-    label: '记忆系统',
-    desc: '生成 MEMORY.md + memory/ 目录，让 AI 跨对话记住项目上下文、工作偏好和关键决策。首次对话时 AI 会自动引导你完成初始化',
-    depHint: '需要至少启用一个指引文件（AGENTS.md 或 CLAUDE.md）',
-    isGuideFile: false,
-  },
-]
-
-const GIT_MODES = [
-  { key: 'root', icon: '🌿', title: '根目录初始化', desc: '全项目纳入版本控制' },
-  { key: 'code', icon: '📦', title: '仅代码目录', desc: '只在 code/ 文件夹初始化' },
-  { key: 'none', icon: '🚫', title: '跳过 Git', desc: '稍后手动执行 git init' },
-]
-
-// 预览区文件注释
-const TREE_ANNOTATIONS = {
-  '.git/': '版本控制',
-  'AGENTS.md': 'Codex 指引',
-  'CLAUDE.md': 'Claude Code 指引',
-  'MEMORY.md': '长期记忆',
-  'memory/': '每日记忆',
-  'docs/': 'PRD + 设计文档',
-  'code/': '项目代码',
-}
+import ProjectTreePreview from './projectInit/ProjectTreePreview'
+import {
+  DEFAULT_TARGET_PATH,
+  PROJECT_NAME_INVALID_CHARS,
+  PREVIEW_MEDIA_QUERY,
+  DEFAULT_SUCCESS_MODAL_SUMMARY,
+  TEMPLATE_OPTIONS,
+  DEFAULT_TEMPLATE_SELECTION,
+  GIT_MODES,
+} from './projectInit/projectInitConstants'
 
 /**
  * 新建项目页面组件
@@ -83,11 +44,7 @@ export default function ProjectInitPage() {
   // Git 是否可用（预检结果）
   const [gitAvailable, setGitAvailable] = useState(true)
   // 模板勾选状态
-  const [templateSelection, setTemplateSelection] = useState({
-    agents: true,
-    claude: true,
-    memory: true,
-  })
+  const [templateSelection, setTemplateSelection] = useState({ ...DEFAULT_TEMPLATE_SELECTION })
   // 预览是否展开
   const [isPreviewExpanded, setIsPreviewExpanded] = useState(() => {
     if (typeof window === 'undefined' || !window.matchMedia) return true
@@ -342,7 +299,7 @@ export default function ProjectInitPage() {
     setProjectName('')
     setTargetPath(DEFAULT_TARGET_PATH)
     setGitMode(gitAvailable ? 'root' : 'none')
-    setTemplateSelection({ agents: true, claude: true, memory: true })
+    setTemplateSelection({ ...DEFAULT_TEMPLATE_SELECTION })
     setValidationResult(null)
     setExecutionResult(null)
     setSuccessModalSummary(DEFAULT_SUCCESS_MODAL_SUMMARY)
@@ -354,23 +311,6 @@ export default function ProjectInitPage() {
   const handleRetryErrorModal = () => {
     setIsErrorModalVisible(false)
     handleCreateProject()
-  }
-
-  /**
-   * 渲染预览区树形节点
-   */
-  const renderTreeItem = (name, icon, indent, extraClass = '', visible = true) => {
-    if (!visible) return null
-    const indentClass = indent === 2 ? 'pi-tree-indent-2' : indent === 1 ? 'pi-tree-indent' : ''
-    return (
-      <div className={`pi-tree-item ${indentClass} ${indent > 0 ? 'pi-tree-connector' : ''} ${extraClass}`}>
-        <span className={icon === '📁' ? 'pi-tree-folder' : 'pi-tree-file'}>{icon}</span>
-        {name}
-        {TREE_ANNOTATIONS[name] && (
-          <span className="pi-tree-annotation">{TREE_ANNOTATIONS[name]}</span>
-        )}
-      </div>
-    )
   }
 
   return (
@@ -471,97 +411,13 @@ export default function ProjectInitPage() {
         </section>
 
         {/* 预览区 */}
-        <section
-          className={`pi-preview-panel ${isPreviewExpanded ? 'expanded' : 'collapsed'}`}
-          data-testid="project-init-preview-panel"
-        >
-          <div
-            className="pi-preview-header"
-            onClick={() => setIsPreviewExpanded(!isPreviewExpanded)}
-            style={{ cursor: 'pointer' }}
-          >
-            <span>👁</span> 实时预览
-            <span className="pi-preview-toggle">{isPreviewExpanded ? '▲' : '▼'}</span>
-          </div>
-          {isPreviewExpanded && (
-            <div className="pi-preview-content" data-testid="project-tree-preview">
-              <div className="pi-tree">
-                <div className="pi-tree-item root" data-testid="project-tree-root">
-                  <span className="pi-tree-folder">📁</span>
-                  <span>{previewProjectName}</span> /
-                </div>
-
-                {/* .git/ */}
-                {gitMode === 'root' && (
-                  <div className="pi-tree-item pi-tree-indent pi-tree-connector">
-                    <span className="pi-tree-folder pi-tree-success">📁</span>
-                    <span className="pi-tree-success">.git/</span>
-                    <span className="pi-tree-annotation">{TREE_ANNOTATIONS['.git/']}</span>
-                  </div>
-                )}
-
-                {/* AGENTS.md */}
-                {templateSelection.agents && (
-                  <div className="pi-tree-item pi-tree-indent pi-tree-connector" data-testid="project-tree-agents">
-                    <span className="pi-tree-file">📄</span>
-                    AGENTS.md
-                    <span className="pi-tree-annotation">{TREE_ANNOTATIONS['AGENTS.md']}</span>
-                  </div>
-                )}
-
-                {/* CLAUDE.md */}
-                {templateSelection.claude && (
-                  <div className="pi-tree-item pi-tree-indent pi-tree-connector" data-testid="project-tree-claude">
-                    <span className="pi-tree-file">📄</span>
-                    CLAUDE.md
-                    <span className="pi-tree-annotation">{TREE_ANNOTATIONS['CLAUDE.md']}</span>
-                  </div>
-                )}
-
-                {/* MEMORY.md */}
-                {templateSelection.memory && (
-                  <div className="pi-tree-item pi-tree-indent pi-tree-connector" data-testid="project-tree-memory">
-                    <span className="pi-tree-file">📄</span>
-                    MEMORY.md
-                    <span className="pi-tree-annotation">{TREE_ANNOTATIONS['MEMORY.md']}</span>
-                  </div>
-                )}
-
-                {/* memory/ */}
-                {templateSelection.memory && (
-                  <div className="pi-tree-item pi-tree-indent pi-tree-connector" data-testid="project-tree-memory-dir">
-                    <span className="pi-tree-folder">📁</span>
-                    memory/
-                    <span className="pi-tree-annotation">{TREE_ANNOTATIONS['memory/']}</span>
-                  </div>
-                )}
-
-                {/* docs/ */}
-                <div className="pi-tree-item pi-tree-indent pi-tree-connector">
-                  <span className="pi-tree-folder">📁</span>
-                  docs/
-                  <span className="pi-tree-annotation">{TREE_ANNOTATIONS['docs/']}</span>
-                </div>
-
-                {/* code/ */}
-                <div className="pi-tree-item pi-tree-indent pi-tree-connector">
-                  <span className="pi-tree-folder">📁</span>
-                  code/
-                  <span className="pi-tree-annotation">{TREE_ANNOTATIONS['code/']}</span>
-                </div>
-
-                {/* code/.git/ */}
-                {gitMode === 'code' && (
-                  <div className="pi-tree-item pi-tree-indent-2 pi-tree-connector">
-                    <span className="pi-tree-folder pi-tree-success">📁</span>
-                    <span className="pi-tree-success">.git/</span>
-                    <span className="pi-tree-annotation">{TREE_ANNOTATIONS['.git/']}</span>
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-        </section>
+        <ProjectTreePreview
+          projectName={previewProjectName}
+          templateSelection={templateSelection}
+          gitMode={gitMode}
+          isExpanded={isPreviewExpanded}
+          onToggle={() => setIsPreviewExpanded(!isPreviewExpanded)}
+        />
 
         {/* Footer */}
         <div className="pi-card-footer" data-testid="project-init-footer">

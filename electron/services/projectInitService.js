@@ -260,7 +260,7 @@ async function validateProjectInitParams(params, expandHome, pathExists, templat
     const targetPath = projectRoot
       ? path.join(projectRoot, ...definition.targetSegments)
       : null
-    return { key: templateKey, sourcePath, targetPath }
+    return { key: templateKey, type: definition.type || 'file', sourcePath, targetPath }
   })
 
   // 目标路径校验
@@ -444,6 +444,7 @@ async function runSafeRollback(params, pathExists) {
     projectRootCreated,
     projectRoot,
     overwrittenSnapshots,
+    createdTrees = [],
   } = params
 
   const rollbackSteps = []
@@ -451,6 +452,7 @@ async function runSafeRollback(params, pathExists) {
 
   const hasAnythingToRollback = (
     createdFiles.length > 0 ||
+    createdTrees.length > 0 ||
     createdDirectories.length > 0 ||
     Boolean(createdGitDir) ||
     projectRootCreated ||
@@ -492,6 +494,20 @@ async function runSafeRollback(params, pathExists) {
     } catch (error) {
       rollbackSuccess = false
       rollbackSteps.push(createStep('ROLLBACK_REMOVE_FILE', 'failed', filePath, 'ROLLBACK_FILE_REMOVE_FAILED', error.message))
+    }
+  }
+
+  // 移除目录型模板拷入的整树（如 specs/）——在删单文件之后、删固定目录之前
+  for (const treePath of [...createdTrees].reverse()) {
+    try {
+      const exists = await pathExists(treePath)
+      if (exists) {
+        await fs.rm(treePath, { recursive: true, force: true })
+      }
+      rollbackSteps.push(createStep('ROLLBACK_REMOVE_TREE', 'success', treePath, null, '已移除新建目录树'))
+    } catch (error) {
+      rollbackSuccess = false
+      rollbackSteps.push(createStep('ROLLBACK_REMOVE_TREE', 'failed', treePath, 'ROLLBACK_TREE_REMOVE_FAILED', error.message))
     }
   }
 

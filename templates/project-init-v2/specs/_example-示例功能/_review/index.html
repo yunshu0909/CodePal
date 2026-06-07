@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>深色模式开关 · 视觉件示例</title>
+<style>
+  /* 极简自包含示例,无外部依赖、无组件库——仅作视觉占位 */
+  body{font:14px/1.6 -apple-system,"PingFang SC",sans-serif;margin:0;padding:32px;background:#f4f5f7;color:#1a1d23}
+  .note{max-width:560px;margin:0 auto 20px;color:#5a626e}
+  .previews{max-width:560px;margin:0 auto;display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  .card{border:1px solid #d8dce2;border-radius:10px;overflow:hidden}
+  .card h3{margin:0;padding:10px 14px;font-size:13px;border-bottom:1px solid #e6e9ee}
+  .row{display:flex;align-items:center;justify-content:space-between;padding:14px}
+  .toggle{width:40px;height:22px;border-radius:11px;position:relative;flex:none}
+  .knob{width:18px;height:18px;border-radius:50%;background:#fff;position:absolute;top:2px;transition:left .15s}
+  /* 浅色预览 */
+  .light{background:#fff;color:#1a1d23}
+  .light .toggle{background:#cbd2db}
+  .light .knob{left:2px}
+  /* 深色预览 */
+  .dark{background:#1c1f26;color:#e8eaed}
+  .dark h3{border-color:#2c313b}
+  .dark .toggle{background:#2563eb}
+  .dark .knob{left:20px}
+</style>
+</head>
+<body>
+  <p class="note">深色模式开关 — 视觉件占位示例。<br>左:关(浅色)　右:开(深色)。这是给人看的,AI 默认不读本文件。</p>
+  <div class="previews">
+    <div class="card light">
+      <h3>设置 · 浅色（默认）</h3>
+      <div class="row"><span>深色模式</span><span class="toggle"><span class="knob"></span></span></div>
+    </div>
+    <div class="card dark">
+      <h3>设置 · 深色（开启）</h3>
+      <div class="row"><span>深色模式</span><span class="toggle"><span class="knob"></span></span></div>
+    </div>
+  </div>
+</body>
+</html>

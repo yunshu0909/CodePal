@@ -15,23 +15,41 @@
 
 /**
  * 可用模板定义（copy 型：源文件 → 目标位置）
- * key 用于前后端交互，sourceFile 用于定位模板源文件
+ * key 用于前后端交互，sourceFile 用于定位模板源文件（可为子目录）
+ * type: 'file'（默认，单文件 copyFile）| 'dir'（整目录递归 fs.cp）
  */
 const TEMPLATE_DEFINITIONS = Object.freeze({
   agents: {
     key: 'agents',
+    type: 'file',
     sourceFile: 'AGENTS.md',
     targetSegments: ['AGENTS.md'],
   },
   claude: {
     key: 'claude',
+    type: 'file',
     sourceFile: 'CLAUDE.md',
     targetSegments: ['CLAUDE.md'],
   },
   memory: {
     key: 'memory',
+    type: 'file',
     sourceFile: 'MEMORY.md',
     targetSegments: ['MEMORY.md'],
+  },
+  // 工作单元脚手架：整个 specs/ 目录（含 README + 填好的示例单元）递归拷贝
+  specs: {
+    key: 'specs',
+    type: 'dir',
+    sourceFile: 'specs',
+    targetSegments: ['specs'],
+  },
+  // 通用 .gitignore（源名 gitignore.tpl，落地重命名为 .gitignore）
+  gitignore: {
+    key: 'gitignore',
+    type: 'file',
+    sourceFile: 'gitignore.tpl',
+    targetSegments: ['.gitignore'],
   },
 })
 
@@ -42,7 +60,7 @@ const TEMPLATE_DEFINITIONS = Object.freeze({
 const MEMORY_PROTOCOL_SOURCE_FILE = 'memory-protocol.md'
 
 const TEMPLATE_KEYS = Object.freeze(Object.keys(TEMPLATE_DEFINITIONS))
-const DEFAULT_TEMPLATE_KEYS = Object.freeze(['agents', 'claude', 'memory'])
+const DEFAULT_TEMPLATE_KEYS = Object.freeze(['agents', 'claude', 'memory', 'specs', 'gitignore'])
 
 /**
  * V1.2.5 旧版 Git 模式字符串枚举（保留：现有 service/handler/UI 仍在使用）

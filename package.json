@@ -1,6 +1,6 @@
 {
   "name": "skill-manager",
-  "version": "1.8.2",
+  "version": "1.9.0",
   "description": "管理和推送你的 Skills 到各个工具",
   "main": "electron/main.js",
   "scripts": {
@@ -16,7 +16,8 @@
     "dist:mac": "npm run clean:release && npm run build && electron-builder --mac --arm64",
     "dist:win": "npm run clean:release && npm run build && electron-builder --win nsis --x64",
     "preview": "vite preview",
-    "test": "npm run test:v04 && npm run test:v05",
+    "test": "npm run test:v04 && npm run test:v05 && npm run test:v190",
+    "test:v190": "vitest run --config 自动化测试/V1.9.0/vitest.config.js",
     "test:v04": "vitest run --config 自动化测试/V0.4/vitest.config.js",
     "test:v04:watch": "vitest --config 自动化测试/V0.4/vitest.config.js",
     "test:v05": "vitest run --config 自动化测试/V0.5/vitest.config.js",

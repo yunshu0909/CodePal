@@ -103,6 +103,7 @@ function registerProjectInitHandlers({ ipcMain, expandHome, pathExists, template
     const steps = []
     const createdDirectories = []
     const createdFiles = []
+    const createdTrees = []
     const overwrittenSnapshots = []
     let createdGitDir = null
     let projectRoot = null
@@ -157,10 +158,22 @@ function registerProjectInitHandlers({ ipcMain, expandHome, pathExists, template
         }
       }
 
-      // 2. 复制模板文件
+      // 2. 复制模板文件 / 目录树（按 type 分支）
       for (const templatePlan of templatePlans) {
         const targetFilePath = templatePlan.targetPath
+        const isDir = templatePlan.type === 'dir'
         const targetExists = await pathExists(targetFilePath)
+
+        if (isDir) {
+          // 目录型（如 specs/）：目标已存在即报冲突，不做覆盖合并（无法精确回滚）
+          if (targetExists) {
+            throw { code: 'TARGET_CONFLICT', message: `目标已存在，无法写入工作单元目录: ${templatePlan.key}`, path: targetFilePath }
+          }
+          await fs.cp(templatePlan.sourcePath, targetFilePath, { recursive: true })
+          createdTrees.push(targetFilePath)
+          steps.push(createStep('COPY_TEMPLATE', 'success', targetFilePath, null, `目录树复制成功: ${templatePlan.key}`))
+          continue
+        }
 
         if (targetExists) {
           const targetStat = await fs.stat(targetFilePath)
@@ -246,6 +259,7 @@ function registerProjectInitHandlers({ ipcMain, expandHome, pathExists, template
 
       const rollback = await runSafeRollback({
         createdFiles,
+        createdTrees,
         createdDirectories,
         createdGitDir,
         projectRootCreated,
