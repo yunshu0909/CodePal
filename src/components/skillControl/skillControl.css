@@ -91,9 +91,9 @@
 }
 
 .skill-control-row {
-  min-width: 760px;
+  min-width: 920px;
   display: grid;
-  grid-template-columns: minmax(230px, 1fr) 84px 104px 112px 112px 112px;
+  grid-template-columns: minmax(250px, 1fr) 84px 140px 128px 128px 164px;
   align-items: center;
   min-height: 62px;
   padding: 0 var(--space-3);
@@ -118,6 +118,8 @@
 .skill-control-name { min-width: 0; padding-right: var(--space-3); }
 .skill-control-name__title { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .skill-control-name__meta { margin-top: 2px; color: var(--text-tertiary); font-family: var(--font-mono); font-size: var(--text-2xs); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.skill-control-sources { display: flex; align-items: center; gap: var(--space-1); min-width: 0; overflow: hidden; }
+.skill-control-sources .tag { max-width: 112px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .skill-control-usage { font-variant-numeric: tabular-nums; }
 .skill-control-tool-heading { display: flex; align-items: center; gap: 6px; }
 .skill-control-brand { width: 19px; height: 19px; display: grid; place-items: center; border-radius: 5px; color: var(--bg-base); font-size: 9px; font-weight: 700; }
@@ -163,6 +165,16 @@
 .skill-state-menu__panel .btn { justify-content: flex-start; width: 100%; }
 .skill-state-menu__group-title { padding: 4px 6px 2px; color: var(--text-tertiary); font-size: var(--text-2xs); }
 .skill-state-menu__divider { height: 1.5px; margin: var(--space-1) 0; background: var(--border-light); }
+
+.skill-details { display: grid; gap: var(--space-5); }
+.skill-details__heading h3 { margin: 0 0 var(--space-2); color: var(--text-primary); font-size: var(--text-lg); }
+.skill-details__badges { display: flex; flex-wrap: wrap; gap: var(--space-1); }
+.skill-details section { display: grid; gap: var(--space-2); }
+.skill-details h4 { margin: 0; color: var(--text-tertiary); font-size: var(--text-xs); text-transform: none; }
+.skill-details p { margin: 0; color: var(--text-secondary); line-height: 1.65; }
+.skill-details__handling { padding: var(--space-3); border: 1.5px solid var(--color-warning-border); border-radius: var(--radius-lg); background: var(--color-warning-bg); }
+.skill-details__handling strong { display: block; margin-bottom: var(--space-1); color: var(--color-warning); }
+.skill-details__handling p { color: var(--text-secondary); }
 
 @media (max-width: 900px) {
   .skill-control-page > .page-shell__header {

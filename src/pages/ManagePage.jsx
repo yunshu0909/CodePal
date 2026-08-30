@@ -10,12 +10,13 @@
  * @module ManagePage
  */
 
-import React, { useCallback, useEffect, useMemo, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { dataStore, toolDefinitions } from '../store/data'
 import Toast from '../components/Toast'
 import PageShell from '../components/PageShell'
 import SearchInput from '../components/SearchInput/SearchInput'
 import Button from '../components/Button/Button'
+import Tag from '../components/Tag/Tag'
 import BatchActionBar from '../components/BatchActionBar/BatchActionBar'
 import StateView from '../components/StateView/StateView'
 import Modal from '../components/Modal/Modal'
@@ -29,6 +30,7 @@ import SkillControlSummary from '../components/skillControl/SkillControlSummary'
 import SkillActivationCell from '../components/skillControl/SkillActivationCell'
 import SkillHealthBadge from '../components/skillControl/SkillHealthBadge'
 import SkillStateMenu from '../components/skillControl/SkillStateMenu'
+import SkillDetailsModal from '../components/skillControl/SkillDetailsModal'
 import useTagManagement from '../hooks/useTagManagement'
 import useSkillUsage from '../hooks/useSkillUsage'
 import useSkillControl from '../hooks/useSkillControl'
@@ -38,14 +40,14 @@ import {
   buildSkillControlSummary,
   buildExternalAdoptionPlan,
   filterSkillControlRows,
+  getSkillSourceBadges,
 } from './skillControlUtils'
 
 const VIEW_OPTIONS = [
   { id: 'all', label: '全部' },
   { id: 'active', label: '已启用' },
-  { id: 'candidates', label: '精简候选' },
-  { id: 'issues', label: '有问题' },
   { id: 'external', label: '外部 Skill' },
+  { id: 'issues', label: '有问题' },
 ]
 
 function SkillControlPage({ onNavigateToConfig, refreshSignal = 0 }) {
@@ -57,6 +59,7 @@ function SkillControlPage({ onNavigateToConfig, refreshSignal = 0 }) {
   const [toast, setToast] = useState(null)
   const [usageSampleSkill, setUsageSampleSkill] = useState(null)
   const [isBatchAdoptOpen, setIsBatchAdoptOpen] = useState(false)
+  const [detailsSkill, setDetailsSkill] = useState(null)
 
   const {
     tags, skillTags, activeTagFilter, setActiveTagFilter,
@@ -65,6 +68,8 @@ function SkillControlPage({ onNavigateToConfig, refreshSignal = 0 }) {
     handleAssignTag, handleRemoveTag,
     handleCreateTag, handleRenameTag, handleDeleteTag,
   } = useTagManagement(setToast)
+  const loadTagDataRef = useRef(loadTagData)
+  loadTagDataRef.current = loadTagData
 
   const {
     status: controlStatus,
@@ -84,13 +89,13 @@ function SkillControlPage({ onNavigateToConfig, refreshSignal = 0 }) {
       const skills = await dataStore.getCentralSkills()
       setCentralSkills(skills)
       setCentralError(null)
-      await loadTagData()
+      await loadTagDataRef.current()
     } catch (error) {
       setCentralError(error?.message || 'CENTRAL_SKILL_LOAD_FAILED')
     } finally {
       setCentralLoading(false)
     }
-  }, [loadTagData])
+  }, [])
 
   useEffect(() => {
     loadCentralMetadata()
@@ -109,8 +114,9 @@ function SkillControlPage({ onNavigateToConfig, refreshSignal = 0 }) {
     return {
       ...controlSkill,
       id: controlSkill.name,
-      displayName: metadata?.displayName || controlSkill.name,
-      desc: metadata?.desc || (controlSkill.managed ? '' : `仅存在于 ${externalTools.join(' / ')}`),
+      displayName: metadata?.displayName || controlSkill.displayName || controlSkill.name,
+      desc: metadata?.desc || controlSkill.description || controlSkill.origins?.find((origin) => origin.description)?.description
+        || (controlSkill.managed ? '' : `仅存在于 ${externalTools.join(' / ')}`),
     }
   }), [snapshot, centralByName])
 
@@ -143,10 +149,10 @@ function SkillControlPage({ onNavigateToConfig, refreshSignal = 0 }) {
     const result = await adoptExternalSkill({ skillName: skill.name, toolId })
     if (result.adopted?.length > 0) {
       await loadCentralMetadata()
-      setToast({ message: `已从 ${tool.fullName} 纳管 ${skill.displayName || skill.name}`, type: 'success' })
+      setToast({ message: `已从 ${tool.fullName} 收进资产库：${skill.displayName || skill.name}`, type: 'success' })
       return
     }
-    setToast({ message: '接管失败，原外部 Skill 已保留', type: 'error' })
+    setToast({ message: '收进资产库失败，原外部 Skill 已保留', type: 'error' })
   }, [adoptExternalSkill, loadCentralMetadata])
 
   const handleStateAction = useCallback(async (skill, command) => {
@@ -177,11 +183,11 @@ function SkillControlPage({ onNavigateToConfig, refreshSignal = 0 }) {
     const failedCount = result.failed?.length || 0
     const conflictCount = batchAdoption.conflicts.length
     if (failedCount === 0 && conflictCount === 0) {
-      setToast({ message: `已纳管 ${adoptedCount} 个外部 Skill`, type: 'success' })
+      setToast({ message: `已将 ${adoptedCount} 个外部 Skill 收进资产库`, type: 'success' })
       return
     }
     setToast({
-      message: `已纳管 ${adoptedCount} 个，${conflictCount} 个来源冲突、${failedCount} 个失败`,
+      message: `已收进 ${adoptedCount} 个，${conflictCount} 个来源冲突、${failedCount} 个失败`,
       type: failedCount > 0 ? 'error' : 'warning',
     })
   }, [adoptExternalSkills, batchAdoption, loadCentralMetadata])
@@ -202,12 +208,12 @@ function SkillControlPage({ onNavigateToConfig, refreshSignal = 0 }) {
   return (
     <PageShell
       title="Skill 控制中心"
-      subtitle="统一查看与控制 Claude Code、Codex 的 Skill；本页不管理 Plugin"
+      subtitle="这里只显示独立 Skill；Plugin 所带能力请到 Plugin 控制中心查看"
       className="page-shell--no-padding skill-control-page"
       actions={
         <>
-          {activeView === 'external' && externalRows.length > 0 && (
-            <Button variant="primary" size="sm" onClick={() => setIsBatchAdoptOpen(true)}>纳管全部</Button>
+          {activeView === 'external' && batchAdoption.operations.length > 0 && (
+            <Button variant="primary" size="sm" onClick={() => setIsBatchAdoptOpen(true)}>全部收进资产库</Button>
           )}
           <Button variant="secondary" size="sm" onClick={() => setIsTagModalOpen(true)}>管理标签</Button>
           <Button variant="secondary" size="sm" onClick={onNavigateToConfig}>配置</Button>
@@ -267,9 +273,9 @@ function SkillControlPage({ onNavigateToConfig, refreshSignal = 0 }) {
 
           <div className="skill-control-table-wrap">
             <div className="skill-control-row skill-control-row--header">
-              <div>Skill</div>
+              <div>Skill 与作用</div>
               <div>近 30 天</div>
-              <div>标签</div>
+              <div>来源</div>
               <div className="skill-control-tool-heading"><span className="skill-control-brand skill-control-brand--claude">CC</span>Claude</div>
               <div className="skill-control-tool-heading"><span className="skill-control-brand skill-control-brand--codex">CX</span>Codex</div>
               <div>健康</div>
@@ -299,15 +305,11 @@ function SkillControlPage({ onNavigateToConfig, refreshSignal = 0 }) {
                   ) : '—'}
                 </div>
                 <div onClick={(event) => event.stopPropagation()}>
-                  {skill.managed ? (
-                    <TagSelector
-                      skillId={skill.id}
-                      currentTagId={skillTags[skill.id] || null}
-                      tags={tags}
-                      onAssign={handleAssignTag}
-                      onRemove={handleRemoveTag}
-                    />
-                  ) : '—'}
+                  <div className="skill-control-sources">
+                    {getSkillSourceBadges(skill).slice(0, 2).map((source) => (
+                      <Tag key={source.key} variant={source.kind === 'plugin' ? 'info' : 'default'}>{source.label}</Tag>
+                    ))}
+                  </div>
                 </div>
                 {Object.keys(TOOL_META).map((toolId) => {
                   const tool = TOOL_META[toolId]
@@ -329,6 +331,14 @@ function SkillControlPage({ onNavigateToConfig, refreshSignal = 0 }) {
                 })}
                 <div className="skill-control-health">
                   <SkillHealthBadge skill={skill} isCandidate={skill.isCandidate} />
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    aria-label={`查看 ${skill.name} 详情`}
+                    onClick={() => setDetailsSkill(skill)}
+                  >
+                    查看
+                  </Button>
                   <SkillStateMenu skill={skill} pendingKeys={pendingKeys} onAction={(command) => handleStateAction(skill, command)} />
                 </div>
               </div>
@@ -336,7 +346,7 @@ function SkillControlPage({ onNavigateToConfig, refreshSignal = 0 }) {
           </div>
 
           <footer className="skill-control-footer">
-            <span>显示 {filteredRows.length} / {enrichedRows.length} · 状态来自本机实际目录</span>
+            <span>显示 {filteredRows.length} / {enrichedRows.length} · 状态来自本机实际目录与官方 CLI</span>
             <span>{usageSources && usageStatus === 'ready' ? '0 次表示近 30 天未观察到显式调用' : '调用统计加载中'}</span>
           </footer>
         </>
@@ -360,10 +370,12 @@ function SkillControlPage({ onNavigateToConfig, refreshSignal = 0 }) {
         skill={usageSampleSkill}
       />
 
+      <SkillDetailsModal skill={detailsSkill} onClose={() => setDetailsSkill(null)} />
+
       <Modal
         open={isBatchAdoptOpen}
         onClose={() => setIsBatchAdoptOpen(false)}
-        title="纳管全部外部 Skill"
+        title="将外部 Skill 收进资产库"
         size="sm"
         footer={
           <>
@@ -373,13 +385,13 @@ function SkillControlPage({ onNavigateToConfig, refreshSignal = 0 }) {
               disabled={batchAdoption.operations.length === 0}
               onClick={handleBatchAdopt}
             >
-              纳管 {batchAdoption.operations.length} 个
+              收进 {batchAdoption.operations.length} 个
             </Button>
           </>
         }
       >
         <div className="skill-adoption-confirm">
-          <p>接管后，中央资产库将成为这些 Skill 的维护版本，Claude Code / Codex 中的原外部项会替换为 CodePal 副本。</p>
+          <p>收进后，中央资产库将成为这些 Skill 的维护版本，Claude Code / Codex 中的原外部项会替换为 CodePal 副本。</p>
           <p>软链接指向的原始上游目录不会删除。</p>
           {batchAdoption.conflicts.length > 0 && (
             <p className="skill-adoption-confirm__warning">

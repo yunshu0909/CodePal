@@ -15,6 +15,7 @@ const os = require('os')
 const path = require('path')
 const { execFile } = require('child_process')
 const { promisify } = require('util')
+const { readPluginMetadata } = require('./skillMetadataService')
 
 const execFileAsync = promisify(execFile)
 const TOOL_NAMES = Object.freeze({ codex: 'Codex', 'claude-code': 'Claude Code' })
@@ -96,6 +97,7 @@ function capabilities(item) {
 
 function normalizePlugin(item, toolId, installedFallback = true) {
   const id = item.pluginId || item.id || (item.marketplaceName ? `${item.name}@${item.marketplaceName}` : item.name)
+  const localRoot = item.source?.path || item.installPath || item.cachePath || null
   return {
     id,
     name: item.name || String(id || '').split('@')[0],
@@ -108,6 +110,8 @@ function normalizePlugin(item, toolId, installedFallback = true) {
     marketplace: item.marketplaceName || item.marketplace || String(id || '').split('@')[1] || 'unknown',
     scope: item.scope || item.installScope || 'user',
     description: item.description || '',
+    // localRoot 只在主进程中用于只读元数据解析，返回 renderer 前必须剥离。
+    localRoot: localRoot && path.isAbsolute(localRoot) ? localRoot : null,
     sourceType: item.source?.source || item.source?.sourceType || (typeof item.source === 'string' ? 'marketplace' : 'unknown'),
     installPolicy: item.installPolicy || null,
     auth: {
@@ -126,11 +130,20 @@ async function countDirectory(rootPath, name) {
   } catch { return 0 }
 }
 
-async function enrichLocalInventory(plugin, rawItem) {
-  if (!plugin.installed) return plugin
-  const rootPath = rawItem.source?.path || rawItem.installPath || rawItem.cachePath
-  if (!rootPath || !path.isAbsolute(rootPath)) return plugin
-  const [skills, commands, agents, mcpFolders, hooks, connectors] = await Promise.all([
+async function enrichLocalInventory(plugin, deps = {}) {
+  if (!plugin.installed) {
+    return {
+      ...plugin,
+      childSkills: [],
+      metadataStatus: plugin.description ? 'ready' : 'missing',
+    }
+  }
+  const rootPath = plugin.localRoot
+  if (!rootPath) {
+    return { ...plugin, childSkills: [], metadataStatus: 'unavailable' }
+  }
+  const [metadata, skills, commands, agents, mcpFolders, hooks, connectors] = await Promise.all([
+    readPluginMetadata(rootPath, deps),
     countDirectory(rootPath, 'skills'),
     countDirectory(rootPath, 'commands'),
     countDirectory(rootPath, 'agents'),
@@ -140,8 +153,11 @@ async function enrichLocalInventory(plugin, rawItem) {
   ])
   return {
     ...plugin,
+    description: plugin.description || metadata.description,
+    childSkills: metadata.childSkills,
+    metadataStatus: metadata.metadataStatus,
     capabilities: {
-      skills: Math.max(plugin.capabilities.skills, skills),
+      skills: Math.max(plugin.capabilities.skills, skills, metadata.childSkills.length),
       commands: Math.max(plugin.capabilities.commands, commands),
       agents: Math.max(plugin.capabilities.agents, agents),
       mcp: Math.max(plugin.capabilities.mcp, mcpFolders),
@@ -151,7 +167,14 @@ async function enrichLocalInventory(plugin, rawItem) {
   }
 }
 
-async function listProvider(toolId, params, deps) {
+/**
+ * 读取一个工具的官方 Plugin inventory，保留仅供主进程解析的 localRoot。
+ * @param {'codex'|'claude-code'} toolId 工具 ID
+ * @param {object} params 项目范围参数
+ * @param {object} deps 测试依赖
+ * @returns {Promise<object[]>}
+ */
+async function listProviderInventory(toolId, params = {}, deps = {}) {
   const runCommand = deps.runCommand || defaultRunCommand
   const cwd = params.projectPath && path.isAbsolute(params.projectPath) ? params.projectPath : undefined
   const binary = toolId === 'codex' ? 'codex' : 'claude'
@@ -159,13 +182,13 @@ async function listProvider(toolId, params, deps) {
   const data = parseJson(response.stdout)
   if (toolId === 'codex') {
     const installedItems = Array.isArray(data?.installed) ? data.installed : []
-    const installed = await Promise.all(installedItems.map(async (item) => enrichLocalInventory(normalizePlugin(item, toolId, true), item)))
+    const installed = await Promise.all(installedItems.map(async (item) => enrichLocalInventory(normalizePlugin(item, toolId, true), deps)))
     const available = Array.isArray(data?.available) ? data.available.map((item) => normalizePlugin(item, toolId, false)) : []
     return [...installed, ...available.filter((candidate) => !installed.some((item) => item.id === candidate.id))]
   }
-  if (Array.isArray(data)) return Promise.all(data.map(async (item) => enrichLocalInventory(normalizePlugin(item, toolId, item.installed ?? true), item)))
+  if (Array.isArray(data)) return Promise.all(data.map(async (item) => enrichLocalInventory(normalizePlugin(item, toolId, item.installed ?? true), deps)))
   const installedItems = Array.isArray(data?.installed) ? data.installed : []
-  const installed = await Promise.all(installedItems.map(async (item) => enrichLocalInventory(normalizePlugin(item, toolId, true), item)))
+  const installed = await Promise.all(installedItems.map(async (item) => enrichLocalInventory(normalizePlugin(item, toolId, true), deps)))
   const available = Array.isArray(data?.available) ? data.available.map((item) => normalizePlugin(item, toolId, false)) : []
   return [...installed, ...available.filter((candidate) => !installed.some((item) => item.id === candidate.id))]
 }
@@ -174,20 +197,30 @@ async function listProvider(toolId, params, deps) {
 async function getPluginControlSnapshot(params = {}, deps = {}) {
   const entries = await Promise.all(Object.keys(TOOL_NAMES).map(async (toolId) => {
     try {
-      return [toolId, { plugins: await listProvider(toolId, params, deps), error: null }]
+      return [toolId, { plugins: await listProviderInventory(toolId, params, deps), error: null }]
     } catch (error) {
       return [toolId, { plugins: [], error: safeErrorCode(error) }]
     }
   }))
   const results = Object.fromEntries(entries)
   const errors = entries.filter(([, value]) => value.error).map(([toolId, value]) => ({ toolId, code: value.error }))
-  const plugins = entries.flatMap(([, value]) => value.plugins)
+  const internalPlugins = entries.flatMap(([, value]) => value.plugins)
     .filter((item) => SAFE_PLUGIN_ID.test(item.id || ''))
     .sort((left, right) => Number(right.installed) - Number(left.installed) || left.name.localeCompare(right.name))
+  const metadataErrors = internalPlugins
+    .filter((item) => item.installed && item.metadataStatus === 'unavailable')
+    .map((item) => ({ toolId: item.toolId, pluginId: item.id, code: 'PLUGIN_METADATA_UNAVAILABLE' }))
+  const plugins = internalPlugins.map(({ localRoot, ...plugin }) => plugin)
+  const activeSkills = new Set(internalPlugins
+    .filter((item) => item.installed && item.enabled)
+    .flatMap((item) => item.childSkills || [])
+    .map((skill) => skill.name))
   return {
     generatedAt: new Date().toISOString(),
     partial: errors.length > 0,
     errors,
+    metadataPartial: metadataErrors.length > 0,
+    metadataErrors,
     tools: Object.fromEntries(Object.keys(TOOL_NAMES).map((toolId) => [toolId, {
       id: toolId,
       name: TOOL_NAMES[toolId],
@@ -201,6 +234,7 @@ async function getPluginControlSnapshot(params = {}, deps = {}) {
       available: plugins.filter((item) => !item.installed).length,
       updates: plugins.filter((item) => item.updateAvailable).length,
       authRequired: plugins.filter((item) => item.auth.status === 'required' || item.auth.status === 'required-on-install').length,
+      activeSkills: activeSkills.size,
     },
   }
 }
@@ -306,6 +340,7 @@ module.exports = {
   SAFE_PLUGIN_ID,
   normalizePlugin,
   defaultRunCommand,
+  listProviderInventory,
   setCodexPluginEnabled,
   getPluginControlSnapshot,
   executePluginCommand,

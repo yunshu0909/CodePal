@@ -1,7 +1,7 @@
 /**
  * 单工具 Skill 启用单元格
  *
- * 负责封装 Toggle、分工具调用次数、漂移同步入口和不可用/未纳管状态。
+ * 负责封装 Toggle、分工具调用次数、漂移同步入口和只读/外部来源状态。
  *
  * @module components/skillControl/SkillActivationCell
  */
@@ -29,11 +29,24 @@ export default function SkillActivationCell({
     return <Tag variant="warning">无法读取</Tag>
   }
 
+  // Plugin / system / project 来源由其父级控制；必须先于 external 分支判断，
+  // 否则只读 Skill 会被错误展示成可“收进资产库”。
+  if (state.mutable === false) {
+    const labels = {
+      plugin: '只读',
+      system: '系统提供',
+      bundled: '系统提供',
+      project: '随项目生效',
+      command: '只读来源',
+    }
+    return <Tag variant="default">{labels[state.origin] || '只读来源'}</Tag>
+  }
+
   if (!managed && state.state === 'external') {
     return (
-      <div className="skill-activation-cell" title={`从 ${toolName} 将完整内容纳入中央资产库`}>
+      <div className="skill-activation-cell" title={`从 ${toolName} 将完整内容收进中央资产库`}>
         <Button variant="ghost" size="sm" disabled={pending} onClick={onAdopt}>
-          {pending ? '接管中' : '纳管'}
+          {pending ? '处理中' : '收进资产库'}
         </Button>
       </div>
     )
@@ -41,10 +54,6 @@ export default function SkillActivationCell({
 
   if (!managed) {
     return <span className="skill-activation-cell__empty">—</span>
-  }
-
-  if (state.mutable === false) {
-    return <Tag variant="default">只读来源</Tag>
   }
 
   return (
