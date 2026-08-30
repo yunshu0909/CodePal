@@ -1,0 +1,37 @@
+/**
+ * Plugin 控制中心样式
+ *
+ * @module styles/plugin-control
+ */
+
+.plugin-control-page { min-height: 0; }
+.plugin-summary { display: grid; grid-template-columns: repeat(4, 1fr); padding: var(--space-4) var(--space-6); border-bottom: 1.5px solid var(--border-default); background: var(--bg-subtle); }
+.plugin-summary > div { display: flex; align-items: baseline; gap: var(--space-2); padding: 0 var(--space-4); border-right: 1.5px solid var(--border-default); }
+.plugin-summary > div:last-child { border-right: 0; }
+.plugin-summary strong { font-size: var(--text-lg); color: var(--text-primary); }
+.plugin-summary span { font-size: var(--text-xs); color: var(--text-secondary); }
+.plugin-toolbar { display: flex; justify-content: space-between; align-items: center; gap: var(--space-4); padding: var(--space-4) var(--space-6); border-bottom: 1.5px solid var(--border-default); }
+.plugin-filters { display: flex; gap: var(--space-1); }
+.plugin-filters button { border: 1.5px solid transparent; border-radius: var(--radius-sm); background: transparent; padding: 6px 10px; color: var(--text-secondary); cursor: pointer; }
+.plugin-filters button:hover { color: var(--text-primary); background: var(--bg-muted); }
+.plugin-filters button.is-active { color: var(--text-primary); background: var(--bg-muted); border-color: var(--border-strong); }
+.plugin-partial { margin: var(--space-3) var(--space-6) 0; padding: var(--space-3); border: 1.5px solid var(--color-warning-border); border-radius: var(--radius-md); color: var(--color-warning); background: var(--color-warning-bg); font-size: var(--text-sm); }
+.plugin-table { min-width: 920px; }
+.plugin-row { display: grid; grid-template-columns: minmax(150px, 1.25fr) 100px 84px 84px minmax(120px, 1fr) minmax(150px, 1.25fr) minmax(250px, auto); align-items: center; gap: var(--space-3); min-height: 64px; padding: var(--space-2) var(--space-6); border-bottom: 1.5px solid var(--border-light); color: var(--text-secondary); font-size: var(--text-sm); }
+.plugin-row:hover:not(.plugin-row--header) { background: var(--bg-subtle); }
+.plugin-row--header { min-height: 38px; background: var(--bg-subtle); color: var(--text-tertiary); font-size: var(--text-xs); font-weight: 600; }
+.plugin-name { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.plugin-name strong { overflow: hidden; color: var(--text-primary); text-overflow: ellipsis; }
+.plugin-name span, .plugin-source, .plugin-capabilities { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: var(--text-xs); }
+.plugin-actions { display: flex; justify-content: flex-end; gap: var(--space-1); }
+.plugin-filter-empty { padding: var(--space-10); text-align: center; color: var(--text-tertiary); }
+.plugin-footer { padding: var(--space-3) var(--space-6); background: var(--bg-subtle); color: var(--text-tertiary); font-size: var(--text-xs); }
+.plugin-details { display: grid; gap: var(--space-3); }
+.plugin-details > div { display: grid; grid-template-columns: 110px 1fr; gap: var(--space-3); padding-bottom: var(--space-2); border-bottom: 1.5px solid var(--border-light); }
+.plugin-details span { color: var(--text-tertiary); }
+.plugin-details strong { color: var(--text-primary); overflow-wrap: anywhere; }
+.plugin-details p, .plugin-install-form p { color: var(--text-secondary); font-size: var(--text-xs); }
+.plugin-install-form { display: grid; gap: var(--space-4); }
+.plugin-install-form label { display: grid; gap: var(--space-2); color: var(--text-secondary); font-size: var(--text-sm); }
+.plugin-install-form input, .plugin-install-form select { min-height: 36px; padding: 0 var(--space-3); border: 1.5px solid var(--border-default); border-radius: var(--radius-md); background: var(--bg-base); color: var(--text-primary); font: inherit; }
+.plugin-install-form input:focus, .plugin-install-form select:focus { border-color: var(--color-primary); outline: none; }

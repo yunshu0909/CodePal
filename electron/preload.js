@@ -240,6 +240,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   deploySkillToTool: (params) => ipcRenderer.invoke('skill-control:deploy', params),
   adoptExternalSkill: (params) => ipcRenderer.invoke('skill-control:adopt', params),
 
+  // Plugin 控制中心：通过官方 CLI 读取和执行，写后重读原生状态。
+  getPluginControlSnapshot: (params) => ipcRenderer.invoke('plugin-control:get-snapshot', params),
+  executePluginCommand: (params) => ipcRenderer.invoke('plugin-control:execute', params),
+
   /**
    * 获取 Claude/Codex 日志最早日期（北京时间），用于「累计至今」动态起点
    * @returns {Promise<{success: boolean, earliestDate: string|null, error?: string}>}
