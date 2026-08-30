@@ -98,8 +98,15 @@
   margin-top: 6px;
   color: var(--color-warning);
 }
+.usage-help-meta {
+  margin-top: 4px;
+  color: var(--text-tertiary);
+}
+.usage-help-boundary {
+  margin-top: 6px;
+}
 
-/* ── 运行样本弹窗 ─────────────────────────────────────── */
+/* ── 调用记录弹窗 ─────────────────────────────────────── */
 .skill-run-modal {
   display: flex;
   flex-direction: column;
@@ -147,19 +154,9 @@
   font-size: var(--text-sm);
   font-weight: 600;
 }
-.skill-run-preview {
-  color: var(--text-primary);
-  font-size: var(--text-sm);
-  line-height: 1.6;
-  margin-bottom: var(--space-2);
-  overflow: hidden;
-  display: -webkit-box;
-  -webkit-line-clamp: 3;
-  -webkit-box-orient: vertical;
-  word-break: break-word;
-}
 .skill-run-meta {
   display: flex;
+  align-items: center;
   flex-wrap: wrap;
   gap: var(--space-2);
   color: var(--text-tertiary);
@@ -170,4 +167,9 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.skill-run-session {
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  min-width: 0;
 }

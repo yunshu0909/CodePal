@@ -2,13 +2,29 @@
  * SkillUsageColumnHeader —「调用·近30天」列表头
  *
  * - 可点排序（降序 ↓ / 升序 ↑）
- * - ⓘ 点击展开/收起「调用数说明」浮层（诚实声明，低调不占常驻空间）
- * - 部分可用时（只读到一个工具的日志）在浮层里追加提示
+ * - ⓘ 展示账本口径、上次扫描、双源状态与日志可观测边界
  *
  * @module components/skillUsage/SkillUsageColumnHeader
  */
 import React from 'react'
 import './skillUsage.css'
+
+function sourceLabel(value) {
+  return {
+    ok: '已读取',
+    missing: '未找到',
+    error: '读取失败',
+  }[value] || '未扫描'
+}
+
+function formatScannedAt(value) {
+  if (!value) return '—'
+  try {
+    return new Date(value).toLocaleString('zh-CN', { hour12: false })
+  } catch {
+    return value
+  }
+}
 
 /**
  * @param {object} props
@@ -16,11 +32,18 @@ import './skillUsage.css'
  * @param {Function} props.onToggleSort - 切换排序
  * @param {boolean} props.helpOpen - 说明浮层是否展开
  * @param {Function} props.onToggleHelp - 切换说明浮层
- * @param {{claude:string, codex:string}|null} props.sources - 各源可用状态
+ * @param {object|null} props.scanMeta - 上次扫描元数据
+ * @param {{claude:string,codex:string}|null} [props.sources] - 兼容旧调用方的源状态
  */
-export default function SkillUsageColumnHeader({ sort, onToggleSort, helpOpen, onToggleHelp, sources }) {
-  const onlyClaude = sources && sources.claude === 'ok' && sources.codex !== 'ok'
-  const onlyCodex = sources && sources.codex === 'ok' && sources.claude !== 'ok'
+export default function SkillUsageColumnHeader({
+  sort,
+  onToggleSort,
+  helpOpen,
+  onToggleHelp,
+  scanMeta,
+  sources: legacySources,
+}) {
+  const sources = scanMeta?.sources || legacySources
 
   return (
     <div className="header-usage">
@@ -31,9 +54,17 @@ export default function SkillUsageColumnHeader({ sort, onToggleSort, helpOpen, o
       {helpOpen && (
         <div className="usage-help-pop">
           <strong>调用数说明</strong>
-          主数字是清洗后的可用运行样本数；raw event 只用于排查日志扫描。统计近 30 天，来自本机 Claude + Codex 日志。0 次 ≠ 一定没用过。
-          {onlyClaude && <div className="usage-help-note">⚠️ 本次仅读到 Claude，Codex 日志未读到。</div>}
-          {onlyCodex && <div className="usage-help-note">⚠️ 本次仅读到 Codex，Claude 日志未读到。</div>}
+          <div>主数字是 CodePal 已记录的近 30 天有效调用。同一会话触发两次记 2 次。</div>
+          <div className="usage-help-meta">上次扫描：{formatScannedAt(scanMeta?.lastScannedAt)}</div>
+          <div className="usage-help-meta">
+            Claude {sourceLabel(sources?.claude)} · Codex {sourceLabel(sources?.codex)}
+          </div>
+          <div className="usage-help-boundary">
+            长时间未打开 CodePal，或原日志已被工具清理，期间调用可能未被记录。0 次不等于一定没用过。
+          </div>
+          {scanMeta?.migrationFailed && (
+            <div className="usage-help-note">⚠️ 调用账本升级失败，本次继续显示旧口径。</div>
+          )}
         </div>
       )}
     </div>

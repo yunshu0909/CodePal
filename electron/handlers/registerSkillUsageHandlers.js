@@ -2,15 +2,14 @@
  * Skill 使用次数 IPC 注册器
  *
  * 负责：
- * - 注册 `aggregate-skill-usage` 通道，统计每个 skill 近 N 天的可用运行样本
- * - 注册 `list-skill-run-samples` 通道，回查单个 skill 的归一化样本
+ * - 注册 `aggregate-skill-usage` 通道，扫描后从 v2 ledger 统计有效调用
+ * - 保留 `list-skill-run-samples` 通道名，详情只读 invocation ledger
  *
  * @module electron/handlers/registerSkillUsageHandlers
  */
 
-const { scanLogFilesInRange } = require('../logScanner')
 const { scanSkillUsage } = require('../services/skillUsageScanService')
-const { scanSkillRunSamples } = require('../services/skillRunSampleService')
+const { listSkillInvocationRecords } = require('../services/skillRunSampleService')
 
 /**
  * 注册 Skill 使用次数相关 IPC handlers
@@ -22,7 +21,7 @@ const { scanSkillRunSamples } = require('../services/skillRunSampleService')
  */
 function registerSkillUsageHandlers({ ipcMain, pathExists, homeDir, nowFn = () => new Date() }) {
   /**
-   * 聚合 skill 使用统计（主数字为清洗后的 usable run samples）
+   * 聚合 Skill 使用统计（主数字为 ledger 已记录的有效 invocation）
    * @param {Electron.IpcMainInvokeEvent} _event - IPC 事件
    * @param {{windowDays?: number, skillNames?: string[]}} params - 参数
    * @returns {Promise<{success: boolean, data?: object, error?: string}>}
@@ -30,7 +29,7 @@ function registerSkillUsageHandlers({ ipcMain, pathExists, homeDir, nowFn = () =
   ipcMain.handle('aggregate-skill-usage', async (_event, params) => {
     try {
       const data = await scanSkillUsage(
-        { homeDir, scanLogFilesInRangeFn: scanLogFilesInRange, pathExistsFn: pathExists, nowFn },
+        { homeDir, pathExistsFn: pathExists, nowFn },
         {
           windowDays: params?.windowDays ?? 30,
           skillNames: Array.isArray(params?.skillNames) ? params.skillNames : [],
@@ -43,7 +42,7 @@ function registerSkillUsageHandlers({ ipcMain, pathExists, homeDir, nowFn = () =
   })
 
   /**
-   * 获取单个 skill 的归一化运行样本（近 windowDays 天）
+   * 获取单个 skill 的调用记录（近 windowDays 天）
    * @param {Electron.IpcMainInvokeEvent} _event - IPC 事件
    * @param {{skillName?: string, windowDays?: number}} params - 参数
    * @returns {Promise<{success: boolean, data?: object, error?: string}>}
@@ -55,28 +54,23 @@ function registerSkillUsageHandlers({ ipcMain, pathExists, homeDir, nowFn = () =
         return { success: false, error: 'SKILL_NAME_REQUIRED' }
       }
 
-      const data = await scanSkillRunSamples(
-        { homeDir, scanLogFilesInRangeFn: scanLogFilesInRange, pathExistsFn: pathExists, nowFn },
+      const data = await listSkillInvocationRecords(
+        { homeDir, nowFn },
         {
           windowDays: params?.windowDays ?? 30,
-          skillNames: [skillName],
+          skillName,
         }
       )
+      const {
+        ledgerPath: _ledgerPath,
+        ...publicData
+      } = data
       return {
         success: true,
-        data: {
-          skillName,
-          window: data.window,
-          startTime: data.startTime,
-          endTime: data.endTime,
-          sources: data.sources,
-          totals: data.totals,
-          samples: data.usableSamples.filter((sample) => sample.skillRequested === skillName),
-          ledgerPath: data.ledgerPath,
-        },
+        data: publicData,
       }
     } catch (error) {
-      return { success: false, error: error?.message || 'SKILL_RUN_SAMPLE_SCAN_FAILED' }
+      return { success: false, error: error?.message || 'SKILL_INVOCATION_LIST_FAILED' }
     }
   })
 }

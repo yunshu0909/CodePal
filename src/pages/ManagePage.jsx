@@ -471,7 +471,12 @@ function LegacyManagePage({ onReimport, onNavigateToConfig, refreshSignal = 0 })
 
   // 调用次数（近30天，Claude+Codex 合计）—— 逻辑在 useSkillUsage hook，列表不被扫描阻塞
   const skillNames = useMemo(() => skills.map((s) => s.name), [skills])
-  const { status: usageStatus, usageMap, sources: usageSources } = useSkillUsage(skillNames)
+  const {
+    status: usageStatus,
+    usageMap,
+    sources: usageSources,
+    scanMeta: usageScanMeta,
+  } = useSkillUsage(skillNames)
   // 「调用」列排序（默认降序）+ 说明浮层开关
   const [usageSort, setUsageSort] = useState('desc')
   const [usageHelpOpen, setUsageHelpOpen] = useState(false)
@@ -904,6 +909,7 @@ function LegacyManagePage({ onReimport, onNavigateToConfig, refreshSignal = 0 })
                 helpOpen={usageHelpOpen}
                 onToggleHelp={() => setUsageHelpOpen((v) => !v)}
                 sources={usageSources}
+                scanMeta={usageScanMeta}
               />
               <div className="header-tag">标签</div>
               <div className="header-status">
@@ -938,7 +944,7 @@ function LegacyManagePage({ onReimport, onNavigateToConfig, refreshSignal = 0 })
                       loading={usageStatus === 'loading'}
                       error={usageStatus === 'error'}
                       onClick={(event) => openUsageSamples(skill, event)}
-                      title="查看清洗后的运行样本"
+                      title="查看调用记录"
                     />
                   </div>
                   <div className="skill-tag-column" onClick={(e) => e.stopPropagation()}>
