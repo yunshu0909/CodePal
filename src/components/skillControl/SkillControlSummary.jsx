@@ -39,4 +39,3 @@ export default function SkillControlSummary({ summary, activeView, onSelect }) {
     </div>
   )
 }
-

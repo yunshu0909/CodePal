@@ -64,4 +64,3 @@ export default function usePluginControl() {
 
   return { status, snapshot, error, pendingKeys, refresh, execute }
 }
-
