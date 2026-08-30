@@ -215,6 +215,22 @@ enabled = false
     expect(settings.unknownSetting).toEqual({ keep: true })
   })
 
+  it('SC-008 restores native enable flags after a disable → enable round trip', async () => {
+    await writeSkill(repoPath, 'round-trip')
+
+    await executeSkillCommand({ repoPath, homeDir, toolId: 'codex', skillName: 'round-trip', action: 'enable' }, { skipPluginDiscovery: true })
+    await executeSkillCommand({ repoPath, homeDir, toolId: 'codex', skillName: 'round-trip', action: 'disable' }, { skipPluginDiscovery: true })
+    await executeSkillCommand({ repoPath, homeDir, toolId: 'codex', skillName: 'round-trip', action: 'enable' }, { skipPluginDiscovery: true })
+    const codex = await discoverCodexSkills({ homeDir }, { skipPluginDiscovery: true })
+    expect(codex.sources).toContainEqual(expect.objectContaining({ name: 'round-trip', configEnabled: true }))
+
+    await executeSkillCommand({ repoPath, homeDir, toolId: 'claude-code', skillName: 'round-trip', action: 'enable' }, { skipPluginDiscovery: true })
+    await executeSkillCommand({ repoPath, homeDir, toolId: 'claude-code', skillName: 'round-trip', action: 'disable' }, { skipPluginDiscovery: true })
+    await executeSkillCommand({ repoPath, homeDir, toolId: 'claude-code', skillName: 'round-trip', action: 'enable' }, { skipPluginDiscovery: true })
+    const claude = await discoverClaudeSkills({ homeDir }, { skipPluginDiscovery: true })
+    expect(claude.sources).toContainEqual(expect.objectContaining({ name: 'round-trip', overrideState: 'enabled' }))
+  })
+
   it('SC-008 adopts a symlink by materializing content and never deletes its upstream directory', async () => {
     const upstreamRoot = path.join(sandbox, 'upstream')
     const upstreamSkill = await writeSkill(upstreamRoot, 'linked')

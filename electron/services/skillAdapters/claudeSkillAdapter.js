@@ -115,26 +115,37 @@ async function writeSettingsAtomic(settingsPath, settings) {
   await fs.rename(tempPath, settingsPath)
 }
 
+async function setSkillOverride(settingsPath, skillName, nextState) {
+  const settings = await readSettings(settingsPath)
+  if (settings.__codepalInvalidJson) throw Object.assign(new Error('INVALID_SETTINGS_JSON'), { code: 'INVALID_SETTINGS_JSON' })
+  const overrides = settings.skillOverrides && typeof settings.skillOverrides === 'object' && !Array.isArray(settings.skillOverrides)
+    ? { ...settings.skillOverrides }
+    : {}
+  if (nextState === 'inherit') delete overrides[skillName]
+  else overrides[skillName] = nextState === 'enabled'
+  if (Object.keys(overrides).length > 0) settings.skillOverrides = overrides
+  else delete settings.skillOverrides
+  await writeSettingsAtomic(settingsPath, settings)
+  return nextState
+}
+
 /** 执行 Claude Code 用户级 Skill 与 override 写操作。 */
 async function applyClaudeCommand(params, deps = {}) {
   const userPath = path.join(params.homeDir, '.claude', 'skills', params.skillName)
   if (params.action === 'enable') {
-    return deployManagedSkill({ repoPath: params.repoPath, targetPath: userPath, skillName: params.skillName }, deps)
+    const deployed = await deployManagedSkill({ repoPath: params.repoPath, targetPath: userPath, skillName: params.skillName }, deps)
+    // 目录存在不代表 Claude 会加载它；显式启用必须覆盖遗留的 skillOverrides=false。
+    await setSkillOverride(path.join(params.homeDir, '.claude', 'settings.json'), params.skillName, 'enabled')
+    return deployed
   }
   if (params.action === 'remove-tool') return removeToolCopies([userPath], deps)
   if (params.action === 'set-override' || params.action === 'clear-override' || params.action === 'disable') {
     const settingsPath = path.join(params.homeDir, '.claude', 'settings.json')
-    const settings = await readSettings(settingsPath)
-    if (settings.__codepalInvalidJson) throw Object.assign(new Error('INVALID_SETTINGS_JSON'), { code: 'INVALID_SETTINGS_JSON' })
-    const overrides = settings.skillOverrides && typeof settings.skillOverrides === 'object' && !Array.isArray(settings.skillOverrides)
-      ? { ...settings.skillOverrides }
-      : {}
-    if (params.action === 'clear-override') delete overrides[params.skillName]
-    else overrides[params.skillName] = params.action === 'disable' ? false : params.overrideState === 'enabled'
-    if (Object.keys(overrides).length > 0) settings.skillOverrides = overrides
-    else delete settings.skillOverrides
-    await writeSettingsAtomic(settingsPath, settings)
-    return { success: true, overrideState: params.action === 'clear-override' ? 'inherit' : (overrides[params.skillName] ? 'enabled' : 'disabled') }
+    const nextState = params.action === 'clear-override'
+      ? 'inherit'
+      : (params.action === 'disable' || params.overrideState !== 'enabled' ? 'disabled' : 'enabled')
+    await setSkillOverride(settingsPath, params.skillName, nextState)
+    return { success: true, overrideState: nextState }
   }
   throw Object.assign(new Error('ACTION_NOT_SUPPORTED'), { code: 'ACTION_NOT_SUPPORTED' })
 }

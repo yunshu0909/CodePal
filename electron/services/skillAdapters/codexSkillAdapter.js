@@ -117,7 +117,12 @@ async function applyCodexCommand(params, deps = {}) {
   const officialPath = path.join(params.homeDir, '.agents', 'skills', params.skillName)
   const legacyPath = path.join(params.homeDir, '.codex', 'skills', params.skillName)
   if (params.action === 'enable') {
-    return deployManagedSkill({ repoPath: params.repoPath, targetPath: officialPath, skillName: params.skillName }, deps)
+    const deployed = await deployManagedSkill({ repoPath: params.repoPath, targetPath: officialPath, skillName: params.skillName }, deps)
+    // 重新部署目录并不会覆盖原生 enabled=false；用户明确“启用”时必须同步恢复配置。
+    const configPath = path.join(params.homeDir, '.codex', 'config.toml')
+    const existing = await readText(configPath)
+    await writeAtomic(configPath, setConfigEnabled(existing, officialPath, true, params.homeDir))
+    return deployed
   }
   if (params.action === 'remove-tool') return removeToolCopies([officialPath, legacyPath], deps)
   if (params.action === 'set-enabled' || params.action === 'disable') {
