@@ -66,9 +66,13 @@ export default function PluginControlPage() {
       setToast(result.verified === false
         ? { type: 'warning', message: '命令已完成，但目标工具状态重读失败，请稍后刷新确认' }
         : { type: 'success', message: action === 'update' ? '更新完成，重启工具后应用新版本' : '操作完成，已按工具原生状态刷新' })
-    } else {
-      setToast({ type: 'error', message: '操作失败，原状态已保留' })
-    }
+    } else if (result.error === 'PLUGIN_MANAGED_OR_PROTECTED') {
+      setToast({ type: 'warning', message: '该 Plugin 由工具或管理员管理，不能在 CodePal 中修改' })
+    } else if (result.error === 'AUTH_REQUIRED') {
+      setToast({ type: 'warning', message: '请先在对应工具中完成认证，再重试此操作' })
+    } else if (result.error === 'PLUGIN_NOT_FOUND') {
+      setToast({ type: 'warning', message: '工具已找不到该 Plugin，正在等待下一次状态刷新' })
+    } else setToast({ type: 'error', message: '操作失败，原状态已保留' })
   }
 
   const install = async () => {

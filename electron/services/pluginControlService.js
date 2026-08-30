@@ -24,6 +24,17 @@ const ACTIONS = Object.freeze({
 })
 const CLAUDE_SCOPES = new Set(['user', 'project', 'local'])
 const SAFE_PLUGIN_ID = /^[A-Za-z0-9][A-Za-z0-9._-]*(?:@[A-Za-z0-9][A-Za-z0-9._-]*)?$/
+const SAFE_ERROR_CODES = new Set([
+  'PLUGIN_MANAGED_OR_PROTECTED',
+  'AUTH_REQUIRED',
+  'PLUGIN_NOT_FOUND',
+  'CLI_NOT_AVAILABLE',
+  'PERMISSION_DENIED',
+  'CLI_TIMEOUT',
+  'CLI_INVALID_JSON',
+  'CLI_COMMAND_FAILED',
+])
+let codexConfigWriteQueue = Promise.resolve()
 
 function codedError(code) {
   const error = new Error(code)
@@ -32,10 +43,23 @@ function codedError(code) {
 }
 
 function safeErrorCode(error) {
+  if (SAFE_ERROR_CODES.has(error?.code)) return error.code
+  const diagnostic = `${error?.stderr || ''} ${error?.message || ''}`.toLowerCase()
+  if (/managed|administrator|policy|protected|cannot (?:remove|disable|uninstall)/.test(diagnostic)) return 'PLUGIN_MANAGED_OR_PROTECTED'
+  if (/authentication|authenticate|authorization|login required|not logged in/.test(diagnostic)) return 'AUTH_REQUIRED'
+  if (/plugin.*not found|unknown plugin|no such plugin/.test(diagnostic)) return 'PLUGIN_NOT_FOUND'
   if (error?.code === 'ENOENT') return 'CLI_NOT_AVAILABLE'
   if (error?.code === 'EACCES' || error?.code === 'EPERM') return 'PERMISSION_DENIED'
   if (error?.code === 'ETIMEDOUT') return 'CLI_TIMEOUT'
   return 'CLI_COMMAND_FAILED'
+}
+
+async function runPluginCli(runCommand, binary, args, options) {
+  try {
+    return await runCommand(binary, args, options)
+  } catch (error) {
+    throw codedError(safeErrorCode(error))
+  }
 }
 
 async function defaultRunCommand(binary, args, options = {}) {
@@ -131,7 +155,7 @@ async function listProvider(toolId, params, deps) {
   const runCommand = deps.runCommand || defaultRunCommand
   const cwd = params.projectPath && path.isAbsolute(params.projectPath) ? params.projectPath : undefined
   const binary = toolId === 'codex' ? 'codex' : 'claude'
-  const response = await runCommand(binary, ['plugin', 'list', '--available', '--json'], { shell: false, cwd, timeout: 30_000 })
+  const response = await runPluginCli(runCommand, binary, ['plugin', 'list', '--available', '--json'], { shell: false, cwd, timeout: 30_000 })
   const data = parseJson(response.stdout)
   if (toolId === 'codex') {
     const installedItems = Array.isArray(data?.installed) ? data.installed : []
@@ -181,26 +205,64 @@ async function getPluginControlSnapshot(params = {}, deps = {}) {
   }
 }
 
-function pluginConfigPattern(pluginId) {
-  const escaped = pluginId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  return new RegExp(`^plugins\\."${escaped}"\\.enabled\\s*=\\s*(true|false)\\s*$`, 'm')
+function regexEscape(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+function updateCodexPluginConfig(text, pluginId, enabled) {
+  const lines = text.split('\n')
+  const escaped = regexEscape(pluginId)
+  const tablePattern = new RegExp(`^\\s*\\[plugins\\."${escaped}"\\]\\s*(?:#.*)?\\r?$`)
+  const enabledPattern = /^(\s*)enabled\s*=\s*(?:true|false)(\s*(?:#.*)?)\r?$/
+  const dottedPattern = new RegExp(`^(\\s*)plugins\\."${escaped}"\\.enabled\\s*=\\s*(?:true|false)(\\s*(?:#.*)?)\\r?$`)
+  const value = Boolean(enabled)
+  const tableIndex = lines.findIndex((line) => tablePattern.test(line))
+
+  if (tableIndex >= 0) {
+    const nextTableOffset = lines.slice(tableIndex + 1).findIndex((line) => /^\s*\[/.test(line))
+    const tableEnd = nextTableOffset < 0 ? lines.length : tableIndex + 1 + nextTableOffset
+    const enabledOffset = lines.slice(tableIndex + 1, tableEnd).findIndex((line) => enabledPattern.test(line))
+    if (enabledOffset >= 0) {
+      const enabledIndex = tableIndex + 1 + enabledOffset
+      lines[enabledIndex] = lines[enabledIndex].replace(enabledPattern, `$1enabled = ${value}$2`)
+    } else {
+      lines.splice(tableIndex + 1, 0, `enabled = ${value}`)
+    }
+    return lines.join('\n')
+  }
+
+  // 兼容 CodePal 早期写入的 root dotted key；只在首个 TOML table 之前匹配，
+  // 避免把其他 table 里的相对 dotted key 误当成 plugins 根配置。
+  const firstTableIndex = lines.findIndex((line) => /^\s*\[/.test(line))
+  const rootEnd = firstTableIndex < 0 ? lines.length : firstTableIndex
+  const dottedIndex = lines.slice(0, rootEnd).findIndex((line) => dottedPattern.test(line))
+  if (dottedIndex >= 0) {
+    lines[dottedIndex] = lines[dottedIndex].replace(dottedPattern, `$1plugins.${JSON.stringify(pluginId)}.enabled = ${value}$2`)
+    return lines.join('\n')
+  }
+
+  const prefix = text.trimEnd()
+  return `${prefix}${prefix ? '\n\n' : ''}[plugins.${JSON.stringify(pluginId)}]\nenabled = ${value}\n`
 }
 
 /** 保留式、原子更新一个 Codex Plugin 的 enabled 字段。 */
 async function setCodexPluginEnabled(configPath, pluginId, enabled, deps = {}) {
   if (!SAFE_PLUGIN_ID.test(pluginId)) throw codedError('INVALID_PLUGIN_ID')
-  let text = ''
-  try { text = await (deps.readFile || fs.readFile)(configPath, 'utf8') } catch (error) {
-    if (error.code !== 'ENOENT') throw error
-  }
-  const line = `plugins.${JSON.stringify(pluginId)}.enabled = ${Boolean(enabled)}`
-  const pattern = pluginConfigPattern(pluginId)
-  const next = pattern.test(text) ? text.replace(pattern, line) : `${text.trimEnd()}${text.trim() ? '\n' : ''}${line}\n`
-  await (deps.mkdir || fs.mkdir)(path.dirname(configPath), { recursive: true })
-  const tempPath = `${configPath}.codepal-${process.pid}-${Date.now()}.tmp`
-  await (deps.writeFile || fs.writeFile)(tempPath, next, { mode: 0o600 })
-  await (deps.rename || fs.rename)(tempPath, configPath)
-  return { success: true, enabled: Boolean(enabled) }
+  const operation = codexConfigWriteQueue.then(async () => {
+    let text = ''
+    try { text = await (deps.readFile || fs.readFile)(configPath, 'utf8') } catch (error) {
+      if (error.code !== 'ENOENT') throw error
+    }
+    const next = updateCodexPluginConfig(text, pluginId, enabled)
+    await (deps.mkdir || fs.mkdir)(path.dirname(configPath), { recursive: true })
+    const tempPath = `${configPath}.codepal-${process.pid}-${Date.now()}.tmp`
+    await (deps.writeFile || fs.writeFile)(tempPath, next, { mode: 0o600 })
+    await (deps.rename || fs.rename)(tempPath, configPath)
+    return { success: true, enabled: Boolean(enabled) }
+  })
+  // 单次失败不能让后续写入永远挂在 rejected promise 上。
+  codexConfigWriteQueue = operation.catch(() => {})
+  return operation
 }
 
 function validateCommand(params) {
@@ -223,13 +285,13 @@ async function executePluginCommand(params = {}, deps = {}) {
       result = await setCodexPluginEnabled(path.join(homeDir, '.codex', 'config.toml'), params.pluginId, params.action === 'enable', deps)
     } else {
       const verb = params.action === 'install' ? 'add' : 'remove'
-      result = await runCommand('codex', ['plugin', verb, params.pluginId, '--json'], options)
+      result = await runPluginCli(runCommand, 'codex', ['plugin', verb, params.pluginId, '--json'], options)
     }
   } else {
     const scope = params.scope || 'user'
     const argv = ['plugin', params.action, params.pluginId, '--scope', scope]
     if (params.action === 'install' || params.action === 'update' || params.action === 'uninstall') argv.push('--yes')
-    result = await runCommand('claude', argv, options)
+    result = await runPluginCli(runCommand, 'claude', argv, options)
   }
   const snapshot = await getPluginControlSnapshot({ homeDir, projectPath: params.projectPath }, deps)
   return {

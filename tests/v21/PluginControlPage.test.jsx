@@ -68,4 +68,12 @@ describe('PluginControlPage', () => {
     fireEvent.click(screen.getByRole('button', { name: '卸载 docs' }))
     await waitFor(() => expect(window.electronAPI.executePluginCommand).toHaveBeenCalledWith(expect.objectContaining({ pluginId: 'docs@official', action: 'uninstall' })))
   })
+
+  it('SC-108 explains when a managed plugin cannot be changed', async () => {
+    window.electronAPI.executePluginCommand.mockResolvedValue({ success: false, error: 'PLUGIN_MANAGED_OR_PROTECTED' })
+    render(<PluginControlPage />)
+    await screen.findByText('docs')
+    fireEvent.click(screen.getByRole('button', { name: '停用' }))
+    expect(await screen.findByText('该 Plugin 由工具或管理员管理，不能在 CodePal 中修改')).toBeTruthy()
+  })
 })

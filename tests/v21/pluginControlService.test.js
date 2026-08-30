@@ -9,6 +9,7 @@
 import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
+import TOML from '@iarna/toml'
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 
 let getPluginControlSnapshot
@@ -64,6 +65,7 @@ describe('v2.1 Plugin control service', () => {
     expect(snapshot.partial).toBe(true)
     expect(snapshot.tools.codex.available).toBe(false)
     expect(snapshot.tools['claude-code'].available).toBe(true)
+    expect(snapshot.errors).toContainEqual({ toolId: 'codex', code: 'CLI_NOT_AVAILABLE' })
     expect(JSON.stringify(snapshot)).not.toContain('/Users/name')
     expect(JSON.stringify(snapshot)).not.toContain('token')
   })
@@ -76,16 +78,42 @@ describe('v2.1 Plugin control service', () => {
     expect(snapshot.plugins).toContainEqual(expect.objectContaining({ id: 'future@team', installed: false, enabled: false }))
   })
 
-  it('SC-103 preserves unknown TOML while toggling one quoted Codex plugin key', async () => {
+  it('SC-103 preserves unknown TOML while toggling a native Codex plugin table', async () => {
     const configPath = path.join(homeDir, '.codex', 'config.toml')
-    await fs.writeFile(configPath, 'model = "gpt-5"\nplugins."other@market".enabled = true\n')
+    await fs.writeFile(configPath, [
+      'model = "gpt-5"',
+      '',
+      '[plugins."docs@official"]',
+      'source = "marketplace"',
+      'enabled = true # keep comment',
+      '',
+      '[plugins."other@market"]',
+      'enabled = true',
+      '',
+    ].join('\n'))
     await setCodexPluginEnabled(configPath, 'docs@official', false)
     await setCodexPluginEnabled(configPath, 'docs@official', true)
     const text = await fs.readFile(configPath, 'utf8')
+    const parsed = TOML.parse(text)
     expect(text).toContain('model = "gpt-5"')
-    expect(text).toContain('plugins."other@market".enabled = true')
-    expect(text.match(/plugins\."docs@official"\.enabled/g)).toHaveLength(1)
-    expect(text).toContain('plugins."docs@official".enabled = true')
+    expect(text).toContain('source = "marketplace"')
+    expect(text.match(/\[plugins\."docs@official"\]/g)).toHaveLength(1)
+    expect(text).toContain('enabled = true # keep comment')
+    expect(parsed.plugins['docs@official'].enabled).toBe(true)
+    expect(parsed.plugins['other@market'].enabled).toBe(true)
+  })
+
+  it('SC-103 serializes concurrent Codex config writes without losing either plugin', async () => {
+    const configPath = path.join(homeDir, '.codex', 'config.toml')
+    await fs.writeFile(configPath, 'model = "gpt-5"\n')
+    await Promise.all([
+      setCodexPluginEnabled(configPath, 'first@official', false),
+      setCodexPluginEnabled(configPath, 'second@official', true),
+    ])
+    const text = await fs.readFile(configPath, 'utf8')
+    const parsed = TOML.parse(text)
+    expect(parsed.plugins['first@official'].enabled).toBe(false)
+    expect(parsed.plugins['second@official'].enabled).toBe(true)
   })
 
   it('SC-104 uses fixed Codex add/remove commands then rereads native state', async () => {
@@ -123,5 +151,14 @@ describe('v2.1 Plugin control service', () => {
     await expect(executePluginCommand({ homeDir, toolId: 'claude-code', pluginId: 'ok@market', action: 'run-anything' }, { runCommand })).rejects.toMatchObject({ code: 'ACTION_NOT_SUPPORTED' })
     await expect(executePluginCommand({ homeDir, toolId: 'claude-code', pluginId: 'ok@market', action: 'install', scope: 'root' }, { runCommand })).rejects.toMatchObject({ code: 'INVALID_SCOPE' })
     expect(runCommand).not.toHaveBeenCalled()
+  })
+
+  it('SC-106 maps protected CLI failures to a stable redacted error code', async () => {
+    const runCommand = vi.fn(async () => {
+      const error = Object.assign(new Error('command failed in /Users/private'), { stderr: 'plugin is managed by administrator policy' })
+      throw error
+    })
+    await expect(executePluginCommand({ homeDir, toolId: 'codex', pluginId: 'managed@official', action: 'uninstall' }, { runCommand }))
+      .rejects.toMatchObject({ code: 'PLUGIN_MANAGED_OR_PROTECTED', message: 'PLUGIN_MANAGED_OR_PROTECTED' })
   })
 })
