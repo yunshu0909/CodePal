@@ -1,7 +1,7 @@
 /**
  * Codex Skill adapter
  *
- * 读取官方个人目录、兼容目录、skills.config 与受保护的 system/plugin 来源；
+ * 读取官方个人目录、兼容目录、skills.config 与受保护的 system 来源；
  * 写入只落官方个人目录和 Codex 官方配置，不改缓存目录。
  *
  * @module electron/services/skillAdapters/codexSkillAdapter
@@ -39,27 +39,7 @@ function flattenScan(scan, origin, mutable, extra = {}) {
   return [...scan.skills.values()].map((skill) => ({ ...skill, origin, mutable, ...extra }))
 }
 
-async function discoverPluginSkills(homeDir) {
-  const pluginRoot = path.join(homeDir, '.codex', 'plugins', 'cache')
-  const sources = []
-  async function walk(currentPath, depth = 0) {
-    if (depth > 6) return
-    let entries
-    try { entries = await fs.readdir(currentPath, { withFileTypes: true }) } catch { return }
-    if (entries.some((entry) => entry.isFile() && entry.name === 'SKILL.md')) {
-      const name = path.basename(currentPath)
-      const scan = await scanSkillRoot(path.dirname(currentPath))
-      const skill = scan.skills.get(name)
-      if (skill) sources.push({ ...skill, origin: 'plugin', mutable: false })
-      return
-    }
-    for (const entry of entries) if (entry.isDirectory() && entry.name !== 'node_modules') await walk(path.join(currentPath, entry.name), depth + 1)
-  }
-  await walk(pluginRoot)
-  return sources
-}
-
-/** 发现 Codex 可见 Skill。 */
+/** 发现 Codex 独立 Skill；Plugin 子 Skill 由 Plugin 控制中心单独管理。 */
 async function discoverCodexSkills({ homeDir }, deps = {}) {
   const officialRoot = path.join(homeDir, '.agents', 'skills')
   const legacyRoot = path.join(homeDir, '.codex', 'skills')
@@ -87,7 +67,6 @@ async function discoverCodexSkills({ homeDir }, deps = {}) {
   for (const source of sources) {
     if (configByPath.has(path.resolve(source.absolutePath))) source.configEnabled = configByPath.get(path.resolve(source.absolutePath))
   }
-  if (!deps.skipPluginDiscovery) sources.push(...await discoverPluginSkills(homeDir))
   return { toolId: 'codex', sources, errors }
 }
 

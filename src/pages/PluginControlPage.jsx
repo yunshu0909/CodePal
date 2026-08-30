@@ -38,6 +38,19 @@ function toolLabel(toolId) {
   return toolId === 'codex' ? 'Codex' : 'Claude Code'
 }
 
+function disableImpactText(plugin) {
+  const confirmedSkillCount = plugin.childSkills?.length || plugin.capabilities?.skills || 0
+  if (!plugin.installed) {
+    return confirmedSkillCount > 0
+      ? `当前未安装，不会影响新的 ${toolLabel(plugin.toolId)} 任务；安装后将提供 ${confirmedSkillCount} 个 Skill。`
+      : `当前未安装，不会影响新的 ${toolLabel(plugin.toolId)} 任务；安装后的具体能力以工具原生状态为准。`
+  }
+  if (plugin.metadataStatus === 'unavailable' && confirmedSkillCount === 0) {
+    return `停用后，这个 Plugin 的能力将不会在新的 ${toolLabel(plugin.toolId)} 任务中加载；Skill 数量暂时不可读取，不会删除 Plugin 文件。`
+  }
+  return `停用后，以下 ${confirmedSkillCount} 个 Skill 将不会在新的 ${toolLabel(plugin.toolId)} 任务中加载；不会删除 Plugin 文件。`
+}
+
 export default function PluginControlPage() {
   const { status, snapshot, pendingKeys, refresh, execute } = usePluginControl()
   const [filter, setFilter] = useState('installed')
@@ -53,7 +66,13 @@ export default function PluginControlPage() {
     if (filter === 'updates' && !plugin.updateAvailable) return false
     if (query.trim()) {
       const needle = query.trim().toLowerCase()
-      return [plugin.name, plugin.id, plugin.marketplace, plugin.description].some((value) => value?.toLowerCase().includes(needle))
+      return [
+        plugin.name,
+        plugin.id,
+        plugin.marketplace,
+        plugin.description,
+        ...(plugin.childSkills || []).flatMap((skill) => [skill.name, skill.description]),
+      ].some((value) => value?.toLowerCase().includes(needle))
     }
     return true
   }), [snapshot, filter, query])
@@ -92,9 +111,9 @@ export default function PluginControlPage() {
   return (
     <PageShell
       title="Plugin 控制中心"
-      subtitle="统一管理 Codex 与 Claude Code Plugin；安装来源仅限已配置 marketplace"
+      subtitle="统一管理 Codex 与 Claude Code Plugin；Plugin 所带 Skill 只在这里查看"
       className="page-shell--no-padding plugin-control-page"
-      actions={<Button variant="primary" size="sm" onClick={() => setInstallOpen(true)}>安装 Plugin</Button>}
+      actions={<><Button variant="secondary" size="sm" onClick={refresh}>刷新状态</Button><Button variant="primary" size="sm" onClick={() => setInstallOpen(true)}>安装 Plugin</Button></>}
     >
       <StateView
         loading={status === 'loading'}
@@ -111,6 +130,7 @@ export default function PluginControlPage() {
             <div><strong>{snapshot?.summary?.enabled || 0}</strong><span>已启用</span></div>
             <div><strong>{snapshot?.summary?.updates || 0}</strong><span>可更新</span></div>
             <div><strong>{snapshot?.summary?.available || 0}</strong><span>可安装</span></div>
+            <div><strong>{snapshot?.summary?.activeSkills || 0}</strong><span>{snapshot?.metadataPartial ? '已确认 Skills' : '已加载 Skills'}</span></div>
           </div>
 
           <div className="plugin-toolbar">
@@ -121,14 +141,17 @@ export default function PluginControlPage() {
           </div>
 
           {unavailableTools.length > 0 && <div className="plugin-partial">{unavailableTools.map((tool) => tool.name).join('、')} CLI 暂时不可用，其他数据仍可管理</div>}
+          {snapshot?.metadataPartial && (
+            <div className="plugin-partial">部分 Plugin 元数据暂时不可读取；官方安装与启用状态仍可管理，未知用途不会被推测</div>
+          )}
 
           <div className="plugin-table">
-            <div className="plugin-row plugin-row--header"><div>Plugin</div><div>工具</div><div>状态</div><div>版本</div><div>来源</div><div>能力</div><div /></div>
+            <div className="plugin-row plugin-row--header"><div>Plugin 与作用</div><div>工具</div><div>状态</div><div>版本</div><div>来源</div><div>能力</div><div /></div>
             {plugins.length === 0 ? <div className="plugin-filter-empty">没有符合当前条件的 Plugin</div> : plugins.map((plugin) => {
               const pending = pendingKeys.has(`${plugin.toolId}:${plugin.id}`)
               return (
                 <div className="plugin-row" key={`${plugin.toolId}:${plugin.id}`}>
-                  <div className="plugin-name"><strong>{plugin.name}</strong><span>{plugin.id}</span></div>
+                  <div className="plugin-name"><strong>{plugin.name}</strong><span>{plugin.description || '暂无说明'}</span></div>
                   <div><Tag variant={plugin.toolId === 'codex' ? 'warning' : 'info'}>{toolLabel(plugin.toolId)}</Tag></div>
                   <div><Tag variant={plugin.installed && plugin.enabled ? 'success' : 'default'}>{plugin.installed ? (plugin.enabled ? '已启用' : '已停用') : '未安装'}</Tag></div>
                   <div>{plugin.version}</div>
@@ -154,14 +177,42 @@ export default function PluginControlPage() {
 
       <Modal open={Boolean(details)} onClose={() => setDetails(null)} title="Plugin 详情" size="md">
         {details && <div className="plugin-details">
-          <div><span>Plugin</span><strong>{details.id}</strong></div>
-          <div><span>工具</span><strong>{toolLabel(details.toolId)}</strong></div>
-          <div><span>版本</span><strong>{details.version}</strong></div>
-          <div><span>Marketplace</span><strong>{details.marketplace}</strong></div>
-          <div><span>Scope</span><strong>{details.scope}</strong></div>
-          <div><span>组件</span><strong>{capabilityText(details.capabilities)}</strong></div>
-          <div><span>Auth policy</span><strong>{details.auth?.policy || 'UNKNOWN'}</strong></div>
-          <p>认证状态仅展示，不在 CodePal 内代办第三方登录或连接。</p>
+          <header className="plugin-details__heading">
+            <h3>{details.name}</h3>
+            <div>
+              <Tag variant={details.toolId === 'codex' ? 'warning' : 'info'}>{toolLabel(details.toolId)}</Tag>
+              <Tag variant={details.installed && details.enabled ? 'success' : 'default'}>
+                {details.installed ? (details.enabled ? '已启用' : '已停用') : '未安装'}
+              </Tag>
+            </div>
+          </header>
+          <section>
+            <h4>作用</h4>
+            <p>{details.description || '暂无说明'}</p>
+          </section>
+          <section>
+            <h4>停用影响</h4>
+            <div className="plugin-details__impact">
+              {disableImpactText(details)}
+            </div>
+          </section>
+          <section>
+            <h4>包含的 Skills</h4>
+            {(details.childSkills || []).length > 0 ? (
+              <div className="plugin-details__skills">
+                {details.childSkills.map((skill) => <div key={skill.name}><strong>{skill.name}</strong><span>{skill.description || '暂无说明'}</span></div>)}
+              </div>
+            ) : <p>未发现可读取的 Skill</p>}
+          </section>
+          <div className="plugin-details__facts">
+            <div><span>Plugin ID</span><strong>{details.id}</strong></div>
+            <div><span>版本</span><strong>{details.version}</strong></div>
+            <div><span>Marketplace</span><strong>{details.marketplace}</strong></div>
+            <div><span>Scope</span><strong>{details.scope}</strong></div>
+            <div><span>组件</span><strong>{capabilityText(details.capabilities)}</strong></div>
+            <div><span>Auth policy</span><strong>{details.auth?.policy || 'UNKNOWN'}</strong></div>
+          </div>
+          <p className="plugin-details__note">认证状态仅展示，不在 CodePal 内代办第三方登录或连接。</p>
         </div>}
       </Modal>
 

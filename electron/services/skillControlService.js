@@ -3,8 +3,8 @@
  *
  * 负责：
  * - 生成稳定的整目录 manifest
- * - 聚合中央仓库与各工具 adapter 的只读发现结果
- * - 提供软链接优先、原子复制兜底的安全部署与纳管能力
+ * - 聚合中央仓库与各工具 adapter 的独立 Skill 发现结果
+ * - 提供软链接优先、原子复制兜底的安全部署与收进资产库能力
  * - 在写操作前统一拦截 project/plugin/system 等只读来源
  *
  * @module electron/services/skillControlService
@@ -14,6 +14,7 @@ const fs = require('fs/promises')
 const os = require('os')
 const path = require('path')
 const crypto = require('crypto')
+const { readSkillMetadata } = require('./skillMetadataService')
 
 const IGNORED_ENTRY_NAMES = new Set(['.DS_Store'])
 const READ_ONLY_ORIGINS = new Set(['project', 'synced', 'plugin', 'system', 'bundled', 'command'])
@@ -114,11 +115,18 @@ async function scanSkillRoot(basePath, deps = {}) {
       const skillPath = path.join(basePath, entry.name)
       if (!(await pathExists(path.join(skillPath, 'SKILL.md'), deps))) continue
       try {
+        const [manifest, metadata] = await Promise.all([
+          buildSkillManifest(skillPath, deps),
+          readSkillMetadata(skillPath, deps),
+        ])
         skills.set(entry.name, {
           name: entry.name,
+          displayName: metadata.name || entry.name,
+          description: metadata.description,
+          metadataStatus: metadata.metadataStatus,
           absolutePath: skillPath,
           isSymlink: entry.isSymbolicLink(),
-          manifest: await buildSkillManifest(skillPath, deps),
+          manifest,
         })
       } catch (error) {
         skills.set(entry.name, { name: entry.name, absolutePath: skillPath, manifest: null, error: mapFsError(error) })
@@ -242,7 +250,12 @@ async function getSkillControlSnapshot(params = {}, overrides = {}) {
   const results = await Promise.all(Object.entries(adapters).map(async ([toolId, adapter]) => {
     try {
       const result = await adapter.discover(discoverParams, overrides)
-      return [toolId, { toolId, sources: result?.sources || [], errors: result?.errors || [] }]
+      // 双重边界保护：即使未来某个 adapter 意外返回 Plugin 子 Skill，也不进入 Skill 控制中心。
+      return [toolId, {
+        toolId,
+        sources: (result?.sources || []).filter((source) => source.origin !== 'plugin'),
+        errors: (result?.errors || []).filter((error) => error.origin !== 'plugin'),
+      }]
     } catch (error) {
       return [toolId, { toolId, sources: [], errors: [{ origin: 'tool', code: mapFsError(error) }] }]
     }
@@ -282,18 +295,28 @@ async function getSkillControlSnapshot(params = {}, overrides = {}) {
       const preferred = sources.find((source) => source.mutable) || sources[0]
       const enabled = sources.some(sourceEnabled)
       let state = managed ? 'synced' : 'external'
-      if (managed && preferred.manifest?.hash !== managed.manifest?.hash) state = 'drifted'
+      if (managed && preferred.manifest?.hash && managed.manifest?.hash && preferred.manifest.hash !== managed.manifest.hash) state = 'drifted'
       if (!enabled) state = 'disabled'
       toolStates[toolId] = {
         enabled,
         state,
         mutable: Boolean(preferred.mutable),
         origin: preferred.origin,
+        pluginId: preferred.pluginId,
+        pluginName: preferred.pluginName,
         overrideState: preferred.overrideState,
         configEnabled: preferred.configEnabled,
       }
     }
-    return { name, managed: Boolean(managed), origins, tools: toolStates }
+    const describedOrigin = origins.find((origin) => origin.description)
+    return {
+      name,
+      displayName: managed?.displayName || describedOrigin?.displayName || name,
+      description: managed?.description || describedOrigin?.description || '',
+      managed: Boolean(managed),
+      origins,
+      tools: toolStates,
+    }
   })
 
   const managedSkills = skills.filter((skill) => skill.managed)

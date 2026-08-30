@@ -91,7 +91,7 @@ path = "${path.join(homeDir, '.agents', 'skills', 'official')}"
 enabled = false
 `)
 
-    const discovered = await discoverCodexSkills({ homeDir })
+    const discovered = await discoverCodexSkills({ homeDir }, { skipPluginDiscovery: true })
     expect(discovered.sources).toEqual(expect.arrayContaining([
       expect.objectContaining({ name: 'official', origin: 'user', mutable: true, configEnabled: false }),
       expect.objectContaining({ name: 'compat', origin: 'legacy', mutable: true }),
@@ -112,7 +112,7 @@ enabled = false
       unknownSetting: { keep: true },
     }))
 
-    const discovered = await discoverClaudeSkills({ homeDir, projectRoots: [allowedProject] })
+    const discovered = await discoverClaudeSkills({ homeDir, projectRoots: [allowedProject] }, { skipPluginDiscovery: true })
     expect(discovered.sources).toEqual(expect.arrayContaining([
       expect.objectContaining({ name: 'user-skill', origin: 'user', mutable: true, overrideState: 'disabled' }),
       expect.objectContaining({ name: 'project-skill', origin: 'project', mutable: false }),

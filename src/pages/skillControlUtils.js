@@ -15,6 +15,37 @@ export const TOOL_META = Object.freeze({
   codex: { label: 'Codex', fullName: 'Codex', usageKey: 'codex', brand: 'codex', mark: 'CX' },
 })
 
+const ORIGIN_LABELS = Object.freeze({
+  user: '个人目录',
+  legacy: '兼容目录',
+  project: '项目 Skill',
+  plugin: 'Plugin Skill',
+  system: '系统 Skill',
+  bundled: '系统 Skill',
+  synced: '同步来源',
+  command: '旧 Command',
+})
+
+/**
+ * 生成列表与详情共用的安全来源标签。
+ * @param {object} skill Skill 行
+ * @returns {Array<{key:string,label:string,kind:string}>}
+ */
+export function getSkillSourceBadges(skill) {
+  const seen = new Set()
+  return (skill.origins || []).flatMap((origin) => {
+    const labels = origin.origin === 'plugin' && origin.pluginName
+      ? [origin.pluginName, ORIGIN_LABELS.plugin]
+      : [ORIGIN_LABELS[origin.origin] || origin.origin || '未知来源']
+    return labels.flatMap((label) => {
+      const key = `${origin.toolId || 'unknown'}:${origin.origin || 'unknown'}:${label}`
+      if (seen.has(key)) return []
+      seen.add(key)
+      return [{ key, label, kind: origin.origin || 'unknown' }]
+    })
+  })
+}
+
 export function isToolCandidate(skill, usage, toolId) {
   if (!skill.managed || skill.tools?.[toolId]?.enabled !== true) return false
   return (usage?.[TOOL_META[toolId].usageKey] || 0) === 0
@@ -53,7 +84,7 @@ export function buildSkillControlSummary(snapshot, rows) {
 }
 
 /**
- * 生成批量接管计划：唯一来源可自动纳管，双来源必须由用户明确选版本。
+ * 生成批量收进资产库计划：唯一可变来源可自动处理，双来源必须由用户明确选版本。
  * @param {object[]} rows - 控制中心行
  * @returns {{operations:object[],conflicts:string[]}}
  */
@@ -62,7 +93,7 @@ export function buildExternalAdoptionPlan(rows) {
   const conflicts = []
   rows.filter((skill) => !skill.managed).forEach((skill) => {
     const sourceToolIds = Object.entries(skill.tools || {})
-      .filter(([, state]) => state.state === 'external')
+      .filter(([, state]) => state.state === 'external' && state.mutable !== false)
       .map(([toolId]) => toolId)
 
     if (sourceToolIds.length === 1) {
@@ -103,7 +134,18 @@ export function filterSkillControlRows(rows, {
 
   if (searchQuery.trim()) {
     const query = searchQuery.trim().toLowerCase()
-    result = result.filter((skill) => [skill.name, skill.displayName, skill.desc]
+    result = result.filter((skill) => [
+      skill.name,
+      skill.displayName,
+      skill.desc,
+      skill.description,
+      ...(skill.origins || []).flatMap((origin) => [
+        origin.description,
+        origin.pluginName,
+        origin.pluginId,
+        ORIGIN_LABELS[origin.origin],
+      ]),
+    ]
       .some((value) => value?.toLowerCase().includes(query)))
   }
 

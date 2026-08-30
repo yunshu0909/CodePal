@@ -1,7 +1,7 @@
 /**
  * Claude Code Skill adapter
  *
- * 支持用户 Skill、显式项目 allowlist、旧 commands、plugin/synced 只读来源与
+ * 支持用户 Skill、显式项目 allowlist、旧 commands 等独立来源与
  * settings.json 的 skillOverrides 四态读取和保留式写入。
  *
  * @module electron/services/skillAdapters/claudeSkillAdapter
@@ -11,7 +11,6 @@ const fs = require('fs/promises')
 const path = require('path')
 const {
   scanSkillRoot,
-  buildSkillManifest,
   deployManagedSkill,
   removeToolCopies,
 } = require('../skillControlService')
@@ -61,31 +60,7 @@ async function scanLegacyCommands(commandsRoot, deps = {}) {
   return sources
 }
 
-async function discoverProtectedPluginSkills(homeDir) {
-  const roots = [
-    [path.join(homeDir, '.claude', 'plugins', 'cache'), 'plugin'],
-    [path.join(homeDir, '.claude', 'plugins', 'marketplaces'), 'plugin'],
-  ]
-  const sources = []
-  async function walk(currentPath, origin, depth = 0) {
-    if (depth > 7) return
-    let entries
-    try { entries = await fs.readdir(currentPath, { withFileTypes: true }) } catch { return }
-    if (entries.some((entry) => entry.isFile() && entry.name === 'SKILL.md')) {
-      const stat = await fs.stat(currentPath)
-      sources.push({
-        name: path.basename(currentPath), absolutePath: currentPath, origin, mutable: false,
-        manifest: await buildSkillManifest(currentPath), modifiedAt: stat.mtimeMs,
-      })
-      return
-    }
-    for (const entry of entries) if (entry.isDirectory() && entry.name !== 'node_modules') await walk(path.join(currentPath, entry.name), origin, depth + 1)
-  }
-  for (const [root, origin] of roots) await walk(root, origin)
-  return sources
-}
-
-/** 发现 Claude Code 可见 Skill，项目范围严格来自显式 allowlist。 */
+/** 发现 Claude Code 独立 Skill，项目范围严格来自显式 allowlist。 */
 async function discoverClaudeSkills({ homeDir, projectRoots = [] }, deps = {}) {
   const userRoot = path.join(homeDir, '.claude', 'skills')
   const commandsRoot = path.join(homeDir, '.claude', 'commands')
@@ -103,7 +78,6 @@ async function discoverClaudeSkills({ homeDir, projectRoots = [] }, deps = {}) {
   try { sources.push(...await scanLegacyCommands(commandsRoot, deps)) } catch (error) {
     errors.push({ origin: 'command', code: error.code === 'EACCES' ? 'PERMISSION_DENIED' : 'READ_FAILED' })
   }
-  if (!deps.skipPluginDiscovery) sources.push(...await discoverProtectedPluginSkills(homeDir))
   for (const source of sources) source.overrideState = overrideState(settings, source.name)
   return { toolId: 'claude-code', sources, errors }
 }

@@ -5,7 +5,7 @@
  */
 
 .plugin-control-page { min-height: 0; }
-.plugin-summary { display: grid; grid-template-columns: repeat(4, 1fr); padding: var(--space-4) var(--space-6); border-bottom: 1.5px solid var(--border-default); background: var(--bg-subtle); }
+.plugin-summary { display: grid; grid-template-columns: repeat(5, 1fr); padding: var(--space-4) var(--space-6); border-bottom: 1.5px solid var(--border-default); background: var(--bg-subtle); }
 .plugin-summary > div { display: flex; align-items: baseline; gap: var(--space-2); padding: 0 var(--space-4); border-right: 1.5px solid var(--border-default); }
 .plugin-summary > div:last-child { border-right: 0; }
 .plugin-summary strong { font-size: var(--text-lg); color: var(--text-primary); }
@@ -26,11 +26,23 @@
 .plugin-actions { display: flex; justify-content: flex-end; gap: var(--space-1); }
 .plugin-filter-empty { padding: var(--space-10); text-align: center; color: var(--text-tertiary); }
 .plugin-footer { padding: var(--space-3) var(--space-6); background: var(--bg-subtle); color: var(--text-tertiary); font-size: var(--text-xs); }
-.plugin-details { display: grid; gap: var(--space-3); }
-.plugin-details > div { display: grid; grid-template-columns: 110px 1fr; gap: var(--space-3); padding-bottom: var(--space-2); border-bottom: 1.5px solid var(--border-light); }
-.plugin-details span { color: var(--text-tertiary); }
-.plugin-details strong { color: var(--text-primary); overflow-wrap: anywhere; }
-.plugin-details p, .plugin-install-form p { color: var(--text-secondary); font-size: var(--text-xs); }
+.plugin-details { display: grid; gap: var(--space-5); }
+.plugin-details__heading { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-3); }
+.plugin-details__heading h3 { margin: 0; color: var(--text-primary); font-size: var(--text-lg); }
+.plugin-details__heading > div { display: flex; gap: var(--space-1); }
+.plugin-details section { display: grid; gap: var(--space-2); }
+.plugin-details h4 { margin: 0; color: var(--text-tertiary); font-size: var(--text-xs); }
+.plugin-details p { margin: 0; color: var(--text-secondary); line-height: 1.6; }
+.plugin-details__impact { padding: var(--space-3); border: 1.5px solid var(--color-warning-border); border-radius: var(--radius-lg); background: var(--color-warning-bg); color: var(--color-warning); line-height: 1.6; }
+.plugin-details__skills { display: grid; gap: var(--space-2); }
+.plugin-details__skills > div { display: grid; gap: 2px; padding: var(--space-2) var(--space-3); border: 1.5px solid var(--border-default); border-radius: var(--radius-lg); }
+.plugin-details__skills strong { color: var(--text-primary); }
+.plugin-details__skills span { color: var(--text-tertiary); font-size: var(--text-xs); }
+.plugin-details__facts { display: grid; gap: var(--space-2); padding-top: var(--space-3); border-top: 1.5px solid var(--border-light); }
+.plugin-details__facts > div { display: grid; grid-template-columns: 110px 1fr; gap: var(--space-3); }
+.plugin-details__facts span { color: var(--text-tertiary); }
+.plugin-details__facts strong { color: var(--text-primary); overflow-wrap: anywhere; }
+.plugin-details__note, .plugin-install-form p { color: var(--text-secondary); font-size: var(--text-xs); }
 .plugin-install-form { display: grid; gap: var(--space-4); }
 .plugin-install-form label { display: grid; gap: var(--space-2); color: var(--text-secondary); font-size: var(--text-sm); }
 .plugin-install-form input, .plugin-install-form select { min-height: 36px; padding: 0 var(--space-3); border: 1.5px solid var(--border-default); border-radius: var(--radius-md); background: var(--bg-base); color: var(--text-primary); font: inherit; }
