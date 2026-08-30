@@ -413,6 +413,11 @@ export const dataStore = {
   },
   async pushSkills(toolId, skillNames) { return pushService.pushSkills(toolId, skillNames) },
   async unpushSkills(toolId, skillNames) { return pushService.unpushSkills(toolId, skillNames) },
+  async removeCentralSkill(skillName) {
+    const repoPath = await getRepoPath()
+    const skillPath = await getCentralSkillPath(skillName, repoPath)
+    return deleteSkill(skillPath)
+  },
 
   /**
    * 获取指定工具的技能及其推送状态（用于管理页面）
@@ -739,6 +744,10 @@ const pushService = createPushService({
   getRepoPath,
   getCentralSkillPath,
   getToolSkillPath,
+  executeSkillCommand: async (params) => {
+    if (!window.electronAPI?.executeSkillCommand) return { success: false, error: 'API_NOT_AVAILABLE' }
+    return window.electronAPI.executeSkillCommand(params)
+  },
   getConfig: (...args) => dataStore.getConfig(...args),
   saveConfig: (...args) => dataStore.saveConfig(...args),
   getCentralSkills: (...args) => dataStore.getCentralSkills(...args),
@@ -770,8 +779,13 @@ const importService = createImportService({
 })
 
 const autoSyncService = createAutoSyncService({
-  getPushTargets: (...args) => dataStore.getPushTargets(...args),
-  getConfig: (...args) => dataStore.getConfig(...args),
+  getPushTargets: async () => Array.from(new Set([...(await dataStore.getPushTargets()), 'claude-code', 'codex'])),
+  isPushed: async (toolId, skillName) => {
+    if (toolId !== 'claude-code' && toolId !== 'codex') return pushService.isPushed(toolId, skillName)
+    const repoPath = await getRepoPath()
+    const result = await window.electronAPI?.getSkillControlSnapshot?.({ repoPath, projectRoots: [] })
+    return result?.success === true && result.data?.skills?.find((item) => item.name === skillName)?.tools?.[toolId]?.enabled === true
+  },
   pushSkills: (toolId, skillNames) => pushService.pushSkills(toolId, skillNames),
   clearPushStatusCache: () => dataStore.clearPushStatusCache(),
 })

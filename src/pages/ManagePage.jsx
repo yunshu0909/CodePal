@@ -1,18 +1,16 @@
 /**
- * 管理页面
+ * Skill 控制中心页面
  *
  * 负责：
- * - 显示中央仓库中的所有技能列表（单列表，不分标签页）
- * - 管理技能的全局推送状态（聚合所有启用推送目标的状态）
- * - 搜索、筛选技能
- * - 批量选择、推送、停用操作
- * - 单条技能状态切换
- * - 配置弹窗管理
+ * - 展示中央仓库与 Claude Code / Codex 的真实启用矩阵
+ * - 按工具单独启用、停用和重新同步 Skill
+ * - 用分工具近 30 天调用数据生成精简候选
+ * - 保留搜索、标签和运行样本查看能力
  *
  * @module ManagePage
  */
 
-import React, { useState, useEffect, useCallback, useMemo } from 'react'
+import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { dataStore, toolDefinitions } from '../store/data'
 import Toast from '../components/Toast'
 import PageShell from '../components/PageShell'
@@ -20,14 +18,381 @@ import SearchInput from '../components/SearchInput/SearchInput'
 import Button from '../components/Button/Button'
 import BatchActionBar from '../components/BatchActionBar/BatchActionBar'
 import StateView from '../components/StateView/StateView'
+import Modal from '../components/Modal/Modal'
 import TagFilterChips from '../components/TagFilterChips/TagFilterChips'
 import TagSelector from '../components/TagSelector/TagSelector'
 import TagManagementModal from '../components/TagManagementModal/TagManagementModal'
-import useTagManagement from '../hooks/useTagManagement'
-import useSkillUsage from '../hooks/useSkillUsage'
+import SkillRunSamplesModal from '../components/skillUsage/SkillRunSamplesModal'
 import SkillUsageBadge from '../components/skillUsage/SkillUsageBadge'
 import SkillUsageColumnHeader from '../components/skillUsage/SkillUsageColumnHeader'
-import SkillRunSamplesModal from '../components/skillUsage/SkillRunSamplesModal'
+import SkillControlSummary from '../components/skillControl/SkillControlSummary'
+import SkillActivationCell from '../components/skillControl/SkillActivationCell'
+import SkillHealthBadge from '../components/skillControl/SkillHealthBadge'
+import SkillStateMenu from '../components/skillControl/SkillStateMenu'
+import useTagManagement from '../hooks/useTagManagement'
+import useSkillUsage from '../hooks/useSkillUsage'
+import useSkillControl from '../hooks/useSkillControl'
+import {
+  TOOL_META,
+  enrichSkillControlRows,
+  buildSkillControlSummary,
+  buildExternalAdoptionPlan,
+  filterSkillControlRows,
+} from './skillControlUtils'
+
+const VIEW_OPTIONS = [
+  { id: 'all', label: '全部' },
+  { id: 'active', label: '已启用' },
+  { id: 'candidates', label: '精简候选' },
+  { id: 'issues', label: '有问题' },
+  { id: 'external', label: '外部 Skill' },
+]
+
+function SkillControlPage({ onNavigateToConfig, refreshSignal = 0 }) {
+  const [centralSkills, setCentralSkills] = useState([])
+  const [centralLoading, setCentralLoading] = useState(true)
+  const [centralError, setCentralError] = useState(null)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [activeView, setActiveView] = useState('all')
+  const [toast, setToast] = useState(null)
+  const [usageSampleSkill, setUsageSampleSkill] = useState(null)
+  const [isBatchAdoptOpen, setIsBatchAdoptOpen] = useState(false)
+
+  const {
+    tags, skillTags, activeTagFilter, setActiveTagFilter,
+    isTagModalOpen, setIsTagModalOpen,
+    loadTagData,
+    handleAssignTag, handleRemoveTag,
+    handleCreateTag, handleRenameTag, handleDeleteTag,
+  } = useTagManagement(setToast)
+
+  const {
+    status: controlStatus,
+    snapshot,
+    error: controlError,
+    pendingKeys,
+    refresh: refreshControl,
+    execute: executeControl,
+    setActivation,
+    adoptExternalSkill,
+    adoptExternalSkills,
+  } = useSkillControl(refreshSignal)
+
+  const loadCentralMetadata = useCallback(async () => {
+    setCentralLoading(true)
+    try {
+      const skills = await dataStore.getCentralSkills()
+      setCentralSkills(skills)
+      setCentralError(null)
+      await loadTagData()
+    } catch (error) {
+      setCentralError(error?.message || 'CENTRAL_SKILL_LOAD_FAILED')
+    } finally {
+      setCentralLoading(false)
+    }
+  }, [loadTagData])
+
+  useEffect(() => {
+    loadCentralMetadata()
+  }, [loadCentralMetadata, refreshSignal])
+
+  const managedSkillNames = useMemo(() => centralSkills.map((skill) => skill.name), [centralSkills])
+  const { status: usageStatus, usageMap, sources: usageSources } = useSkillUsage(managedSkillNames)
+  const centralByName = useMemo(() => new Map(centralSkills.map((skill) => [skill.name, skill])), [centralSkills])
+
+  const rows = useMemo(() => (snapshot?.skills || []).map((controlSkill) => {
+    const metadata = centralByName.get(controlSkill.name)
+    const externalTools = Object.entries(controlSkill.tools || {})
+      .filter(([, state]) => state.state === 'external')
+      .map(([toolId]) => TOOL_META[toolId]?.fullName)
+      .filter(Boolean)
+    return {
+      ...controlSkill,
+      id: controlSkill.name,
+      displayName: metadata?.displayName || controlSkill.name,
+      desc: metadata?.desc || (controlSkill.managed ? '' : `仅存在于 ${externalTools.join(' / ')}`),
+    }
+  }), [snapshot, centralByName])
+
+  const enrichedRows = useMemo(() => enrichSkillControlRows(rows, usageMap), [rows, usageMap])
+  const summary = useMemo(() => buildSkillControlSummary(snapshot, enrichedRows), [snapshot, enrichedRows])
+  const filteredRows = useMemo(() => filterSkillControlRows(enrichedRows, {
+    activeView,
+    activeTagFilter,
+    skillTags,
+    searchQuery,
+  }), [enrichedRows, activeView, activeTagFilter, skillTags, searchQuery])
+  const externalRows = useMemo(() => enrichedRows.filter((skill) => !skill.managed), [enrichedRows])
+  const batchAdoption = useMemo(() => buildExternalAdoptionPlan(externalRows), [externalRows])
+
+  const handleActivation = useCallback(async (skill, toolId, enabled, isSync = false) => {
+    const tool = TOOL_META[toolId]
+    const source = skill.origins?.find((item) => item.toolId === toolId && item.mutable)
+    const result = await setActivation({ skillName: skill.name, toolId, enabled, source })
+    if (!result.success) {
+      setToast({ message: result.error === 'PERMISSION_DENIED' ? '操作失败，请检查工具目录权限' : '操作失败，已保留原状态', type: 'error' })
+      return
+    }
+
+    const action = isSync ? '同步' : enabled ? '启用' : '停用'
+    setToast({ message: `已在 ${tool.fullName} ${action} ${skill.displayName || skill.name}`, type: 'success' })
+  }, [setActivation])
+
+  const handleAdopt = useCallback(async (skill, toolId) => {
+    const tool = TOOL_META[toolId]
+    const result = await adoptExternalSkill({ skillName: skill.name, toolId })
+    if (result.adopted?.length > 0) {
+      await loadCentralMetadata()
+      setToast({ message: `已从 ${tool.fullName} 纳管 ${skill.displayName || skill.name}`, type: 'success' })
+      return
+    }
+    setToast({ message: '接管失败，原外部 Skill 已保留', type: 'error' })
+  }, [adoptExternalSkill, loadCentralMetadata])
+
+  const handleStateAction = useCallback(async (skill, command) => {
+    if (command.action === 'delete-central') {
+      if (!window.confirm(`只从 CodePal 中央仓库删除 ${skill.name}？工具侧副本会保留。`)) return
+      const result = await dataStore.removeCentralSkill(skill.name)
+      if (!result?.success) {
+        setToast({ message: '中央资产删除失败，工具副本未修改', type: 'error' })
+        return
+      }
+      await Promise.all([loadCentralMetadata(), refreshControl({ silent: true })])
+      setToast({ message: `已从中央仓库删除 ${skill.name}，工具副本已保留`, type: 'success' })
+      return
+    }
+    const source = skill.origins?.find((item) => item.toolId === command.toolId && item.mutable)
+    const result = await executeControl({ skillName: skill.name, toolId: command.toolId, action: command.action, source })
+    setToast(result.success
+      ? { message: command.action === 'remove-tool' ? '已从工具移除，中央资产已保留' : '启用状态已更新', type: 'success' }
+      : { message: result.error === 'ORIGIN_READ_ONLY' ? '该来源由项目或 Plugin 管理，CodePal 只读展示' : '操作失败，原状态已保留', type: 'error' })
+  }, [executeControl, loadCentralMetadata, refreshControl])
+
+  const handleBatchAdopt = useCallback(async () => {
+    const result = await adoptExternalSkills(batchAdoption.operations)
+    await loadCentralMetadata()
+    setIsBatchAdoptOpen(false)
+
+    const adoptedCount = result.adopted?.length || 0
+    const failedCount = result.failed?.length || 0
+    const conflictCount = batchAdoption.conflicts.length
+    if (failedCount === 0 && conflictCount === 0) {
+      setToast({ message: `已纳管 ${adoptedCount} 个外部 Skill`, type: 'success' })
+      return
+    }
+    setToast({
+      message: `已纳管 ${adoptedCount} 个，${conflictCount} 个来源冲突、${failedCount} 个失败`,
+      type: failedCount > 0 ? 'error' : 'warning',
+    })
+  }, [adoptExternalSkills, batchAdoption, loadCentralMetadata])
+
+  const isLoading = controlStatus === 'loading' || centralLoading
+  const pageError = controlStatus === 'error' || centralError ? (
+    <><strong>Skill 状态读取失败</strong><br /><span>没有修改任何目录</span></>
+  ) : null
+  const unavailableTools = Object.values(snapshot?.tools || {}).filter((tool) => !tool.available)
+  const partialMessage = useMemo(() => {
+    if (!snapshot?.partial) return null
+    const legacyBlocked = snapshot.errors?.some((item) => item.toolId === 'codex' && item.origin === 'legacy')
+    if (legacyBlocked) return 'Codex 兼容路径暂时不可读，其他来源仍可管理'
+    return '部分 Skill 来源暂时不可读，已保留其余真实状态'
+  }, [snapshot])
+  const hasFilter = activeView !== 'all' || Boolean(activeTagFilter) || Boolean(searchQuery.trim())
+
+  return (
+    <PageShell
+      title="Skill 控制中心"
+      subtitle="统一查看与控制 Claude Code、Codex 的 Skill；本页不管理 Plugin"
+      className="page-shell--no-padding skill-control-page"
+      actions={
+        <>
+          {activeView === 'external' && externalRows.length > 0 && (
+            <Button variant="primary" size="sm" onClick={() => setIsBatchAdoptOpen(true)}>纳管全部</Button>
+          )}
+          <Button variant="secondary" size="sm" onClick={() => setIsTagModalOpen(true)}>管理标签</Button>
+          <Button variant="secondary" size="sm" onClick={onNavigateToConfig}>配置</Button>
+        </>
+      }
+    >
+      <StateView
+        loading={isLoading}
+        loadingMessage="正在读取真实 Skill 状态"
+        error={pageError}
+        onRetry={() => { refreshControl(); loadCentralMetadata() }}
+        empty={!isLoading && enrichedRows.length === 0}
+        emptyMessage="中央仓库还没有 Skill"
+        emptyHint="查看外部 Skill"
+      >
+        <>
+          <SkillControlSummary summary={summary} activeView={activeView} onSelect={setActiveView} />
+
+          <div className="skill-control-toolbar">
+            <div className="skill-control-views" aria-label="Skill 视图筛选">
+              {VIEW_OPTIONS.map((view) => (
+                <button
+                  type="button"
+                  key={view.id}
+                  className={`skill-control-view ${activeView === view.id ? 'is-active' : ''}`}
+                  onClick={() => setActiveView(view.id)}
+                >
+                  {view.label}{view.id === 'external' && summary.externalCount > 0 ? ` ${summary.externalCount}` : ''}
+                </button>
+              ))}
+            </div>
+            <SearchInput
+              className="skill-control-search"
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
+              placeholder="搜索 Skill"
+            />
+          </div>
+
+          {tags.length > 0 && (
+            <TagFilterChips
+              tags={tags}
+              skillTags={skillTags}
+              totalSkillCount={snapshot?.summary?.managed || 0}
+              activeTagId={activeTagFilter}
+              onSelect={setActiveTagFilter}
+            />
+          )}
+
+          {unavailableTools.length > 0 && (
+            <div className="skill-control-partial">
+              {unavailableTools.map((tool) => tool.name).join('、')} 状态无法读取，其他数据仍可使用
+            </div>
+          )}
+
+          {partialMessage && <div className="skill-control-partial">{partialMessage}</div>}
+
+          <div className="skill-control-table-wrap">
+            <div className="skill-control-row skill-control-row--header">
+              <div>Skill</div>
+              <div>近 30 天</div>
+              <div>标签</div>
+              <div className="skill-control-tool-heading"><span className="skill-control-brand skill-control-brand--claude">CC</span>Claude</div>
+              <div className="skill-control-tool-heading"><span className="skill-control-brand skill-control-brand--codex">CX</span>Codex</div>
+              <div>健康</div>
+            </div>
+
+            {filteredRows.length === 0 ? (
+              <div className="skill-control-empty-filter">
+                <div><strong>没有符合条件的 Skill</strong><div className="skill-control-empty-filter__hint">清除搜索或切回“全部”</div></div>
+              </div>
+            ) : filteredRows.map((skill) => (
+              <div key={skill.name} className={`skill-control-row ${skill.issue ? 'skill-control-row--issue' : ''}`}>
+                <div className="skill-control-name" title={`${skill.displayName}\n${skill.desc || skill.name}`}>
+                  <div className="skill-control-name__title">{skill.displayName}</div>
+                  <div className="skill-control-name__meta">
+                    {skill.displayName !== skill.name || skill.desc ? `${skill.name}${skill.desc ? ` · ${skill.desc}` : ''}` : '中央资产'}
+                  </div>
+                </div>
+                <div className="skill-control-usage">
+                  {skill.managed ? (
+                    <SkillUsageBadge
+                      usage={skill.usage}
+                      loading={usageStatus === 'loading'}
+                      error={usageStatus === 'error'}
+                      onClick={(event) => { event.stopPropagation(); setUsageSampleSkill(skill) }}
+                      title="查看清洗后的运行样本"
+                    />
+                  ) : '—'}
+                </div>
+                <div onClick={(event) => event.stopPropagation()}>
+                  {skill.managed ? (
+                    <TagSelector
+                      skillId={skill.id}
+                      currentTagId={skillTags[skill.id] || null}
+                      tags={tags}
+                      onAssign={handleAssignTag}
+                      onRemove={handleRemoveTag}
+                    />
+                  ) : '—'}
+                </div>
+                {Object.keys(TOOL_META).map((toolId) => {
+                  const tool = TOOL_META[toolId]
+                  const pending = pendingKeys.has(`${skill.name}:${toolId}`)
+                    || pendingKeys.has(`adopt:${skill.name}:${toolId}`)
+                  return (
+                    <SkillActivationCell
+                      key={toolId}
+                      state={skill.tools?.[toolId]}
+                      usageCount={skill.usage?.[tool.usageKey] || 0}
+                      pending={pending}
+                      managed={skill.managed}
+                      toolName={tool.fullName}
+                      onChange={(enabled) => handleActivation(skill, toolId, enabled)}
+                      onSync={() => handleActivation(skill, toolId, true, true)}
+                      onAdopt={() => handleAdopt(skill, toolId)}
+                    />
+                  )
+                })}
+                <div className="skill-control-health">
+                  <SkillHealthBadge skill={skill} isCandidate={skill.isCandidate} />
+                  <SkillStateMenu skill={skill} pendingKeys={pendingKeys} onAction={(command) => handleStateAction(skill, command)} />
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <footer className="skill-control-footer">
+            <span>显示 {filteredRows.length} / {enrichedRows.length} · 状态来自本机实际目录</span>
+            <span>{usageSources && usageStatus === 'ready' ? '0 次表示近 30 天未观察到显式调用' : '调用统计加载中'}</span>
+          </footer>
+        </>
+      </StateView>
+
+      <TagManagementModal
+        open={isTagModalOpen}
+        onClose={() => { setIsTagModalOpen(false); loadCentralMetadata() }}
+        tags={tags}
+        skillTags={skillTags}
+        skills={centralSkills}
+        onCreateTag={handleCreateTag}
+        onRenameTag={handleRenameTag}
+        onDeleteTag={handleDeleteTag}
+        onRemoveSkillFromTag={handleRemoveTag}
+      />
+
+      <SkillRunSamplesModal
+        open={Boolean(usageSampleSkill)}
+        onClose={() => setUsageSampleSkill(null)}
+        skill={usageSampleSkill}
+      />
+
+      <Modal
+        open={isBatchAdoptOpen}
+        onClose={() => setIsBatchAdoptOpen(false)}
+        title="纳管全部外部 Skill"
+        size="sm"
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setIsBatchAdoptOpen(false)}>取消</Button>
+            <Button
+              variant="primary"
+              disabled={batchAdoption.operations.length === 0}
+              onClick={handleBatchAdopt}
+            >
+              纳管 {batchAdoption.operations.length} 个
+            </Button>
+          </>
+        }
+      >
+        <div className="skill-adoption-confirm">
+          <p>接管后，中央资产库将成为这些 Skill 的维护版本，Claude Code / Codex 中的原外部项会替换为 CodePal 副本。</p>
+          <p>软链接指向的原始上游目录不会删除。</p>
+          {batchAdoption.conflicts.length > 0 && (
+            <p className="skill-adoption-confirm__warning">
+              {batchAdoption.conflicts.length} 个 Skill 同时存在于两个工具，批量操作会跳过，请回到列表选择来源工具。
+            </p>
+          )}
+        </div>
+      </Modal>
+
+      {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
+    </PageShell>
+  )
+}
 
 // 勾选图标
 const checkSvg = (
@@ -76,7 +441,7 @@ function mergeSkillsKeepOrder(previousSkills, latestSkills) {
  * @param {number} [props.refreshSignal=0] - 自动刷新信号（新增 skill 后触发）
  * @returns {JSX.Element} 管理页面
  */
-export default function ManagePage({ onReimport, onNavigateToConfig, refreshSignal = 0 }) {
+function LegacyManagePage({ onReimport, onNavigateToConfig, refreshSignal = 0 }) {
   // 所有技能列表（带全局推送状态）
   const [skills, setSkills] = useState([])
   // 搜索关键词
@@ -630,4 +995,14 @@ export default function ManagePage({ onReimport, onNavigateToConfig, refreshSign
       {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
     </PageShell>
   )
+}
+
+/**
+ * 新宿主使用 v2 控制中心；缺少新 IPC 的旧宿主继续使用原管理页。
+ * @param {object} props 页面参数
+ * @returns {JSX.Element}
+ */
+export default function ManagePage(props) {
+  const supportsSkillControl = typeof window !== 'undefined' && Boolean(window.electronAPI?.getSkillControlSnapshot)
+  return supportsSkillControl ? <SkillControlPage {...props} /> : <LegacyManagePage {...props} />
 }

@@ -13,7 +13,7 @@
  * 创建自动同步服务实例
  * @param {Object} deps - 依赖集合
  * @param {() => Promise<string[]>} deps.getPushTargets - 获取启用的推送目标
- * @param {() => Promise<Object>} deps.getConfig - 获取配置
+ * @param {(toolId:string, skillName:string) => Promise<boolean>} deps.isPushed - 读取工具原生启用状态
  * @param {(toolId: string, skillNames: string[]) => Promise<Object>} deps.pushSkills - 推送技能
  * @param {() => void} deps.clearPushStatusCache - 清除推送状态缓存
  * @returns {{ handleCentralRepoChanged: Function }}
@@ -43,15 +43,10 @@ export function createAutoSyncService(deps) {
           return { syncedCount: 0, errors: [] }
         }
 
-        const config = await deps.getConfig()
-        const pushStatus = config.pushStatus || {}
-
         for (const toolId of pushTargets) {
-          // 找变更技能与该工具已推送技能的交集
-          const pushedSkills = pushStatus[toolId] || []
-          const skillsToSync = changedSkillNames.filter(
-            (name) => pushedSkills.includes(name)
-          )
+          // 原生目录/配置才是事实源，旧 pushStatus 只保留为历史兼容数据。
+          const states = await Promise.all(changedSkillNames.map((name) => deps.isPushed(toolId, name)))
+          const skillsToSync = changedSkillNames.filter((_, index) => states[index])
 
           if (skillsToSync.length === 0) continue
 

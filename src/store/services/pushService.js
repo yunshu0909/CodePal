@@ -98,6 +98,7 @@ export function createPushService(deps) {
 
     const errors = []
     let pushedCount = 0
+    const pushedSkillNames = []
     const repoPath = await deps.getRepoPath()
 
     for (const skillName of skillNames) {
@@ -110,10 +111,17 @@ export function createPushService(deps) {
         continue
       }
 
-      const copyResult = await deps.copySkill(sourcePath, targetPath, { force: true })
+      const controlled = toolId === 'claude-code' || toolId === 'codex'
+      let copyResult = controlled && deps.executeSkillCommand
+        ? await deps.executeSkillCommand({ repoPath, toolId, skillName, action: 'enable' })
+        : await deps.copySkill(sourcePath, targetPath, { force: true })
+      if (copyResult?.error === 'API_NOT_AVAILABLE') {
+        copyResult = await deps.copySkill(sourcePath, targetPath, { force: true })
+      }
 
       if (copyResult.success) {
         pushedCount++
+        pushedSkillNames.push(skillName)
       } else {
         errors.push(`${skillName}: ${copyResult.error}`)
       }
@@ -127,7 +135,7 @@ export function createPushService(deps) {
       config.pushStatus[toolId] = []
     }
 
-    for (const skillName of skillNames) {
+    for (const skillName of pushedSkillNames) {
       if (!config.pushStatus[toolId].includes(skillName)) {
         config.pushStatus[toolId].push(skillName)
       }
@@ -157,25 +165,33 @@ export function createPushService(deps) {
 
     const errors = []
     let unpushedCount = 0
+    const unpushedSkillNames = []
+    const repoPath = await deps.getRepoPath()
 
     for (const skillName of skillNames) {
       const skillPath = deps.getToolSkillPath(tool.path, skillName)
-      const deleteResult = await deps.deleteSkill(skillPath)
+      const controlled = toolId === 'claude-code' || toolId === 'codex'
+      let deleteResult = controlled && deps.executeSkillCommand
+        ? await deps.executeSkillCommand({ repoPath, toolId, skillName, action: 'remove-tool' })
+        : await deps.deleteSkill(skillPath)
+      if (deleteResult?.error === 'API_NOT_AVAILABLE') deleteResult = await deps.deleteSkill(skillPath)
 
       if (deleteResult.success) {
         unpushedCount++
+        unpushedSkillNames.push(skillName)
       } else if (deleteResult.error !== 'SOURCE_NOT_FOUND') {
         errors.push(`${skillName}: ${deleteResult.error}`)
       } else {
         // 用户手动删除也算目标达成，不阻断批量流程
         unpushedCount++
+        unpushedSkillNames.push(skillName)
       }
     }
 
     const config = await deps.getConfig()
     if (config.pushStatus && config.pushStatus[toolId]) {
       config.pushStatus[toolId] = config.pushStatus[toolId].filter(
-        (name) => !skillNames.includes(name)
+        (name) => !unpushedSkillNames.includes(name)
       )
       await deps.saveConfig(config)
     }

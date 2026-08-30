@@ -234,6 +234,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Skill 运行样本（近 N 天清洗后的 usable run samples）
   listSkillRunSamples: (params) => ipcRenderer.invoke('list-skill-run-samples', params),
 
+  // Skill 控制中心：快照读取和统一命令。写操作由主进程重读原生状态后返回。
+  getSkillControlSnapshot: (params) => ipcRenderer.invoke('skill-control:get-snapshot', params),
+  executeSkillCommand: (params) => ipcRenderer.invoke('skill-control:execute', params),
+  deploySkillToTool: (params) => ipcRenderer.invoke('skill-control:deploy', params),
+  adoptExternalSkill: (params) => ipcRenderer.invoke('skill-control:adopt', params),
+
   /**
    * 获取 Claude/Codex 日志最早日期（北京时间），用于「累计至今」动态起点
    * @returns {Promise<{success: boolean, earliestDate: string|null, error?: string}>}

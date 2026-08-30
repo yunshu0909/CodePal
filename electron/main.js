@@ -47,6 +47,7 @@ const { registerImportPageHandlers } = require('./handlers/registerImportPageHan
 const { registerAppUpdateHandlers } = require('./handlers/registerAppUpdateHandlers')
 const { registerUsageAggregationHandlers } = require('./handlers/registerUsageAggregationHandlers')
 const { registerSkillUsageHandlers } = require('./handlers/registerSkillUsageHandlers')
+const { registerSkillControlHandlers } = require('./handlers/registerSkillControlHandlers')
 const { registerProjectInitHandlers } = require('./handlers/registerProjectInitHandlers')
 const { registerPermissionModeHandlers } = require('./handlers/permissionModeHandlers')
 const { registerModelConfigHandlers } = require('./handlers/modelConfigHandlers')
@@ -718,6 +719,11 @@ registerUsageAggregationHandlers({
 registerSkillUsageHandlers({
   ipcMain,
   pathExists,
+  homeDir: os.homedir(),
+})
+
+registerSkillControlHandlers({
+  ipcMain,
   homeDir: os.homedir(),
 })
 
