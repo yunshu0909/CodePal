@@ -15,14 +15,14 @@ import './skillUsage.css'
  * @param {{total:number}|undefined} props.usage - 该 skill 的统计（无记录则 undefined）
  * @param {boolean} [props.loading] - 扫描进行中
  * @param {boolean} [props.error] - 扫描失败
- * @param {Function} [props.onClick] - 点击查看运行样本
+ * @param {Function} [props.onClick] - 点击查看调用记录
  * @param {string} [props.title] - 鼠标悬浮说明
  */
 export default function SkillUsageBadge({ usage, loading = false, error = false, onClick, title }) {
   const wrap = (node) => {
     if (!onClick || loading || error) return node
     return (
-      <button type="button" className="usage-badge-button" onClick={onClick} title={title || '查看运行样本'}>
+      <button type="button" className="usage-badge-button" onClick={onClick} title={title || '查看调用记录'}>
         {node}
       </button>
     )

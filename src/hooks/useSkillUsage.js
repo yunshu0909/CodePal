@@ -2,9 +2,9 @@
  * useSkillUsage — 拉取每个 skill 近 N 天使用统计（Claude + Codex 合计）
  *
  * 负责：
- * - 调 IPC `aggregate-skill-usage`（后端扫日志，异步，不阻塞列表渲染）
+ * - 调 IPC `aggregate-skill-usage`（后端发现 invocation 并从 ledger 聚合）
  * - 模块级缓存 5 分钟：切走切回不重复全扫
- * - 返回 { status, usageMap(name→{total,usableSamples,rawEvents,logicalRecords,claude,codex,lastUsedAt}), sources }
+ * - 返回 { status, usageMap(name→{total,claude,codex,lastUsedAt}), sources, scanMeta }
  *
  * @module hooks/useSkillUsage
  */
@@ -17,12 +17,13 @@ let usageCache = null // { key, at, data }
 /**
  * @param {string[]} skillNames - 当前已管理 skill 名（用于过滤噪声 + 限定统计范围）
  * @param {number} [windowDays=30] - 时间窗
- * @returns {{status:'loading'|'ready'|'error', usageMap:Map, sources:object|null}}
+ * @returns {{status:'loading'|'ready'|'error', usageMap:Map, sources:object|null, scanMeta:object|null}}
  */
 export default function useSkillUsage(skillNames, windowDays = 30) {
   const [status, setStatus] = useState('loading')
   const [usageMap, setUsageMap] = useState(() => new Map())
   const [sources, setSources] = useState(null)
+  const [scanMeta, setScanMeta] = useState(null)
   const reqRef = useRef(0)
 
   // 用排序后的名字串作为依赖键：内容变才重扫，避免数组每次新引用导致无限刷新
@@ -30,7 +31,7 @@ export default function useSkillUsage(skillNames, windowDays = 30) {
 
   useEffect(() => {
     if (!key) {
-      setStatus('ready'); setUsageMap(new Map()); setSources(null)
+      setStatus('ready'); setUsageMap(new Map()); setSources(null); setScanMeta(null)
       return
     }
     const api = typeof window !== 'undefined' ? window.electronAPI : null
@@ -43,7 +44,8 @@ export default function useSkillUsage(skillNames, windowDays = 30) {
       const m = new Map()
       for (const s of data.skills || []) m.set(s.name, s)
       setUsageMap(m)
-      setSources(data.sources || null)
+      setSources(data.scanMeta?.sources || data.sources || null)
+      setScanMeta(data.scanMeta || null)
       setStatus('ready')
     }
 
@@ -68,5 +70,5 @@ export default function useSkillUsage(skillNames, windowDays = 30) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key, windowDays])
 
-  return { status, usageMap, sources }
+  return { status, usageMap, sources, scanMeta }
 }
