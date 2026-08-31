@@ -29,8 +29,10 @@ async function readSettings(settingsPath) {
 function overrideState(settings, name) {
   if (settings.__codepalInvalidJson) return 'invalid'
   if (!settings.skillOverrides || !Object.prototype.hasOwnProperty.call(settings.skillOverrides, name)) return 'inherit'
-  if (settings.skillOverrides[name] === true) return 'enabled'
-  if (settings.skillOverrides[name] === false) return 'disabled'
+  const nativeState = settings.skillOverrides[name]
+  if (nativeState === 'on' || nativeState === true) return 'enabled'
+  if (nativeState === 'off' || nativeState === false) return 'disabled'
+  if (nativeState === 'name-only' || nativeState === 'user-invocable-only') return nativeState
   return 'invalid'
 }
 
@@ -96,7 +98,7 @@ async function setSkillOverride(settingsPath, skillName, nextState) {
     ? { ...settings.skillOverrides }
     : {}
   if (nextState === 'inherit') delete overrides[skillName]
-  else overrides[skillName] = nextState === 'enabled'
+  else overrides[skillName] = nextState === 'enabled' ? 'on' : 'off'
   if (Object.keys(overrides).length > 0) settings.skillOverrides = overrides
   else delete settings.skillOverrides
   await writeSettingsAtomic(settingsPath, settings)
@@ -108,7 +110,7 @@ async function applyClaudeCommand(params, deps = {}) {
   const userPath = path.join(params.homeDir, '.claude', 'skills', params.skillName)
   if (params.action === 'enable') {
     const deployed = await deployManagedSkill({ repoPath: params.repoPath, targetPath: userPath, skillName: params.skillName }, deps)
-    // 目录存在不代表 Claude 会加载它；显式启用必须覆盖遗留的 skillOverrides=false。
+    // 目录存在不代表 Claude 会加载它；显式启用必须覆盖遗留的 off/false。
     await setSkillOverride(path.join(params.homeDir, '.claude', 'settings.json'), params.skillName, 'enabled')
     return deployed
   }

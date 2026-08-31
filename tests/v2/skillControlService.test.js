@@ -121,6 +121,78 @@ enabled = false
     expect(discovered.sources.some((item) => item.name === 'ignored-skill')).toBe(false)
   })
 
+  it('SC-001 reads Claude native four-state override strings', async () => {
+    const nativeStates = {
+      'always-on': 'on',
+      'fully-off': 'off',
+      'metadata-only': 'name-only',
+      'manual-only': 'user-invocable-only',
+    }
+    for (const name of Object.keys(nativeStates)) {
+      await writeSkill(path.join(homeDir, '.claude', 'skills'), name)
+    }
+    await fs.mkdir(path.join(homeDir, '.claude'), { recursive: true })
+    await fs.writeFile(path.join(homeDir, '.claude', 'settings.json'), JSON.stringify({
+      skillOverrides: nativeStates,
+    }))
+
+    const discovered = await discoverClaudeSkills({ homeDir }, { skipPluginDiscovery: true })
+    const statesByName = Object.fromEntries(discovered.sources.map((source) => [source.name, source.overrideState]))
+
+    expect(statesByName).toEqual({
+      'always-on': 'enabled',
+      'fully-off': 'disabled',
+      'manual-only': 'user-invocable-only',
+      'metadata-only': 'name-only',
+    })
+  })
+
+  it('SC-002 and SC-004 write native strings while preserving neighbor settings', async () => {
+    await writeSkill(repoPath, 'override-me')
+    await fs.mkdir(path.join(homeDir, '.claude'), { recursive: true })
+    await fs.writeFile(path.join(homeDir, '.claude', 'settings.json'), JSON.stringify({
+      skillOverrides: { other: 'name-only' },
+      unknownSetting: { keep: true },
+    }))
+
+    await applyClaudeCommand({ repoPath, homeDir, skillName: 'override-me', action: 'disable' })
+    let settings = JSON.parse(await fs.readFile(path.join(homeDir, '.claude', 'settings.json'), 'utf8'))
+    expect(settings).toEqual({
+      skillOverrides: { other: 'name-only', 'override-me': 'off' },
+      unknownSetting: { keep: true },
+    })
+
+    await applyClaudeCommand({ repoPath, homeDir, skillName: 'override-me', action: 'clear-override' })
+    settings = JSON.parse(await fs.readFile(path.join(homeDir, '.claude', 'settings.json'), 'utf8'))
+    expect(settings.skillOverrides).toEqual({ other: 'name-only' })
+
+    await applyClaudeCommand({ repoPath, homeDir, skillName: 'override-me', action: 'enable' })
+    settings = JSON.parse(await fs.readFile(path.join(homeDir, '.claude', 'settings.json'), 'utf8'))
+    expect(settings).toEqual({
+      skillOverrides: { other: 'name-only', 'override-me': 'on' },
+      unknownSetting: { keep: true },
+    })
+  })
+
+  it('SC-003 reads legacy booleans and upgrades explicit writes', async () => {
+    await writeSkill(path.join(homeDir, '.claude', 'skills'), 'legacy-on')
+    await writeSkill(path.join(homeDir, '.claude', 'skills'), 'legacy-off')
+    await fs.mkdir(path.join(homeDir, '.claude'), { recursive: true })
+    await fs.writeFile(path.join(homeDir, '.claude', 'settings.json'), JSON.stringify({
+      skillOverrides: { 'legacy-on': true, 'legacy-off': false },
+    }))
+
+    const discovered = await discoverClaudeSkills({ homeDir }, { skipPluginDiscovery: true })
+    expect(discovered.sources).toEqual(expect.arrayContaining([
+      expect.objectContaining({ name: 'legacy-on', overrideState: 'enabled' }),
+      expect.objectContaining({ name: 'legacy-off', overrideState: 'disabled' }),
+    ]))
+
+    await applyClaudeCommand({ repoPath, homeDir, skillName: 'legacy-on', action: 'disable' })
+    const settings = JSON.parse(await fs.readFile(path.join(homeDir, '.claude', 'settings.json'), 'utf8'))
+    expect(settings.skillOverrides).toEqual({ 'legacy-on': 'off', 'legacy-off': false })
+  })
+
   it('SC-005 keeps a partial snapshot when one provider source is unavailable', async () => {
     await writeSkill(repoPath, 'central')
     const snapshot = await getSkillControlSnapshot(
@@ -206,7 +278,7 @@ enabled = false
 
     await applyClaudeCommand({ repoPath, homeDir, skillName: 'override-me', action: 'set-override', overrideState: 'disabled' })
     let settings = JSON.parse(await fs.readFile(path.join(homeDir, '.claude', 'settings.json'), 'utf8'))
-    expect(settings.skillOverrides).toEqual({ other: true, 'override-me': false })
+    expect(settings.skillOverrides).toEqual({ other: true, 'override-me': 'off' })
     expect(settings.unknownSetting).toEqual({ keep: true })
 
     await applyClaudeCommand({ repoPath, homeDir, skillName: 'override-me', action: 'clear-override' })
