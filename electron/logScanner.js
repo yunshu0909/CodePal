@@ -11,13 +11,50 @@
 
 const fs = require('fs/promises')
 const path = require('path')
+const { createReadStream } = require('fs')
+const readline = require('readline')
+
+/**
+ * 流式提取 Codex 计量证据，不让正文和工具输出滞留或跨 IPC 传输。
+ * @param {string} filePath - JSONL 文件
+ * @returns {Promise<string[]>} 保持原顺序的精简事件
+ */
+async function readCodexUsageLines(filePath) {
+  const stream = createReadStream(filePath, { encoding: 'utf-8' })
+  const reader = readline.createInterface({ input: stream, crlfDelay: Infinity })
+  const lines = []
+  try {
+    for await (const line of reader) {
+      let data
+      try { data = JSON.parse(line) } catch { continue }
+      if (!data || typeof data !== 'object') continue
+      const payload = data.payload
+      let event
+      if (data.type === 'turn_context') {
+        event = { type: data.type, payload: { model: payload?.model, cwd: payload?.cwd } }
+      } else if (data.type === 'session_meta') {
+        event = { type: data.type, payload: { forked_from_id: payload?.forked_from_id } }
+      } else if (data.type === 'event_msg' && payload?.type === 'token_count' && payload.info?.total_token_usage) {
+        const usage = payload.info.total_token_usage
+        event = { type: data.type, timestamp: data.timestamp, payload: { type: 'token_count', info: { total_token_usage: {
+          input_tokens: usage.input_tokens, output_tokens: usage.output_tokens, cached_input_tokens: usage.cached_input_tokens, total_tokens: usage.total_tokens,
+        } } } }
+      }
+      if (event) lines.push(JSON.stringify(event))
+    }
+    return lines
+  } finally {
+    reader.close()
+    stream.destroy()
+  }
+}
 
 /**
  * 扫描并读取可能包含时间窗口记录的日志文件
  * @param {string} basePath - 扫描根目录（已展开）
  * @param {Date} startTime - 开始时间（包含）
  * @param {Date} endTime - 结束时间（不包含）
- * @param {{maxFiles?: number, maxLinesPerFile?: number, maxDepth?: number}} [options] - 扫描选项
+ * @param {{maxFiles?: number, maxLinesPerFile?: number, maxDepth?: number, codexUsageOnly?: boolean}} [options] - 扫描选项
  * @returns {Promise<{files: Array<{path: string, lines: string[], mtime: string}>, totalMatched: number, scannedCount: number, truncated: boolean}>}
  */
 async function scanLogFilesInRange(basePath, startTime, endTime, options = {}) {
@@ -103,11 +140,14 @@ async function scanLogFilesInRange(basePath, startTime, endTime, options = {}) {
 
   for (const candidate of selectedCandidates) {
     try {
-      const content = await fs.readFile(candidate.path, 'utf-8')
-      const rawLines = content
-        .split('\n')
-        .filter(line => line.trim())
-      const lines = takeRecentLines(rawLines)
+      let lines
+      if (options.codexUsageOnly === true) {
+        // 计量需要完整事件链，但不需要保留完整对话正文。
+        lines = await readCodexUsageLines(candidate.path)
+      } else {
+        const content = await fs.readFile(candidate.path, 'utf-8')
+        lines = takeRecentLines(content.split('\n').filter(line => line.trim()))
+      }
 
       files.push({
         path: candidate.path,

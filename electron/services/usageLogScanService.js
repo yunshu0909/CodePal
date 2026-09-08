@@ -323,127 +323,22 @@ async function scanClaudeLogs(start, end, deps = {}) {
   return Array.from(latestByMessage.values(), (item) => item.record)
 }
 
-// Codex 子 agent（subagent）回放检测阈值：
-// 子 agent 启动时会回放父对话历史，产生密集的 token 快照（数百个快照在 <1 秒内完成）。
-// 5 秒足够覆盖任意长度的回放，同时不会误吞真正的新工作（新工作快照间隔通常 > 5 秒）。
-const CODEX_REPLAY_WINDOW_MS = 5000
-
 /**
- * 扫描 Codex 日志并提取窗口增量记录
+ * 扫描完整 Codex 日志，按用量事件所属模型和日期计量。
  * @param {Date} start - 窗口开始（含）
  * @param {Date} end - 窗口结束（不含）
- * @param {object} deps - 依赖注入
- * @returns {Promise<Array<object>>}
+ * @param {object} deps - 测试依赖
+ * @returns {Promise<Array<object>>} 逐事件记录
  */
 async function scanCodexLogs(start, end, deps = {}) {
   const pathExistsFn = deps.pathExistsFn || pathExists
   const scanLogFilesInRangeFn = deps.scanLogFilesInRangeFn || scanLogFilesInRange
-  const homeDir = deps.homeDir || os.homedir()
-
-  const codexBasePath = path.join(homeDir, '.codex', 'sessions')
-  const exists = await pathExistsFn(codexBasePath)
-
-  if (!exists) {
-    return []
-  }
-
-  const scanResult = await scanLogFilesInRangeFn(codexBasePath, start, end)
-  const sessionSnapshots = new Map()
-
-  for (const file of scanResult.files || []) {
-    const sessionId = extractCodexSessionId(file.path)
-    const state = sessionSnapshots.get(sessionId) || {
-      beforeWindow: null,
-      inWindow: null,
-      model: null,
-      cwd: null,
-      forkedFromId: null,
-      firstSnapshotTs: null,
-      replayBaseline: null
-    }
-
-    for (const line of file.lines || []) {
-      try {
-        const parsed = JSON.parse(line)
-        if (parsed.type === 'turn_context' && parsed.payload) {
-          if (parsed.payload.model) {
-            state.model = parsed.payload.model
-          }
-          if (parsed.payload.cwd) {
-            state.cwd = parsed.payload.cwd
-          }
-        }
-        // 检测子 agent：session_meta 中带 forked_from_id 表示从父 session fork 而来
-        if (parsed.type === 'session_meta' && parsed.payload?.forked_from_id) {
-          state.forkedFromId = parsed.payload.forked_from_id
-        }
-      } catch { /* ignore */ }
-
-      const snapshot = parseCodexTokenSnapshot(line)
-      if (!snapshot?.timestamp) continue
-
-      // 记录首个快照时间戳，用于回放阶段检测
-      if (!state.firstSnapshotTs) {
-        state.firstSnapshotTs = snapshot.timestamp
-      }
-
-      if (snapshot.timestamp < start) {
-        state.beforeWindow = pickCodexMaxSnapshot(state.beforeWindow, snapshot)
-        continue
-      }
-
-      if (snapshot.timestamp >= start && snapshot.timestamp < end) {
-        state.inWindow = pickCodexMaxSnapshot(state.inWindow, snapshot)
-
-        // 子 agent 回放阶段：首个快照后 5 秒内的快照属于父对话历史回放，
-        // 其累计值包含已在父 session 中统计过的 token，不应重复计入。
-        if (state.forkedFromId && state.firstSnapshotTs &&
-            (snapshot.timestamp.getTime() - state.firstSnapshotTs.getTime()) < CODEX_REPLAY_WINDOW_MS) {
-          state.replayBaseline = pickCodexMaxSnapshot(state.replayBaseline, snapshot)
-        }
-      }
-    }
-
-    sessionSnapshots.set(sessionId, state)
-  }
-
-  const records = []
-
-  for (const state of sessionSnapshots.values()) {
-    if (!state.inWindow) continue
-
-    // 子 agent 用回放基线作为起点，只计新工作增量；普通 session 用窗口前快照或零值
-    const before = (state.forkedFromId && state.replayBaseline)
-      ? state.replayBaseline
-      : state.beforeWindow || {
-          inputTotal: 0,
-          outputTotal: 0,
-          cacheReadTotal: 0,
-          totalTokens: 0
-        }
-
-    const deltaInputTotal = Math.max(0, state.inWindow.inputTotal - before.inputTotal)
-    const deltaOutput = Math.max(0, state.inWindow.outputTotal - before.outputTotal)
-    const deltaCacheRead = Math.max(0, state.inWindow.cacheReadTotal - before.cacheReadTotal)
-
-    // Codex 的 input_tokens 包含 cached_input_tokens，因此需要拆分
-    const deltaNonCachedInput = Math.max(0, deltaInputTotal - deltaCacheRead)
-    const deltaTotal = deltaNonCachedInput + deltaOutput + deltaCacheRead
-
-    if (deltaTotal <= 0) continue
-
-    records.push({
-      timestamp: state.inWindow.timestamp,
-      model: state.model || 'codex',
-      project: extractProjectNameFromCwd(state.cwd) || '未知项目',
-      input: deltaNonCachedInput,
-      output: deltaOutput,
-      cacheRead: deltaCacheRead,
-      cacheCreate: 0
-    })
-  }
-
-  return records
+  const codexBasePath = path.join(deps.homeDir || os.homedir(), '.codex', 'sessions')
+  if (!(await pathExistsFn(codexBasePath))) return []
+  // 模型上下文和窗口前基线可能在文件开头，不能只读最后 10000 行。
+  const result = await scanLogFilesInRangeFn(codexBasePath, start, end, { codexUsageOnly: true })
+  const { collectCodexUsageRecords } = await import('./codexUsageRecords.mjs')
+  return collectCodexUsageRecords(result.files, start, end)
 }
 
 /**

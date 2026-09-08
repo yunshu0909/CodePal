@@ -11,7 +11,7 @@
 import { getBeijingDayKey, getDailyRefreshKey } from './usageDateUtils';
 
 const TODAY_REFRESH_INTERVAL_MS = 5 * 60 * 1000;
-const USAGE_CACHE_STORAGE_KEY = 'usage-monitor-cache-v3';
+const USAGE_CACHE_STORAGE_KEY = 'usage-monitor-cache-v4-model-attribution';
 
 /**
  * 创建空缓存容器

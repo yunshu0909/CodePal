@@ -16,7 +16,7 @@
     "dist:mac": "npm run clean:release && npm run build && electron-builder --mac --arm64",
     "dist:win": "npm run clean:release && npm run build && electron-builder --win nsis --x64",
     "preview": "vite preview",
-    "test": "npm run test:v04 && npm run test:v05 && npm run test:v190 && npm run test:v193 && npm run test:v197 && npm run test:v198 && npm run test:v198:frontend && npm run test:v199 && npm run test:v1910 && npm run test:v1911 && npm run test:v1913 && npm run test:v2 && npm run test:v21 && npm run test:skill-usage && npm run test:skill-usage:frontend && npm run test:k28",
+    "test": "npm run test:v04 && npm run test:v05 && npm run test:v190 && npm run test:v193 && npm run test:v197 && npm run test:v198 && npm run test:v198:frontend && npm run test:v199 && npm run test:v1910 && npm run test:v1911 && npm run test:v1913 && npm run test:v2 && npm run test:v21 && npm run test:skill-usage && npm run test:skill-usage:frontend && npm run test:k28 && npm run test:usage-model-cost",
     "test:v2": "vitest run --root . tests/v2/skillControlService.test.js tests/v2/ManagePage.skillControl.test.jsx",
     "test:v21": "vitest run --root . tests/v21/pluginControlService.test.js tests/v21/PluginControlPage.test.jsx tests/v21/skillExplainability.test.jsx tests/v21/pluginExplainability.test.jsx",
     "test:v190": "vitest run --config 自动化测试/V1.9.0/vitest.config.js",
@@ -77,7 +77,8 @@
     "test:v153": "vitest run --config 自动化测试/V1.5.3/vitest.config.js",
     "test:v153:watch": "vitest --config 自动化测试/V1.5.3/vitest.config.js",
     "test:v165": "vitest run --config 自动化测试/V1.6.5/vitest.config.js",
-    "test:v165:watch": "vitest --config 自动化测试/V1.6.5/vitest.config.js"
+    "test:v165:watch": "vitest --config 自动化测试/V1.6.5/vitest.config.js",
+    "test:usage-model-cost": "vitest run tests/usageModelCost.test.js"
   },
   "keywords": [
     "electron",

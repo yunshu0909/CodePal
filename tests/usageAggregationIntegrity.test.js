@@ -15,13 +15,13 @@ import { describe, expect, it, vi } from 'vitest'
 import { createRequire } from 'node:module'
 
 const require = createRequire(import.meta.url)
-const { findEarliestDailySummaryDate } = require('../electron/services/dailySummaryService.js')
+const { findEarliestDailySummaryDate, DAILY_SUMMARY_SCHEMA_VERSION } = require('../electron/services/dailySummaryService.js')
 const { handleAggregateUsagePeriod } = require('../electron/aggregateUsagePeriodHandler.js')
 const { aggregateUsageDateRange } = require('../electron/services/usageDateRangeAggregationService.js')
 
 function makeSummary(date, total = 10) {
   return {
-    version: 4,
+    version: DAILY_SUMMARY_SCHEMA_VERSION,
     date,
     generatedAt: '2026-07-11T00:00:00.000Z',
     models: total > 0

@@ -27,7 +27,8 @@ let activePricing = pricingData;
 export function setPricingOverride(remotePricing) {
   if (!remotePricing || typeof remotePricing !== 'object') return;
   if (!remotePricing.models || typeof remotePricing.models !== 'object') return;
-  activePricing = remotePricing;
+  // 远端注册表可能尚未包含新型号；缺项继续使用随包价格。
+  activePricing = { ...pricingData, ...remotePricing, models: { ...pricingData.models, ...remotePricing.models } };
 }
 
 /**

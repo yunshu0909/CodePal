@@ -31,7 +31,7 @@ const EXPECTED_GPT56_PRICING = {
 
 describe('GPT-5.6 pricing registry', () => {
   it('打包与服务器分发 JSON 包含全系官方单价', () => {
-    expect(pricingData.version).toBe('2026-07-11')
+    expect(pricingData.version).toBe('2026-09-08')
     expect(validatePricing(pricingData).valid).toBe(true)
 
     for (const [modelKey, expected] of Object.entries(EXPECTED_GPT56_PRICING)) {

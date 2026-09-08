@@ -20,7 +20,7 @@ const { toSafeInt, scanClaudeLogs, scanCodexLogs, aggregateByModel, aggregateByP
 // - v2：新口径（Claude 按 message.id 最终态去重）
 // - v3：补充 projects 维度，并与实时页保持相同字段口径
 // - v4：Codex 子 agent 回放去重（forked session 的历史回放 token 不再重复计入）
-const DAILY_SUMMARY_SCHEMA_VERSION = 4
+const DAILY_SUMMARY_SCHEMA_VERSION = 5
 
 /**
  * 校验日期 key 是否为 YYYY-MM-DD 且可解析

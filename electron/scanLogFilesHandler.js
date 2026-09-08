@@ -82,7 +82,12 @@ async function handleScanLogFiles(params, deps = {}) {
       }
     }
 
-    const scanResult = await scanLogFilesInRangeFn(expandedPath, startTime, endTime)
+    // 只为 Codex 用量归属保留完整上下文；通用日志预览的限制不变。
+    const usageOptions = params?.purpose === 'usage-model-attribution' && basePath === '~/.codex/sessions'
+      ? { codexUsageOnly: true } : undefined
+    const scanResult = usageOptions
+      ? await scanLogFilesInRangeFn(expandedPath, startTime, endTime, usageOptions)
+      : await scanLogFilesInRangeFn(expandedPath, startTime, endTime)
 
     return {
       success: true,

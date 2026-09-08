@@ -9,7 +9,8 @@
  * @module store/usageAggregator
  */
 
-import { parseClaudeLog, parseCodexTokenSnapshot, calculateTotalTokens } from './logParser.js';
+import { collectCodexUsageRecords } from '../../electron/services/codexUsageRecords.mjs';
+import { parseClaudeLog, calculateTotalTokens } from './logParser.js';
 
 // 模型颜色映射表（每个模型唯一颜色，避免冲突）
 const MODEL_COLORS = {
@@ -37,7 +38,6 @@ const MODEL_COLORS = {
 };
 
 // Codex 会话 ID（UUID）匹配规则
-const CODEX_SESSION_ID_REGEX = /([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i;
 
 /**
  * 获取北京时间日期（YYYY-MM-DD）
@@ -182,189 +182,26 @@ async function scanClaudeLogs(start, end) {
   return Array.from(latestByMessage.values(), item => item.record);
 }
 
-// Codex 子 agent 回放检测阈值（毫秒）：
-// 子 agent 启动时回放父对话历史，数百个 token 快照在 <1 秒内密集产生。
-// 5 秒足够覆盖回放，不会误吞间隔更长的真实工作。
-const CODEX_REPLAY_WINDOW_MS = 5000;
-
 /**
- * 扫描 Codex 日志文件
- * @param {Date} start - 开始时间
- * @param {Date} end - 结束时间
- * @returns {Promise<Array>} 解析后的记录列表
+ * 备用前端扫描与主进程共享逐事件归属算法。
+ * @param {Date} start - 含边界
+ * @param {Date} end - 不含边界
+ * @returns {Promise<Array>} 用量记录
  */
 async function scanCodexLogs(start, end) {
-  const records = [];
-
   try {
-    if (!window.electronAPI?.scanLogFiles) {
-      return records;
-    }
-
-    // Codex 日志按日期组织：~/.codex/sessions/YYYY/MM/DD/*.jsonl
+    if (!window.electronAPI?.scanLogFiles) return [];
     const result = await window.electronAPI.scanLogFiles({
-      basePath: '~/.codex/sessions',
-      pattern: '**/*.jsonl',
-      start: start.toISOString(),
-      end: end.toISOString()
+      basePath: '~/.codex/sessions', pattern: '**/*.jsonl',
+      start: start.toISOString(), end: end.toISOString(),
+      purpose: 'usage-model-attribution'
     });
-
-    if (!result.success || !result.files) {
-      return records;
-    }
-    if (result.truncated) {
-      console.warn('Codex log scan truncated:', {
-        totalMatched: result.totalMatched,
-        scannedCount: result.scannedCount
-      });
-    }
-
-    // 按 session 维护”窗口前最大累计值”和”窗口内最大累计值”
-    // 目的：避免同一累计快照重复上报导致的双重计数
-    const sessionSnapshots = new Map();
-
-    // 解析每个文件
-    for (const file of result.files) {
-      const sessionId = extractCodexSessionId(file.path);
-      const state = sessionSnapshots.get(sessionId) || {
-        beforeWindow: null,
-        inWindow: null,
-        model: null,
-        cwd: null,
-        forkedFromId: null,
-        firstSnapshotTs: null,
-        replayBaseline: null
-      };
-
-      for (const line of file.lines) {
-        try {
-          const parsed = JSON.parse(line);
-          if (parsed.type === 'turn_context' && parsed.payload) {
-            if (parsed.payload.model) {
-              state.model = parsed.payload.model;
-            }
-            if (parsed.payload.cwd) {
-              state.cwd = parsed.payload.cwd;
-            }
-          }
-          // 检测子 agent：session_meta 中带 forked_from_id 表示从父 session fork 而来
-          if (parsed.type === 'session_meta' && parsed.payload?.forked_from_id) {
-            state.forkedFromId = parsed.payload.forked_from_id;
-          }
-        } catch { /* ignore */ }
-
-        const snapshot = parseCodexTokenSnapshot(line);
-        if (!snapshot?.timestamp) {
-          continue;
-        }
-
-        // 记录首个快照时间戳，用于回放阶段检测
-        if (!state.firstSnapshotTs) {
-          state.firstSnapshotTs = snapshot.timestamp;
-        }
-
-        if (snapshot.timestamp < start) {
-          state.beforeWindow = pickCodexMaxSnapshot(state.beforeWindow, snapshot);
-          continue;
-        }
-
-        // 半开区间 [start, end)，避免边界重复计数
-        if (snapshot.timestamp >= start && snapshot.timestamp < end) {
-          state.inWindow = pickCodexMaxSnapshot(state.inWindow, snapshot);
-
-          // 子 agent 回放阶段：首个快照后 5 秒内的快照属于父对话历史回放，
-          // 其累计值包含已在父 session 中统计过的 token，不应重复计入。
-          if (state.forkedFromId && state.firstSnapshotTs &&
-              (snapshot.timestamp.getTime() - state.firstSnapshotTs.getTime()) < CODEX_REPLAY_WINDOW_MS) {
-            state.replayBaseline = pickCodexMaxSnapshot(state.replayBaseline, snapshot);
-          }
-        }
-      }
-
-      sessionSnapshots.set(sessionId, state);
-    }
-
-    // 使用”窗口内最大累计值 - 窗口前最大累计值”得到 session 真实增量
-    // 子 agent 用回放基线作为起点，只计新工作增量
-    for (const state of sessionSnapshots.values()) {
-      if (!state.inWindow) {
-        continue;
-      }
-
-      const before = (state.forkedFromId && state.replayBaseline)
-        ? state.replayBaseline
-        : state.beforeWindow || {
-            inputTotal: 0,
-            outputTotal: 0,
-            cacheReadTotal: 0,
-            totalTokens: 0
-          };
-
-      const deltaInputTotal = Math.max(0, state.inWindow.inputTotal - before.inputTotal);
-      const deltaOutput = Math.max(0, state.inWindow.outputTotal - before.outputTotal);
-      const deltaCacheRead = Math.max(0, state.inWindow.cacheReadTotal - before.cacheReadTotal);
-      // Codex 的 input_tokens 已包含 cached_input_tokens。
-      // 为了兼容当前 UI 的“总量 = input + output + cache”口径，需拆分为：
-      // input(非缓存输入) + cache(缓存输入) + output。
-      const deltaNonCachedInput = Math.max(0, deltaInputTotal - deltaCacheRead);
-      const deltaTotal = deltaNonCachedInput + deltaOutput + deltaCacheRead;
-
-      // 过滤零增量，避免污染模型分布与明细
-      if (deltaTotal <= 0) {
-        continue;
-      }
-
-      records.push({
-        timestamp: state.inWindow.timestamp,
-        model: state.model || 'codex',
-        project: extractProjectNameFromCwd(state.cwd),
-        input: deltaNonCachedInput,
-        output: deltaOutput,
-        cacheRead: deltaCacheRead,
-        cacheCreate: 0
-      });
-    }
+    if (!result.success || !result.files) return [];
+    return collectCodexUsageRecords(result.files, start, end);
   } catch (error) {
     console.error('Error scanning Codex logs:', error);
+    return [];
   }
-
-  return records;
-}
-
-/**
- * 从 Codex 日志路径提取 sessionId
- * @param {string} filePath - 日志文件路径
- * @returns {string} sessionId（提取失败时回退为文件 stem）
- */
-function extractCodexSessionId(filePath) {
-  const normalizedPath = typeof filePath === 'string' ? filePath : '';
-  const fileName = normalizedPath.split(/[\\/]/).pop() || '';
-  const stem = fileName.replace(/\.jsonl$/i, '');
-  const matched = stem.match(CODEX_SESSION_ID_REGEX);
-  return (matched?.[1] || stem || 'unknown-codex-session').toLowerCase();
-}
-
-/**
- * 选择累计值更大的 Codex 快照
- * @param {object|null} current - 现有快照
- * @param {object} incoming - 新快照
- * @returns {object} 累计值更大的快照
- */
-function pickCodexMaxSnapshot(current, incoming) {
-  if (!current) {
-    return incoming;
-  }
-
-  if (incoming.totalTokens > current.totalTokens) {
-    return incoming;
-  }
-
-  // 同总量时取更新时间更晚的快照，规避日志写入顺序抖动
-  if (incoming.totalTokens === current.totalTokens && incoming.timestamp > current.timestamp) {
-    return incoming;
-  }
-
-  return current;
 }
 
 /**
