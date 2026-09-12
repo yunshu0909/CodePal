@@ -13,14 +13,16 @@
 const fs = require('fs/promises')
 const path = require('path')
 const os = require('os')
-const { toSafeInt, scanClaudeLogs, scanCodexLogs, aggregateByModel, aggregateByProject } = require('./usageLogScanService')
+const { toSafeInt, scanClaudeLogs, scanCodexLogs, scanDshLogs, aggregateByModel, aggregateByProject } = require('./usageLogScanService')
 
 // 日汇总缓存 schema 版本号：
 // - v1：旧口径（Claude 未按 message.id 最终态去重）
 // - v2：新口径（Claude 按 message.id 最终态去重）
 // - v3：补充 projects 维度，并与实时页保持相同字段口径
 // - v4：Codex 子 agent 回放去重（forked session 的历史回放 token 不再重复计入）
-const DAILY_SUMMARY_SCHEMA_VERSION = 5
+// - v5：模型切换按用量发生时归属（commit 8cb35da）
+// - v6：新增 DSH 用量来源（~/.dsh 会话事件流）
+const DAILY_SUMMARY_SCHEMA_VERSION = 6
 
 /**
  * 校验日期 key 是否为 YYYY-MM-DD 且可解析
@@ -299,12 +301,13 @@ async function recomputeDailySummary(dateKey, deps = {}) {
   const end = new Date(start)
   end.setUTCDate(end.getUTCDate() + 1)
 
-  const [claudeRecords, codexRecords] = await Promise.all([
+  const [claudeRecords, codexRecords, dshRecords] = await Promise.all([
     scanClaudeLogs(start, end, deps),
-    scanCodexLogs(start, end, deps)
+    scanCodexLogs(start, end, deps),
+    scanDshLogs(start, end, deps)
   ])
 
-  const allRecords = [...claudeRecords, ...codexRecords]
+  const allRecords = [...claudeRecords, ...codexRecords, ...dshRecords]
   const aggregated = aggregateByModel(allRecords)
   const projectAggregated = aggregateByProject(allRecords)
 

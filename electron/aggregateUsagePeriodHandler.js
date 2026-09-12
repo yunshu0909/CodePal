@@ -12,6 +12,7 @@
 const {
   scanClaudeLogs,
   scanCodexLogs,
+  scanDshLogs,
   aggregateByModel,
   aggregateByProject,
   findEarliestLogDate,
@@ -48,12 +49,13 @@ async function aggregateTodayUsage(params, deps = {}) {
     const start = getBeijingDayStart(todayKey)
     const end = new Date(now)
 
-    const [claudeRecords, codexRecords] = await Promise.all([
+    const [claudeRecords, codexRecords, dshRecords] = await Promise.all([
       scanClaudeLogs(start, end, deps),
-      scanCodexLogs(start, end, deps)
+      scanCodexLogs(start, end, deps),
+      scanDshLogs(start, end, deps)
     ])
 
-    const allRecords = [...claudeRecords, ...codexRecords]
+    const allRecords = [...claudeRecords, ...codexRecords, ...dshRecords]
     const aggregatedModels = aggregateByModel(allRecords)
     const aggregatedProjects = aggregateByProject(allRecords)
     const viewData = buildUsageViewData(aggregatedModels, aggregatedProjects)

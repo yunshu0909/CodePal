@@ -11,7 +11,9 @@
 import { getBeijingDayKey, getDailyRefreshKey } from './usageDateUtils';
 
 const TODAY_REFRESH_INTERVAL_MS = 5 * 60 * 1000;
-const USAGE_CACHE_STORAGE_KEY = 'usage-monitor-cache-v4-model-attribution';
+// 键名带口径版本：新增 DSH 来源后必须换代，否则页面会继续显示不含 DSH 的旧数
+// （today 最长 5 分钟，week/month 要拖到跨日才更新）
+const USAGE_CACHE_STORAGE_KEY = 'usage-monitor-cache-v5-dsh-source';
 
 /**
  * 创建空缓存容器
@@ -111,6 +113,7 @@ function shouldRefreshPeriod(period, entry, now) {
 
 export {
   TODAY_REFRESH_INTERVAL_MS,
+  USAGE_CACHE_STORAGE_KEY,
   createEmptyCache,
   readUsageCache,
   writeUsageCache,

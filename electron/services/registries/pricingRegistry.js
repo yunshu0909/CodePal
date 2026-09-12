@@ -18,12 +18,12 @@
 
 const { loadPackagedJson } = require('./loadPackagedJson')
 
-// 硬编码兜底：Claude 三大模型 + 基本 GPT + Kimi
+// 硬编码兜底：Claude 三大模型 + 基本 GPT + Kimi + DSH 侧 DeepSeek/GLM
 // 远程 pricing.json 会覆盖这个数据；即使完全加载失败，应用也能显示基本费用
 const HARDCODED_PRICING_FALLBACK = Object.freeze({
   version: 'hardcoded-fallback',
   updatedAt: null,
-  exchangeRate: 7.22,
+  exchangeRate: 6.7253,
   models: {
     'claude-opus-5': { displayName: 'Claude Opus 5', input: 5, output: 25, cacheRead: 0.5, cacheWrite: 6.25 },
     'gpt-6-astra': { displayName: 'GPT-6 Astra', input: 10, output: 50, cacheRead: 1, cacheWrite: 12.5 },
@@ -38,6 +38,10 @@ const HARDCODED_PRICING_FALLBACK = Object.freeze({
     'gpt-5-6-sol': { displayName: 'GPT-5.6 Sol', input: 5.0, output: 30.0, cacheRead: 0.5, cacheWrite: 6.25 },
     'gpt-5-6-terra': { displayName: 'GPT-5.6 Terra', input: 2.5, output: 15.0, cacheRead: 0.25, cacheWrite: 3.125 },
     'gpt-5-6-luna': { displayName: 'GPT-5.6 Luna', input: 1.0, output: 6.0, cacheRead: 0.1, cacheWrite: 1.25 },
+    'deepseek-v4-flash': { displayName: 'DeepSeek V4 Flash', input: 0.148692, output: 0.594769, cacheRead: 0.002974, cacheWrite: 0.148692 },
+    'deepseek-v4-flash-vision-exp': { displayName: 'DeepSeek V4 Flash (Vision)', input: 0.148692, output: 0.594769, cacheRead: 0.002974, cacheWrite: 0.148692 },
+    'deepseek-v4-pro': { displayName: 'DeepSeek V4 Pro', input: 0.669115, output: 2.007345, cacheRead: 0.022304, cacheWrite: 0.669115 },
+    'glm-5-3': { displayName: 'GLM-5.3', input: 1.189538, output: 4.163383, cacheRead: 0.297385, cacheWrite: 1.189538 },
   },
 })
 

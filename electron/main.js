@@ -46,6 +46,8 @@ const { registerSkillHandlers } = require('./handlers/registerSkillHandlers')
 const { registerImportPageHandlers } = require('./handlers/registerImportPageHandlers')
 const { registerAppUpdateHandlers } = require('./handlers/registerAppUpdateHandlers')
 const { registerUsageAggregationHandlers } = require('./handlers/registerUsageAggregationHandlers')
+const { setDshIsolatedRunner } = require('./services/usageLogScanService')
+const { createDshWorkerRunner } = require('./services/dshUsageWorkerClient')
 const { registerSkillUsageHandlers } = require('./handlers/registerSkillUsageHandlers')
 const { registerSkillControlHandlers } = require('./handlers/registerSkillControlHandlers')
 const { registerPluginControlHandlers } = require('./handlers/registerPluginControlHandlers')
@@ -708,6 +710,10 @@ registerProjectInitHandlers({
   pathExists,
   templateBaseDir: path.resolve(__dirname, '..', 'templates', 'project-init-v3'),
 })
+
+// DSH 用量扫描放到独立进程：原生 zstd 解压在本机会因内存状态触发 SIGTRAP，
+// 隔离后子进程崩溃不影响主进程，只降级为本次窗口没有 DSH 数据。
+setDshIsolatedRunner(createDshWorkerRunner({ homeDir: os.homedir() }))
 
 registerUsageAggregationHandlers({
   ipcMain,

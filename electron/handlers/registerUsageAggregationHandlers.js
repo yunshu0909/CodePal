@@ -14,7 +14,7 @@ const { scanLogFilesInRange } = require('../logScanner')
 const { handleScanLogFiles } = require('../scanLogFilesHandler')
 const { handleAggregateUsageRange } = require('../aggregateUsageRangeHandler')
 const { handleAggregateUsagePeriod } = require('../aggregateUsagePeriodHandler')
-const { findEarliestLogDate } = require('../services/usageLogScanService')
+const { findEarliestLogDate, scanDshLogs } = require('../services/usageLogScanService')
 
 /**
  * 注册用量聚合相关 IPC handlers
@@ -93,6 +93,35 @@ function registerUsageAggregationHandlers({
       scanLogFilesInRangeFn: scanLogFilesInRange,
       onProgress: (progress) => sendProgress(event, progress)
     })
+  })
+
+  /**
+   * 扫描 DSH 会话日志用量
+   *
+   * 为什么单独开一条通道：DSH 日志是 zstd 多帧容器（`session*.jsonl.zstd`），
+   * 通用 `scan-log-files` 只收 `.jsonl`，复用它会静默返回 0 条。
+   *
+   * @param {Electron.IpcMainInvokeEvent} event - IPC 事件
+   * @param {{start?: string, end?: string}} params - 时间窗口（ISO 字符串）
+   * @returns {Promise<{success: boolean, records: Array, error?: string}>}
+   */
+  ipcMain.handle('scan-dsh-usage', async (event, params) => {
+    try {
+      const start = new Date(params?.start)
+      const end = new Date(params?.end)
+      if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
+        return { success: false, records: [], error: 'INVALID_WINDOW' }
+      }
+
+      const records = await scanDshLogs(start, end, { homeDir, pathExistsFn: pathExists })
+      return {
+        success: true,
+        // 时间戳显式转 ISO：跨 IPC 后由渲染层统一还原为 Date
+        records: records.map(record => ({ ...record, timestamp: record.timestamp.toISOString() }))
+      }
+    } catch (error) {
+      return { success: false, records: [], error: error?.message || 'DSH_SCAN_FAILED' }
+    }
   })
 
   /**

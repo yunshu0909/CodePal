@@ -1,7 +1,7 @@
 {
-  "version": "2026-09-08",
-  "updatedAt": "2026-09-08",
-  "exchangeRate": 7.22,
+  "version": "2026-09-12",
+  "updatedAt": "2026-09-12",
+  "exchangeRate": 6.7253,
   "models": {
     "claude-opus-5": {
       "displayName": "Claude Opus 5",
@@ -170,6 +170,34 @@
       "output": 3.00,
       "cacheRead": 0.15,
       "cacheWrite": 0
+    },
+    "deepseek-v4-flash": {
+      "displayName": "DeepSeek V4 Flash",
+      "input": 0.148692,
+      "output": 0.594769,
+      "cacheRead": 0.002974,
+      "cacheWrite": 0.148692
+    },
+    "deepseek-v4-flash-vision-exp": {
+      "displayName": "DeepSeek V4 Flash (Vision)",
+      "input": 0.148692,
+      "output": 0.594769,
+      "cacheRead": 0.002974,
+      "cacheWrite": 0.148692
+    },
+    "deepseek-v4-pro": {
+      "displayName": "DeepSeek V4 Pro",
+      "input": 0.669115,
+      "output": 2.007345,
+      "cacheRead": 0.022304,
+      "cacheWrite": 0.669115
+    },
+    "glm-5-3": {
+      "displayName": "GLM-5.3",
+      "input": 1.189538,
+      "output": 4.163383,
+      "cacheRead": 0.297385,
+      "cacheWrite": 1.189538
     }
   }
 }

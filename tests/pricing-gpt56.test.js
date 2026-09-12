@@ -31,7 +31,8 @@ const EXPECTED_GPT56_PRICING = {
 
 describe('GPT-5.6 pricing registry', () => {
   it('打包与服务器分发 JSON 包含全系官方单价', () => {
-    expect(pricingData.version).toBe('2026-09-08')
+    // 版本随定价数据更新而推进：2026-09-12 新增 DSH 侧 DeepSeek / GLM 单价并更新汇率
+    expect(pricingData.version).toBe('2026-09-12')
     expect(validatePricing(pricingData).valid).toBe(true)
 
     for (const [modelKey, expected] of Object.entries(EXPECTED_GPT56_PRICING)) {

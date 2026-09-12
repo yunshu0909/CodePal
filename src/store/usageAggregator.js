@@ -205,6 +205,37 @@ async function scanCodexLogs(start, end) {
 }
 
 /**
+ * 扫描 DSH 会话日志
+ *
+ * 走专用 IPC：DSH 日志是 zstd 多帧容器（`session*.jsonl.zstd`），通用扫描器只收 `.jsonl`。
+ * 主进程已完成去重、择代与按天归属，这里只负责把时间戳还原成 Date。
+ * @param {Date} start - 含边界
+ * @param {Date} end - 不含边界
+ * @returns {Promise<Array>} 用量记录
+ */
+async function scanDshUsageLogs(start, end) {
+  try {
+    // 可选链守卫：既有测试的 electronAPI mock 未必包含这条新通道
+    if (!window.electronAPI?.scanDshUsage) return [];
+
+    const result = await window.electronAPI.scanDshUsage({
+      start: start.toISOString(),
+      end: end.toISOString()
+    });
+
+    if (!result?.success || !Array.isArray(result.records)) return [];
+
+    return result.records.map(record => ({
+      ...record,
+      timestamp: record.timestamp instanceof Date ? record.timestamp : new Date(record.timestamp)
+    }));
+  } catch (error) {
+    console.error('Error scanning DSH logs:', error);
+    return [];
+  }
+}
+
+/**
  * 选择时间更晚的 Claude message 快照
  * @param {{record: object, order: number}|undefined} current - 当前保留快照
  * @param {{record: object, order: number}} incoming - 新快照
@@ -583,13 +614,14 @@ export async function aggregateUsage(period) {
     }
 
     // 2. 扫描日志文件
-    const [claudeRecords, codexRecords] = await Promise.all([
+    const [claudeRecords, codexRecords, dshRecords] = await Promise.all([
       scanClaudeLogs(start, end),
-      scanCodexLogs(start, end)
+      scanCodexLogs(start, end),
+      scanDshUsageLogs(start, end)
     ]);
 
     // 合并所有记录
-    const allRecords = [...claudeRecords, ...codexRecords];
+    const allRecords = [...claudeRecords, ...codexRecords, ...dshRecords];
 
     // 3. 按模型聚合
     const aggregated = aggregateByModel(allRecords);

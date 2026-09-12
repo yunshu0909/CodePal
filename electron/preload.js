@@ -208,6 +208,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
   scanLogFiles: (params) => ipcRenderer.invoke('scan-log-files', params),
 
   /**
+   * 扫描 DSH 会话日志用量（zstd 多帧容器，独立通道）
+   * @param {Object} params - 扫描参数
+   * @param {string} params.start - 开始时间（ISO 字符串）
+   * @param {string} params.end - 结束时间（ISO 字符串）
+   * @returns {Promise<{success: boolean, records: Array, error?: string}>} 用量记录（timestamp 为 ISO 字符串）
+   */
+  scanDshUsage: (params) => ipcRenderer.invoke('scan-dsh-usage', params),
+
+  /**
    * 聚合自定义日期范围用量
    * @param {Object} params - 聚合参数
    * @param {string} [params.taskId] - 前端任务 ID，用于关联进度事件
