@@ -14,6 +14,9 @@ const {
   deployManagedSkill,
   removeToolCopies,
 } = require('../skillControlService')
+// settings.json 写入统一走唯一 broker（V1.9.8 收口）。本 adapter 曾自带一套原子写，
+// 绕过 broker 的串行队列与备份，是「Skill override 与权限/模型并发写互相覆盖」的根因，已收口。
+const { mutateClaudeSettingsFile } = require('../claudeSettingsService')
 
 async function readSettings(settingsPath) {
   try {
@@ -84,24 +87,31 @@ async function discoverClaudeSkills({ homeDir, projectRoots = [] }, deps = {}) {
   return { toolId: 'claude-code', sources, errors }
 }
 
-async function writeSettingsAtomic(settingsPath, settings) {
-  await fs.mkdir(path.dirname(settingsPath), { recursive: true })
-  const tempPath = `${settingsPath}.codepal-${process.pid}-${Date.now()}.tmp`
-  await fs.writeFile(tempPath, `${JSON.stringify(settings, null, 2)}\n`, { mode: 0o600 })
-  await fs.rename(tempPath, settingsPath)
-}
-
 async function setSkillOverride(settingsPath, skillName, nextState) {
-  const settings = await readSettings(settingsPath)
-  if (settings.__codepalInvalidJson) throw Object.assign(new Error('INVALID_SETTINGS_JSON'), { code: 'INVALID_SETTINGS_JSON' })
-  const overrides = settings.skillOverrides && typeof settings.skillOverrides === 'object' && !Array.isArray(settings.skillOverrides)
-    ? { ...settings.skillOverrides }
-    : {}
-  if (nextState === 'inherit') delete overrides[skillName]
-  else overrides[skillName] = nextState === 'enabled' ? 'on' : 'off'
-  if (Object.keys(overrides).length > 0) settings.skillOverrides = overrides
-  else delete settings.skillOverrides
-  await writeSettingsAtomic(settingsPath, settings)
+  // 单次事务：读、判断、改、备份、提交都在 broker 的同一个队列任务里完成。
+  // 这里的 mutator 只负责 skillOverrides 这一个键——它带着**事务内最新**的 data，
+  // 因此不会用旧快照覆盖掉并发的权限/模型改动。
+  const result = await mutateClaudeSettingsFile(({ data, kind, errorCode, error }) => {
+    if (kind === 'corrupt') {
+      // 损坏时拒绝（不自动修复），保持既有语义；错误码留给调用方映射
+      return { ok: false, errorCode: 'INVALID_SETTINGS_JSON', error: error || 'settings.json 已损坏' }
+    }
+    const overrides = data.skillOverrides && typeof data.skillOverrides === 'object' && !Array.isArray(data.skillOverrides)
+      ? { ...data.skillOverrides }
+      : {}
+    if (nextState === 'inherit') delete overrides[skillName]
+    else overrides[skillName] = nextState === 'enabled' ? 'on' : 'off'
+    const next = { ...data }
+    if (Object.keys(overrides).length > 0) next.skillOverrides = overrides
+    else delete next.skillOverrides
+    return { ok: true, next, create: true }
+  }, { filePath: settingsPath, backupSuffix: 'skill-override' })
+
+  if (!result.success) {
+    throw Object.assign(new Error(result.errorCode || 'WRITE_FAILED'), {
+      code: result.errorCode || 'WRITE_FAILED',
+    })
+  }
   return nextState
 }
 

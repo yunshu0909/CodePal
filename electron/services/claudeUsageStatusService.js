@@ -21,6 +21,24 @@ const { atomicWriteText } = require('./envFileService')
 
 const execFileAsync = promisify(execFile)
 
+/**
+ * 构造"检测到用户自定义状态栏、取消静默维护"的统一结果
+ *
+ * 预读与事务内两处都要用同一形状返回，抽出来避免两处漂移。
+ * @param {object} currentState - 当前状态快照
+ * @param {{usesManagedStatusLine: boolean, hasCustomStatusLine: boolean}} ownership - 所有权判定
+ * @returns {object}
+ */
+function buildOwnershipConflictResult(currentState, ownership) {
+  return {
+    ...currentState,
+    success: true,
+    integrationState: 'conflict',
+    message: '检测到用户已更改 Claude 状态栏，CodePal 已取消本次静默维护。',
+    ...ownership,
+  }
+}
+
 const CLAUDE_DIR = path.join(os.homedir(), '.claude')
 const CLAUDE_SETTINGS_PATH = path.join(CLAUDE_DIR, 'settings.json')
 const STATUS_SCRIPT_PATH = path.join(CLAUDE_DIR, 'codepal-usage-statusline.sh')
@@ -343,11 +361,18 @@ function createClaudeUsageStatusService({ pathExists, claudeSettingsService }) {
 
   /**
    * 安装或修复 CodePal 管理的 statusLine
-   * @param {{force?: boolean}} [options] - 安装选项
+   *
+   * `intent` 区分两种来源，二者对"文件不存在"的权限不同：
+   * - `'silent'`（默认，启动维护 / 脚本静默升级）：**只维护已存在且仍归 CodePal 管的文件**，
+   *   绝不在文件不存在时把它建出来——用户删掉 settings.json 就是撤销配置，不得复活。
+   * - `'explicit'`（用户点击「立即接入」/「接管」）：允许创建。
+   *
+   * @param {{force?: boolean, intent?: 'silent'|'explicit'}} [options] - 安装选项
    * @returns {Promise<object>}
    */
   async function ensureUsageStatusInstalled(options = {}) {
-    const { force = false } = options
+    const { force = false, intent = 'silent' } = options
+    const allowCreate = intent === 'explicit'
     const currentState = await getUsageStatusState()
 
     if (!currentState.claudeInstalled) {
@@ -358,6 +383,8 @@ function createClaudeUsageStatusService({ pathExists, claudeSettingsService }) {
       return currentState
     }
 
+    // 预读仅用于尽早提示；**最终决定以事务内检查为准**（见下方 mutator）。
+    // 预读与事务读之间用户仍可能改写 statusLine，所以这里不能作为唯一依据。
     const settingsReadResult = await claudeSettingsService.readClaudeSettingsFile()
     if (!settingsReadResult.success && settingsReadResult.errorCode !== 'CONFIG_CORRUPTED') {
       return {
@@ -370,21 +397,8 @@ function createClaudeUsageStatusService({ pathExists, claudeSettingsService }) {
 
     const settingsData = isPlainObject(settingsReadResult.data) ? settingsReadResult.data : {}
     const latestOwnership = detectStatusLineOwnership(settingsData)
-    // getUsageStatusState() 与这次最新读取之间，用户/其他工具可能改写 statusLine。
-    // 静默维护必须在任何 config/脚本/settings 写入前再次验证所有权。
     if (!force && latestOwnership.hasCustomStatusLine) {
-      return {
-        ...currentState,
-        success: true,
-        integrationState: 'conflict',
-        message: '检测到用户已更改 Claude 状态栏，CodePal 已取消本次静默维护。',
-        ...latestOwnership,
-      }
-    }
-    const nextSettings = JSON.parse(JSON.stringify(settingsData))
-    nextSettings.statusLine = {
-      type: 'command',
-      command: MANAGED_STATUS_COMMAND,
+      return buildOwnershipConflictResult(currentState, latestOwnership)
     }
 
     const { config } = await readStatusConfig()
@@ -419,13 +433,43 @@ function createClaudeUsageStatusService({ pathExists, claudeSettingsService }) {
       }
     }
 
-    // settings 写必须保持在脚本落盘 + chmod 之后（statusLine.command 指向的脚本先就位）
-    // 备份 + 原子写统一走 settings.json 唯一写入口（V1.9.8 收口）
-    const settingsWriteResult = await claudeSettingsService.writeClaudeSettingsFile(nextSettings, {
-      backupSuffix: 'codepal-usage-status',
-      previousContent: settingsReadResult.exists && settingsReadResult.content ? settingsReadResult.content : '',
-    })
+    // settings 写必须保持在脚本落盘 + chmod 之后（statusLine.command 指向的脚本先就位）。
+    // 走事务入口：所有权检查在 mutator 内基于**事务内最新** settings 重新判定，
+    // 因此"预读认为可接管、随后用户改成自定义 statusLine"的窗口被关闭。
+    // 拒绝时把**事务内实际看到的所有权事实**带出来给 UI——不再用调用方读去重读，
+    // 那样等于让呈现又回到可能过时的路径上。
+    let ownershipAtCommit = null
+    const settingsWriteResult = await claudeSettingsService.mutateClaudeSettingsFile(({ data, kind }) => {
+      if (kind === 'corrupt') {
+        return { ok: false, errorCode: 'CONFIG_CORRUPTED', error: 'Claude settings.json 已损坏' }
+      }
+      // 静默维护不得从"文件不存在"创建：用户删除 settings.json 即表示撤销配置。
+      // 只有用户显式接入（intent='explicit'）才允许创建。读取层的其他失败由 broker 提前返回。
+      if (kind === 'missing' && !allowCreate) {
+        return { ok: false, errorCode: 'USAGE_STATUS_SILENT_NO_CREATE', error: 'settings.json 不存在，静默维护不创建' }
+      }
+      const ownership = detectStatusLineOwnership(data)
+      ownershipAtCommit = ownership
+      if (!force && ownership.hasCustomStatusLine) {
+        // 事务内复判：用户已改为自定义状态栏 → 取消本次静默维护，绝不覆盖
+        return { ok: false, errorCode: 'USAGE_STATUS_OWNERSHIP_CONFLICT', error: '检测到用户已更改 Claude 状态栏' }
+      }
+      const next = { ...data, statusLine: { type: 'command', command: MANAGED_STATUS_COMMAND } }
+      return { ok: true, next, create: allowCreate }
+    }, { backupSuffix: 'codepal-usage-status' })
+
     if (!settingsWriteResult.success) {
+      if (settingsWriteResult.errorCode === 'USAGE_STATUS_SILENT_NO_CREATE') {
+        // 不是错误：文件不存在＝用户未接入（或已撤销）。如实返回未接入状态，不创建。
+        return getUsageStatusState()
+      }
+      if (settingsWriteResult.errorCode === 'USAGE_STATUS_OWNERSHIP_CONFLICT') {
+        // 权威事实来自事务读；ownershipAtCommit 为 null 说明是异常路径，按"自定义"保守呈现
+        return buildOwnershipConflictResult(
+          currentState,
+          ownershipAtCommit || { usesManagedStatusLine: false, hasCustomStatusLine: true },
+        )
+      }
       return {
         success: false,
         integrationState: 'setup_failed',

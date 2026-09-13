@@ -84,7 +84,8 @@ export default function ClaudeUsageStatusPage() {
    * 自定义 statusLine 的 force=true 只会由二次确认弹窗触发。
    */
   const handleEnsureInstalled = useCallback(async (options = {}) => {
-    const ok = await ensureInstalled(options)
+    // 用户显式接入/接管：允许在 settings.json 不存在时创建
+    const ok = await ensureInstalled({ ...options, intent: 'explicit' })
     if (options.force) {
       setToast(ok
         ? { message: 'Claude statusLine 已由 CodePal 接管', type: 'success' }

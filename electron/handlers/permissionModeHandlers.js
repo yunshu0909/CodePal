@@ -20,7 +20,7 @@ const fs = require('fs/promises')
 const path = require('path')
 const os = require('os')
 // settings.json 写入统一走唯一 broker（V1.9.8 收口）；本模块的 atomicWriteText/backup 导出仅供历史测试
-const { writeClaudeSettingsFile } = require('../services/claudeSettingsService')
+const { mutateClaudeSettingsFile } = require('../services/claudeSettingsService')
 
 // 配置文件路径
 const CLAUDE_SETTINGS_FILE_PATH = path.join(os.homedir(), '.claude', 'settings.json')
@@ -242,90 +242,43 @@ async function setPermissionMode(mode, pathExists) {
     }
   }
 
-  try {
-    // 读取现有配置（如果存在）
-    let existingData = {}
-    let existingContent = ''
-    const exists = await pathExists(CLAUDE_SETTINGS_FILE_PATH)
-
-    if (exists) {
-      try {
-        existingContent = await fs.readFile(CLAUDE_SETTINGS_FILE_PATH, 'utf-8')
-        existingData = JSON.parse(existingContent)
-      } catch (error) {
-        // 如果解析失败，仍尝试写入（覆盖）
-        if (error.name === 'SyntaxError') {
-          // JSON 解析错误，先备份原文件
-          const backupResult = await backupClaudeSettingsRaw(existingContent, 'corrupted')
-          if (!backupResult.success) {
-            return {
-              success: false,
-              error: `原文件 JSON 损坏且备份失败: ${backupResult.error}`,
-              errorCode: backupResult.errorCode || 'BACKUP_FAILED',
-            }
-          }
-          // 使用空对象重新开始
-          existingData = {}
-        } else if (error.code === 'EACCES' || error.code === 'EPERM') {
-          return {
-            success: false,
-            error: '无法读取 Claude settings.json，请检查权限',
-            errorCode: 'PERMISSION_DENIED',
-          }
-        } else {
-          return {
-            success: false,
-            error: `读取 Claude settings.json 失败: ${error.message}`,
-            errorCode: 'READ_ERROR',
-          }
-        }
-      }
+  // 单次事务：读、判断损坏/权限、改字段、备份、提交都在 broker 的同一队列任务内完成。
+  // 因此不再依赖调用方预先读取的快照，也不会覆盖并发的 model / skillOverrides 改动。
+  const writeResult = await mutateClaudeSettingsFile(({ data, kind }) => {
+    if (kind === 'corrupt') {
+      // 历史行为：JSON 损坏时备份原文件后以空对象重建
+      return { ok: true, next: { permissions: { defaultMode: mode } }, allowCorruptRepair: true }
     }
+    // 读取层的 io_error / 权限 / 符号链接由 broker 提前定性返回，不会走到这里；
+    // broker 码 → 业务码的映射统一放在下方。
+    const next = { ...data }
+    if (!next.permissions || typeof next.permissions !== 'object' || Array.isArray(next.permissions)) next.permissions = {}
+    else next.permissions = { ...next.permissions }
+    next.permissions.defaultMode = mode
+    return { ok: true, next, create: true }
+  }, { backupSuffix: 'permission-mode' })
 
-    // 确保是对象类型
-    if (typeof existingData !== 'object' || existingData === null) {
-      existingData = {}
+  if (!writeResult.success) {
+    const errorMap = {
+      PERMISSION_DENIED: '权限被拒绝：无法写入 Claude settings.json',
+      DISK_FULL: '磁盘空间不足，无法保存配置',
+      WRITE_FAILED: `写入失败: ${writeResult.error}`,
+      READ_FAILED: '无法读取 Claude settings.json，请检查权限',
     }
-
-    // 确保 permissions 对象存在
-    if (!existingData.permissions || typeof existingData.permissions !== 'object') {
-      existingData.permissions = {}
-    }
-
-    // 设置 defaultMode
-    existingData.permissions.defaultMode = mode
-
-    // 备份 + 原子写统一走 settings.json 唯一写入口（V1.9.8 收口，写侧串行防并发互覆）
-    const writeResult = await writeClaudeSettingsFile(existingData, {
-      backupSuffix: 'permission-mode',
-      previousContent: exists && existingContent ? existingContent : '',
-    })
-
-    if (!writeResult.success) {
-      const errorMap = {
-        PERMISSION_DENIED: '权限被拒绝：无法写入 Claude settings.json',
-        DISK_FULL: '磁盘空间不足，无法保存配置',
-        WRITE_FAILED: `写入失败: ${writeResult.error}`,
-      }
-      return {
-        success: false,
-        error: errorMap[writeResult.errorCode] || `写入失败: ${writeResult.error}`,
-        errorCode: writeResult.errorCode || 'WRITE_ERROR',
-      }
-    }
-
-    return {
-      success: true,
-      backupPath: writeResult.backupPath,
-      error: null,
-      errorCode: null,
-    }
-  } catch (error) {
+    // 保持既有业务契约：读失败仍报 READ_ERROR
+    const errorCode = writeResult.errorCode === 'READ_FAILED' ? 'READ_ERROR' : (writeResult.errorCode || 'WRITE_ERROR')
     return {
       success: false,
-      error: `设置权限模式失败: ${error.message}`,
-      errorCode: 'WRITE_ERROR',
+      error: errorMap[writeResult.errorCode] || writeResult.error || `写入失败: ${writeResult.errorCode}`,
+      errorCode,
     }
+  }
+
+  return {
+    success: true,
+    backupPath: writeResult.backupPath,
+    error: null,
+    errorCode: null,
   }
 }
 

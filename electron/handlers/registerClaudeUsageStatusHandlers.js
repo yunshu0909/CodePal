@@ -35,11 +35,14 @@ function registerClaudeUsageStatusHandlers({ ipcMain, pathExists }) {
   /**
    * IPC: 自动安装或修复 Claude 会员额度状态
    * @param {Electron.IpcMainInvokeEvent} event - IPC 事件
-   * @param {{force?: boolean}} options - 安装选项
+   * @param {{force?: boolean, intent?: 'silent'|'explicit'}} options - 安装选项
+   *   `intent` 默认 `'silent'`（安全默认：文件不存在时不创建）；
+   *   只有用户显式点击接入的路径才传 `'explicit'`。
    */
   ipcMain.handle('claude-usage-status:ensure-installed', async (event, options = {}) => {
     const force = Boolean(options?.force)
-    return claudeUsageStatusService.ensureUsageStatusInstalled({ force })
+    const intent = options?.intent === 'explicit' ? 'explicit' : 'silent'
+    return claudeUsageStatusService.ensureUsageStatusInstalled({ force, intent })
   })
 
   /**
