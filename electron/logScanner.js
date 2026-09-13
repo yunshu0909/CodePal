@@ -258,6 +258,9 @@ async function readCandidateLines(candidate, options = {}) {
 function createLogScanWindowContext(windowStart) {
   const enumerationCache = new Map()
   const readCache = new Map()
+  // 通用 memo：服务层用它按 (文件, mtime) 缓存「解析后的记录/事件」，
+  // 消掉同一次查询里每天重复 JSON.parse 的 CPU（读取已经只做一次）。
+  const memo = new Map()
 
   function optionsKey(options = {}) {
     return [
@@ -309,8 +312,10 @@ function createLogScanWindowContext(windowStart) {
       }
     },
 
+    memo,
+
     stats() {
-      return { enumerated: enumerationCache.size, parsedFiles: readCache.size }
+      return { enumerated: enumerationCache.size, parsedFiles: readCache.size, memoized: memo.size }
     }
   }
 }
