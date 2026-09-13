@@ -9,6 +9,9 @@
  * @module electron/services/usageViewDataService
  */
 
+const { mergeAliasedModels } = require('./modelAlias.mjs')
+const { getPricingAliases, getPricingModels } = require('./registries/pricingRegistry')
+
 // 模型颜色映射表（沿用前端口径，确保图例颜色稳定）
 const MODEL_COLORS = {
   opus: '#f59e0b',
@@ -110,8 +113,14 @@ function formatPercentDisplay(percent, modelTotal, grandTotal) {
  * @returns {{total:number,input:number,output:number,cacheRead:number,cacheCreate:number,models:Array,distribution:Array,isExtremeScenario:boolean,modelCount:number}}
  */
 function generateModelViewData(aggregatedModels) {
-  const nonZeroModels = Array.from(aggregatedModels.values())
-    .filter((model) => model.total > 0)
+  // 同一上游模型的客户端别名先归并成一行（原始 id 保留在各行 sourceModels 里）
+  const aliases = getPricingAliases()
+  const knownKeys = new Set(Object.keys(getPricingModels()))
+  const nonZeroModels = mergeAliasedModels(
+    Array.from(aggregatedModels.values()).filter((model) => model.total > 0),
+    aliases,
+    knownKeys
+  )
 
   const models = nonZeroModels
     .sort((a, b) => (b.total - a.total) || a.name.localeCompare(b.name))

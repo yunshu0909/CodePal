@@ -46,9 +46,14 @@ describe('今日路径纳入 DSH 用量', () => {
     const result = await aggregateUsage('today')
 
     expect(result.success).toBe(true)
-    const model = result.data.models.find(item => item.name === 'deepseek-v4-flash')
+    // 视图层按别名归一：日志里的 deepseek-v4-flash 会并入 canonical 行
+    const model = result.data.models.find(item => item.name === 'deepseek-v4.1-flash')
     expect(model).toBeTruthy()
     expect(model.total).toBe(610)
+    // 原始 id 不丢：保留在 sourceModels 里供"路由明细"使用
+    expect(model.sourceModels).toEqual([
+      expect.objectContaining({ name: 'deepseek-v4-flash', total: 610 }),
+    ])
     expect(result.data.total).toBe(610)
     expect(result.data.recordCount).toBe(1)
     expect(result.data.projectDistribution.some(item => item.name === 'proj-a')).toBe(true)

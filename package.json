@@ -80,7 +80,7 @@
     "test:v153:watch": "vitest --config 自动化测试/V1.5.3/vitest.config.js",
     "test:v165": "vitest run --config 自动化测试/V1.6.5/vitest.config.js",
     "test:v165:watch": "vitest --config 自动化测试/V1.6.5/vitest.config.js",
-    "test:usage-model-cost": "vitest run tests/usageModelCost.test.js"
+    "test:usage-model-cost": "vitest run tests/usageModelCost.test.js tests/modelAlias.test.js"
   },
   "keywords": [
     "electron",

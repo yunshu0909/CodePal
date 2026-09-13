@@ -15,6 +15,7 @@
  */
 
 import pricingData from '../config/pricing.json';
+import { normalizeModelKey as normalizeModelKeyShared, resolveCanonicalName } from '../../electron/services/modelAlias.mjs';
 
 // 当前生效的 pricing（默认用 import 的，启动后可被 setPricingOverride 覆盖）
 let activePricing = pricingData;
@@ -28,7 +29,12 @@ export function setPricingOverride(remotePricing) {
   if (!remotePricing || typeof remotePricing !== 'object') return;
   if (!remotePricing.models || typeof remotePricing.models !== 'object') return;
   // 远端注册表可能尚未包含新型号；缺项继续使用随包价格。
-  activePricing = { ...pricingData, ...remotePricing, models: { ...pricingData.models, ...remotePricing.models } };
+  activePricing = {
+    ...pricingData,
+    ...remotePricing,
+    models: { ...pricingData.models, ...remotePricing.models },
+    aliases: { ...(pricingData.aliases || {}), ...(remotePricing.aliases || {}) },
+  };
 }
 
 /**
@@ -38,7 +44,48 @@ export function setPricingOverride(remotePricing) {
  * @returns {string} 定价表 key（如 "claude-opus-4-7"）
  */
 function normalizeModelKey(name) {
-  return name.toLowerCase().replace(/[\s.]+/g, '-');
+  return normalizeModelKeyShared(name);
+}
+
+/** 当前生效的别名表（供聚合层做同一上游模型的归并） */
+export function getPricingAliases() {
+  return activePricing.aliases || {};
+}
+
+/** 当前生效的定价 key 集合（别名目标必须落在其中才归一） */
+export function getPricingModelKeys() {
+  return new Set(Object.keys(activePricing.models));
+}
+
+/**
+ * 把同一个上游模型的别名归一到 canonical 名字
+ *
+ * 背景：模型 id 是**调用端写进日志的别名**，不是模型自报的。同一个 DeepSeek 模型在
+ * DSH 新版 / Claude / Codex 以及不同时间点会写成 deepseek-flash、deepseek-v4-flash、
+ * deepseek-v4.1-flash-expires-on-0910 等，导致同一模型裂成多行、其中没登记价格的行显示 --。
+ * 归属层用 pricing.json 的 aliases 把它们并成一行（原始 id 由聚合层保留为 sourceModels）。
+ *
+ * 只有 canonical 在价格表里存在时才归一：别名表写错目标时宁可各行独立可见，也不并成一团。
+ *
+ * @param {string} name - 日志里的原始模型名
+ * @returns {string} canonical 名字（无别名时原样返回 name）
+ */
+export function canonicalModelName(name) {
+  return resolveCanonicalName(name, activePricing.aliases, getPricingModelKeys());
+}
+
+/**
+ * 解析模型名对应的定价表 key（先精确命中，再走别名）
+ * @param {string} name - 模型名
+ * @returns {string|null} 定价表 key；精确与别名都落空时返回 null
+ */
+export function resolveModelKey(name) {
+  const key = normalizeModelKey(name);
+  if (activePricing.models[key]) return key;
+  const canonical = canonicalModelName(name);
+  if (canonical === name) return null;
+  const canonicalKey = normalizeModelKey(canonical);
+  return activePricing.models[canonicalKey] ? canonicalKey : null;
 }
 
 /**
@@ -57,8 +104,9 @@ export function calculateCosts(models) {
   let hasKnown = false;
 
   for (const model of models) {
-    const key = normalizeModelKey(model.name);
-    const pricing = pricingModels[key];
+    // 先精确命中，再走别名表（同一上游模型的多个客户端别名归一到 canonical 价）
+    const key = resolveModelKey(model.name);
+    const pricing = key ? pricingModels[key] : null;
 
     if (!pricing) {
       modelCosts.set(model.name, null);

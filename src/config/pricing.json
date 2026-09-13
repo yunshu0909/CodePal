@@ -1,7 +1,12 @@
 {
-  "version": "2026-09-12",
-  "updatedAt": "2026-09-12",
+  "version": "2026-09-13",
+  "updatedAt": "2026-09-13",
   "exchangeRate": 6.7253,
+  "aliases": {
+    "deepseek-v4-flash": "deepseek-v4.1-flash",
+    "deepseek-flash": "deepseek-v4.1-flash",
+    "deepseek-v4-1-flash-expires-on-0910": "deepseek-v4.1-flash"
+  },
   "models": {
     "claude-opus-5": {
       "displayName": "Claude Opus 5",
@@ -171,8 +176,8 @@
       "cacheRead": 0.15,
       "cacheWrite": 0
     },
-    "deepseek-v4-flash": {
-      "displayName": "DeepSeek V4 Flash",
+    "deepseek-v4-1-flash": {
+      "displayName": "DeepSeek V4.1 Flash",
       "input": 0.148692,
       "output": 0.594769,
       "cacheRead": 0.002974,

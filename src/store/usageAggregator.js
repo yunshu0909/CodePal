@@ -11,6 +11,8 @@
 
 import { collectCodexUsageRecords } from '../../electron/services/codexUsageRecords.mjs';
 import { parseClaudeLog, calculateTotalTokens } from './logParser.js';
+import { getPricingAliases, getPricingModelKeys } from './costCalculator.js';
+import { mergeAliasedModels } from '../../electron/services/modelAlias.mjs';
 
 // 模型颜色映射表（每个模型唯一颜色，避免冲突）
 const MODEL_COLORS = {
@@ -426,9 +428,12 @@ function getModelColor(model) {
  * @returns {object} 视图数据
  */
 function generateViewData(aggregated) {
-  // 过滤掉总消耗为 0 的模型，避免在饼图中展示无效项
-  const nonZeroModels = Array.from(aggregated.values())
-    .filter(model => model.total > 0);
+  // 过滤掉总消耗为 0 的模型，避免在饼图中展示无效项；同一上游模型的别名先归并成一行
+  const nonZeroModels = mergeAliasedModels(
+    Array.from(aggregated.values()).filter(model => model.total > 0),
+    getPricingAliases(),
+    getPricingModelKeys()
+  );
 
   // 转换为数组并排序（总 Token 降序；并列时模型名升序，避免 TopN 抖动）
   const models = nonZeroModels

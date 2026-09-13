@@ -65,7 +65,8 @@ describe('TC-01 今日与按天汇总的 DSH 口径一致（CG-001）', () => {
     const summary = await recomputeDailySummary(DAY, deps)
 
     expect(today.success).toBe(true)
-    const todayModel = today.data.models.find(model => model.name === 'deepseek-v4-flash')
+    // 视图层（today.data.models）按别名归一；日汇总缓存（summary.models）仍按原始 id 落盘
+    const todayModel = today.data.models.find(model => model.name === 'deepseek-v4.1-flash')
     const summaryModel = summary.models['deepseek-v4-flash']
 
     expect(todayModel).toBeTruthy()
