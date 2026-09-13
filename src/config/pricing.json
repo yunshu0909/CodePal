@@ -57,6 +57,13 @@
       "cacheRead": 0.30,
       "cacheWrite": 3.75
     },
+    "claude-sonnet-5": {
+      "displayName": "Claude Sonnet 5",
+      "input": 2.00,
+      "output": 10.00,
+      "cacheRead": 0.20,
+      "cacheWrite": 2.50
+    },
     "claude-haiku-4-5": {
       "displayName": "Claude Haiku 4.5",
       "input": 1.00,

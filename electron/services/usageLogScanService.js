@@ -46,24 +46,21 @@ function toSafeInt(value) {
 
 /**
  * 标准化模型名称
+ *
+ * 实现在 modelAlias.mjs，与渲染进程共用同一份正则（此前两处各持一份，缺 minor
+ * 的型号如 claude-opus-5 会漏格式化成原始 id）。
  * @param {string} model - 原始模型名
  * @returns {string}
  */
 function normalizeModelName(model) {
-  if (!model || typeof model !== 'string') {
-    return 'unknown'
+  if (!modelAliasModule) {
+    modelAliasModule = require('./modelAlias.mjs')
   }
-
-  // Claude 完整格式：claude-{tier}-{major}-{minor}[-datestring]
-  const claudeMatch = model.match(/^claude-([a-z]+)-(\d+)-(\d+)(?:-\d{8,})?$/i)
-  if (claudeMatch) {
-    const tier = claudeMatch[1].charAt(0).toUpperCase() + claudeMatch[1].slice(1).toLowerCase()
-    return `Claude ${tier} ${claudeMatch[2]}.${claudeMatch[3]}`
-  }
-
-  // 非 Claude 模型：保留原始名称
-  return model
+  return modelAliasModule.normalizeClaudeModelName(model)
 }
+
+/** modelAlias 模块懒加载缓存（require(esm) 不需要在模块顶层执行） */
+let modelAliasModule = null
 
 /**
  * 从 Claude 归档目录路径中提取项目名

@@ -123,6 +123,19 @@ describe('新模型价格与拒旧缓存', () => {
     setPricingOverride({ models: { 'gpt-5-5': pricing.models['gpt-5-5'] } })
     expect(calculateCosts([{ name: 'claude-opus-5', input: 1e6 }]).totalCost).toBe(5)
   })
+  it('Claude Sonnet 5 按官方 tier_2_10 计费（此前缺条 → 表里显示 --）', () => {
+    // 来源：Claude Code 2.1.270 编译价目表 pricing_tiers.tier_2_10
+    //   { input: 2, output: 10, cache_write_5m: 2.5, cache_read: 0.2 }
+    //   模型表里 claude-sonnet-5 → pricing: "tier_2_10"
+    const expected = { displayName: 'Claude Sonnet 5', input: 2, output: 10, cacheRead: 0.2, cacheWrite: 2.5 }
+    expect(pricing.models['claude-sonnet-5']).toEqual(expected)
+    expect(HARDCODED_PRICING_FALLBACK.models['claude-sonnet-5']).toEqual(expected)
+
+    // 原始 id 与格式化展示名都要能命中（1e6 × 四档 = 2 + 10 + 0.2 + 2.5）
+    for (const name of ['claude-sonnet-5', 'Claude Sonnet 5']) {
+      expect(calculateCosts([{ name, input: 1e6, output: 1e6, cacheRead: 1e6, cacheCreate: 1e6 }]).totalCost).toBe(14.7)
+    }
+  })
   it('未知型号没有虚构价格', () => {
     expect(calculateCosts([{ name: 'unknown-model', input: 1e6 }]).totalCost).toBeNull()
   })
