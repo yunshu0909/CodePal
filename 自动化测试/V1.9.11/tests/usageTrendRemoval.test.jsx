@@ -48,7 +48,7 @@ describe('V1.9.11 满载率趋势下线', () => {
     const service = readSource('electron/services/claudeUsageStatusService.js')
     const template = readSource('electron/services/claudeUsageStatusScript.tpl')
 
-    expect(service).toContain('const SCRIPT_VERSION = 8')
+    expect(service).toContain('const SCRIPT_VERSION = 9')
     expect(service).not.toContain('STATUS_HISTORY_PATH')
     expect(service).not.toContain('getUsageHistory')
     expect(template).not.toContain('__HISTORY_PATH__')
@@ -56,7 +56,7 @@ describe('V1.9.11 满载率趋势下线', () => {
     expect(template).toContain('write_snapshot(snapshot)')
   })
 
-  it('RM-TC-02b: 真实运行 v8 只更新快照，不修改已有 history 文件', () => {
+  it('RM-TC-02b: 真实运行当前版本脚本只更新快照，不修改已有 history 文件', () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'codepal-v1911-statusline-'))
     try {
       const configPath = path.join(tempDir, 'config.json')

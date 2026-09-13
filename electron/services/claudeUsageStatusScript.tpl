@@ -11,6 +11,10 @@
 #     with a 1.0s timeout each; any failure silently drops the second line so
 #     the status line never breaks.
 # v8: stops collecting the retired 7d peak-history metric.
+# v9: prefers the statusLine payload's authoritative `context_window`
+#     (context_window_size / used_percentage) over guessing the window from
+#     the model name; the transcript + name heuristic is now only a fallback
+#     for older Claude Code builds that do not send that field.
 
 input=$(cat)
 CODEPAL_STATUS_PAYLOAD="$input" python3 - "__CONFIG_PATH__" "__SNAPSHOT_PATH__" <<'PY'
@@ -105,15 +109,46 @@ _ONE_M_PATTERN = re.compile(r"\b1m\b", re.IGNORECASE)
 
 def detect_context_window(display_name, model_id):
     """
-    判定当前模型的上下文窗口大小。
+    判定当前模型的上下文窗口大小（**v9 起仅作老版本 Claude Code 的回退**）：
+    当前版本 Claude Code 会在 payload 里直接给出 context_window，优先用它。
     - display_name 或 model_id 以独立 word 形式含 '1M' / '1m' → 1,000,000
     - 其他 → 200,000（Claude 4.x / 3.x 默认）
     用 \\b1m\\b 避免误中型号名里恰好出现 "1m" 子串的情形。
+    注意：原生 1M 模型（如 Opus 5）的名字里没有 "(1M context)" 后缀，
+    这个名字启发式必然看不到 1M —— 这正是 v9 改用 payload 的原因。
     """
     haystack = " ".join(str(x or "") for x in (display_name, model_id))
     if _ONE_M_PATTERN.search(haystack):
         return 1000000
     return 200000
+
+def read_payload_context(payload):
+    """
+    读取 statusLine stdin 的 context_window（Claude Code 2.x 提供）：
+    {total_input_tokens, total_output_tokens, context_window_size,
+     current_usage, used_percentage, remaining_percentage}
+    - context_window_size 是 Claude Code 自己解析出的真实窗口（含原生 1M 模型），
+      比按模型名猜的 200k 兜底可靠；
+    - used_percentage 与官方 /context 口径一致：
+      round((input_tokens + cache_read + cache_creation) / context_window_size * 100)。
+    返回 (window, tokens, pct)；字段缺失 / 类型不对一律 None，由调用方回退。
+    只读取叶子标量，绝不把 payload 整体带出去。
+    """
+    window = None
+    tokens = None
+    pct = None
+    cw = payload.get("context_window") if is_plain_object(payload) else None
+    if is_plain_object(cw):
+        raw_window = cw.get("context_window_size")
+        if isinstance(raw_window, (int, float)) and not isinstance(raw_window, bool) and int(raw_window) > 0:
+            window = int(raw_window)
+            raw_tokens = cw.get("total_input_tokens")
+            if isinstance(raw_tokens, (int, float)) and not isinstance(raw_tokens, bool) and int(raw_tokens) > 0:
+                tokens = int(raw_tokens)
+            raw_pct = cw.get("used_percentage")
+            if isinstance(raw_pct, (int, float)) and not isinstance(raw_pct, bool) and raw_pct >= 0:
+                pct = float(raw_pct)
+    return window, tokens, pct
 
 # transcript 尾部读取窗口：典型单条 JSONL 条目 <2KB，256KB 足以覆盖最后几十条。
 # 超长会话（几十 MB）按全文件扫描状态栏会卡顿，tail-read 把复杂度从 O(n) 降到 O(1)。
@@ -310,11 +345,21 @@ resets_at = get_value(payload, "rate_limits", "five_hour", "resets_at")
 week_resets_at = get_value(payload, "rate_limits", "seven_day", "resets_at")
 
 # v5: 计算当前上下文占用（与 rate_limits 无关，任何模式下都算）
-context_window = detect_context_window(model, model_id)
-context_tokens = read_last_assistant_usage(transcript_path)
-context_pct = None
-if context_tokens is not None and context_window > 0:
-    context_pct = round(context_tokens / context_window * 100, 1)
+# v9: 优先用 payload 的权威 context_window（窗口由 Claude Code 自己解析，
+#     原生 1M 模型不再被按 200k 误算）；没有该字段的老版本才回退
+#     transcript 尾部 + 模型名启发式。两条路径不混用，避免新旧口径拼接。
+payload_window, payload_tokens, payload_pct = read_payload_context(payload)
+if payload_window is not None:
+    context_window = payload_window
+    context_tokens = payload_tokens
+    context_pct = round(payload_pct, 1) if payload_pct is not None else None
+else:
+    context_window = detect_context_window(model, model_id)
+    context_tokens = read_last_assistant_usage(transcript_path)
+    if context_tokens is not None and context_window > 0:
+        context_pct = round(context_tokens / context_window * 100, 1)
+    else:
+        context_pct = None
 
 # 初次启动：payload 里没有 rate_limits 字段，说明还没产生过真实 API 响应，
 # 不写快照、不输出状态行，静默退出等待首次对话。
@@ -358,7 +403,8 @@ if five_pct is None and week_pct is None:
 
 parts = []
 # v5: 上下文占用（无 label，左边 "(1M context)" 已点名）
-if context_pct is not None and context_tokens is not None:
+# v9: 判据只看 context_pct —— payload 路径可能已知比例但没有 token 数
+if context_pct is not None:
     parts.append(f"{render_ctx_bar(context_pct)} {color_ctx_pct(context_pct)}")
 parts.append(f"5h:{color_pct(five_pct)}" if five_pct is not None else f"{DIM}5h:--{RESET}")
 parts.append(f"7d:{color_pct(week_pct)}" if week_pct is not None else f"{DIM}7d:--{RESET}")

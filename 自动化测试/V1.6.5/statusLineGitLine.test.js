@@ -108,9 +108,9 @@ describe('模块A 资格地基', () => {
     expect(RAW.length).toBeGreaterThan(0)
     expect(RAW.match(/__[A-Z_]+__/)).toBeNull()
   })
-  it('TC-002 SCRIPT_VERSION===8 且版本注释为8', () => {
-    expect(svc.SCRIPT_VERSION).toBe(8)
-    expect(/^# codepal-script-version: 8$/m.test(RAW)).toBe(true)
+  it('TC-002 SCRIPT_VERSION===9 且版本注释为9', () => {
+    expect(svc.SCRIPT_VERSION).toBe(9)
+    expect(/^# codepal-script-version: 9$/m.test(RAW)).toBe(true)
   })
   it('TC-003 渲染脚本 Python 段语法可解析', () => {
     const body = RAW.split("<<'PY'")[1].split('\nPY')[0]
@@ -138,8 +138,8 @@ describe('模块A 资格地基', () => {
     expect(m && m[1]).toBe('6')
     expect(6 < svc.SCRIPT_VERSION).toBe(true)
     const cur = RAW.match(/^# codepal-script-version:\s*(\d+)/m)
-    expect(cur[1]).toBe('8')
-    expect(8 < svc.SCRIPT_VERSION).toBe(false)
+    expect(cur[1]).toBe('9')
+    expect(9 < svc.SCRIPT_VERSION).toBe(false)
   })
 })
 

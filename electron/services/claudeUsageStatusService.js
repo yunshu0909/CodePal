@@ -36,7 +36,9 @@ const LEGACY_MANAGED_STATUS_COMMAND = `bash ${STATUS_SCRIPT_PATH}`
 // v6: update_history 区分异常跳变（Anthropic provider_reset）与正常周期完成
 // v7: 新增第二行 Git 信息（git:<分支>@<最近tag><脏标记>），与额度第一行耦合
 // v8: 下线满载率趋势，不再采集或写入 7d 周期历史
-const SCRIPT_VERSION = 8
+// v9: 上下文窗口改用 statusLine payload 的 context_window 权威字段，
+//     原生 1M 模型（Opus 5 等）不再被按 200k 误算；transcript + 模型名启发式降为回退
+const SCRIPT_VERSION = 9
 
 const VALID_DISPLAY_MODES = ['always', 'threshold', 'off']
 const DEFAULT_STATUS_CONFIG = Object.freeze({
