@@ -50,11 +50,83 @@ async function readCodexUsageLines(filePath) {
 }
 
 /**
+ * 流式提取 Claude 用量行（不整份读文件）
+ *
+ * 语义与旧实现（`fs.readFile` 全文 → split('\n') → 过滤空行 → 取**末尾 N 行** → 逐行 parse）
+ * **完全等价**，但不再把整份日志读成字符串常驻内存（本机单文件最大 115MB，三源并行时是
+ * 内存峰值的主因）。要点：
+ *
+ * - 环形缓冲**按「非空行」占槽**，而不是按「用量行」占槽。否则"末尾 N 行里没有用量行"
+ *   的情况下会把本应被裁掉的旧用量行多算出来 —— 那是行为漂移，不是优化。
+ * - 不含 `"usage"` 字样的行不可能是用量行（`parseClaudeLog` 必返回 null），直接跳过，
+ *   省掉 `JSON.parse`；这只是必要条件预筛，不改变结果。
+ * - 只保留用量必要字段，逐行紧凑化，内存量级由"末尾 N 行"决定，与文件总大小无关。
+ *
+ * @param {string} filePath - JSONL 文件
+ * @param {number} maxLinesPerFile - 保留末尾多少个非空行；<=0 视为不保留
+ * @returns {Promise<string[]>} 紧凑化后的用量行（保持原顺序）
+ */
+async function readClaudeUsageLines(filePath, maxLinesPerFile) {
+  const stream = createReadStream(filePath, { encoding: 'utf-8' })
+  const reader = readline.createInterface({ input: stream, crlfDelay: Infinity })
+
+  const limit = maxLinesPerFile > 0 ? maxLinesPerFile : 0
+  const ring = limit > 0 ? new Array(limit).fill(null) : null
+  let nonEmptyCount = 0
+
+  try {
+    for await (const raw of reader) {
+      if (!raw.trim()) continue
+
+      const index = nonEmptyCount
+      nonEmptyCount += 1
+
+      let compact = null
+      if (raw.includes('"usage"')) {
+        try {
+          const data = JSON.parse(raw)
+          const message = data?.message
+          if (message?.usage) {
+            compact = JSON.stringify({
+              timestamp: data.timestamp || message.timestamp || null,
+              cwd: typeof data.cwd === 'string' ? data.cwd : null,
+              message: {
+                id: typeof message.id === 'string' ? message.id : null,
+                model: message.model,
+                usage: message.usage,
+              },
+            })
+          }
+        } catch {
+          compact = null
+        }
+      }
+
+      if (ring) ring[index % limit] = compact
+    }
+  } finally {
+    reader.close()
+    stream.destroy()
+  }
+
+  if (!ring) return []
+
+  // 环形缓冲此刻正好覆盖末尾 min(总非空行数, limit) 行，按时间顺序回放
+  const keep = Math.min(nonEmptyCount, limit)
+  const kept = []
+  for (let index = nonEmptyCount - keep; index < nonEmptyCount; index += 1) {
+    const line = ring[index % limit]
+    if (line) kept.push(line)
+  }
+  return kept
+}
+
+/**
  * 扫描并读取可能包含时间窗口记录的日志文件
  * @param {string} basePath - 扫描根目录（已展开）
  * @param {Date} startTime - 开始时间（包含）
  * @param {Date} endTime - 结束时间（不包含）
- * @param {{maxFiles?: number, maxLinesPerFile?: number, maxDepth?: number, codexUsageOnly?: boolean}} [options] - 扫描选项
+ * @param {{maxFiles?: number, maxLinesPerFile?: number, maxDepth?: number, codexUsageOnly?: boolean, claudeUsageOnly?: boolean}} [options] - 扫描选项
  * @returns {Promise<{files: Array<{path: string, lines: string[], mtime: string}>, totalMatched: number, scannedCount: number, truncated: boolean}>}
  */
 async function scanLogFilesInRange(basePath, startTime, endTime, options = {}) {
@@ -144,6 +216,9 @@ async function scanLogFilesInRange(basePath, startTime, endTime, options = {}) {
       if (options.codexUsageOnly === true) {
         // 计量需要完整事件链，但不需要保留完整对话正文。
         lines = await readCodexUsageLines(candidate.path)
+      } else if (options.claudeUsageOnly === true) {
+        // Claude 计量同样只需要末尾 N 行里的用量字段：流式读取，避免整份日志驻留内存。
+        lines = await readClaudeUsageLines(candidate.path, maxLinesPerFile)
       } else {
         const content = await fs.readFile(candidate.path, 'utf-8')
         lines = takeRecentLines(content.split('\n').filter(line => line.trim()))
@@ -168,5 +243,6 @@ async function scanLogFilesInRange(basePath, startTime, endTime, options = {}) {
 }
 
 module.exports = {
-  scanLogFilesInRange
+  scanLogFilesInRange,
+  readClaudeUsageLines
 }

@@ -12,7 +12,7 @@
 
 const path = require('path')
 const os = require('os')
-const { scanLogFilesInRange } = require('../logScanner')
+const { scanLogFilesInRange, readClaudeUsageLines } = require('../logScanner')
 
 const CODEX_SESSION_ID_REGEX = /([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i
 
@@ -298,7 +298,9 @@ async function scanClaudeLogs(start, end, deps = {}) {
     return []
   }
 
-  const scanResult = await scanLogFilesInRangeFn(claudeBasePath, start, end)
+  // 审计开关：置 true 时走"整份读文件"的旧路径，仅用于新旧实现对账（不是生产路径）
+  const scanOptions = deps.claudeLegacyWholeFileRead === true ? undefined : { claudeUsageOnly: true }
+  const scanResult = await scanLogFilesInRangeFn(claudeBasePath, start, end, scanOptions)
   const latestByMessage = new Map()
   let streamOrder = 0
 
@@ -1098,6 +1100,7 @@ module.exports = {
   scanDshLogs,
   scanDshLogsInProcess,
   setDshIsolatedRunner,
+  readClaudeUsageLines,
   listDshSessionLogs,
   iterateDshLines,
   findEarliestDshDate,
