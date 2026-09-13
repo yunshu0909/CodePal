@@ -297,7 +297,10 @@ async function scanClaudeLogs(start, end, deps = {}) {
 
   // 审计开关：置 true 时走"整份读文件"的旧路径，仅用于新旧实现对账（不是生产路径）
   const scanOptions = deps.claudeLegacyWholeFileRead === true ? undefined : { claudeUsageOnly: true }
-  const scanResult = await scanLogFilesInRangeFn(claudeBasePath, start, end, scanOptions)
+  // 注入窗口上下文时走「每窗口枚举一次 + 每文件解析一次」；按天重建候选集，语义与逐日独立遍历逐条相同
+  const scanResult = deps.windowContext
+    ? await deps.windowContext.scanForDay(claudeBasePath, start, scanOptions || {})
+    : await scanLogFilesInRangeFn(claudeBasePath, start, end, scanOptions)
   const latestByMessage = new Map()
   let streamOrder = 0
 
@@ -336,7 +339,10 @@ async function scanCodexLogs(start, end, deps = {}) {
   const codexBasePath = path.join(deps.homeDir || os.homedir(), '.codex', 'sessions')
   if (!(await pathExistsFn(codexBasePath))) return []
   // 模型上下文和窗口前基线可能在文件开头，不能只读最后 10000 行。
-  const result = await scanLogFilesInRangeFn(codexBasePath, start, end, { codexUsageOnly: true })
+  const codexOptions = { codexUsageOnly: true }
+  const result = deps.windowContext
+    ? await deps.windowContext.scanForDay(codexBasePath, start, codexOptions)
+    : await scanLogFilesInRangeFn(codexBasePath, start, end, codexOptions)
   const { collectCodexUsageRecords } = await import('./codexUsageRecords.mjs')
   return collectCodexUsageRecords(result.files, start, end)
 }

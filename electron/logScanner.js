@@ -131,68 +131,50 @@ async function readClaudeUsageLines(filePath, maxLinesPerFile) {
  */
 async function scanLogFilesInRange(basePath, startTime, endTime, options = {}) {
   const maxFiles = typeof options.maxFiles === 'number' ? options.maxFiles : 5000
-  const maxLinesPerFile = typeof options.maxLinesPerFile === 'number' ? options.maxLinesPerFile : 10000
+  const candidates = await enumerateLogCandidates(basePath, startTime, options)
+  const selectedCandidates = candidates.slice(0, maxFiles)
+
+  const files = await readSelectedCandidates(selectedCandidates, options)
+
+  return {
+    files,
+    totalMatched: candidates.length,
+    scannedCount: selectedCandidates.length,
+    truncated: candidates.length > maxFiles
+  }
+}
+
+/**
+ * 枚举窗口内可能的日志候选文件（**只做目录遍历与 stat，不读文件内容**）
+ *
+ * 与旧实现共享同一套筛选口径：递归收集 `*.jsonl`、**只做 mtime 下界预筛**（不能做上界，
+ * 因为会话文件可能在窗口结束后的次日继续写入，窗口内真正的裁剪交给逐行 timestamp），
+ * 然后按 mtime 倒序 —— 这个顺序决定了 `maxFiles` 截断选中哪些文件。
+ *
+ * @param {string} basePath - 扫描根目录（已展开）
+ * @param {Date} startTime - 下界（含）
+ * @param {{maxDepth?: number}} [options] - 扫描选项
+ * @returns {Promise<Array<{path: string, mtime: Date}>>} 已按 mtime 倒序的候选
+ */
+async function enumerateLogCandidates(basePath, startTime, options = {}) {
   const maxDepth = typeof options.maxDepth === 'number' ? options.maxDepth : 10
   const candidates = []
-  const files = []
 
-  /**
-   * 截取日志文件末尾的最近 N 行
-   * 用量记录天然更关注“最新写入”，读取文件头部会漏掉最近会话的 token_count。
-   * @param {string[]} lines - 原始行数组
-   * @returns {string[]} 截断后的行数组
-   */
-  function takeRecentLines(lines) {
-    if (!Array.isArray(lines) || maxLinesPerFile <= 0) {
-      return []
-    }
-
-    if (lines.length <= maxLinesPerFile) {
-      return lines
-    }
-
-    return lines.slice(-maxLinesPerFile)
-  }
-
-  /**
-   * 递归收集候选日志文件
-   * @param {string} currentPath - 当前扫描目录
-   * @param {number} depth - 当前递归深度
-   * @returns {Promise<void>}
-   */
-  async function collectCandidates(currentPath, depth = 0) {
+  async function collect(currentPath, depth = 0) {
     if (depth > maxDepth) return
-
     try {
       const entries = await fs.readdir(currentPath, { withFileTypes: true })
-
       for (const entry of entries) {
         const fullPath = path.join(currentPath, entry.name)
-
         if (entry.isDirectory()) {
-          await collectCandidates(fullPath, depth + 1)
+          await collect(fullPath, depth + 1)
           continue
         }
-
-        if (!entry.isFile() || !entry.name.endsWith('.jsonl')) {
-          continue
-        }
-
+        if (!entry.isFile() || !entry.name.endsWith('.jsonl')) continue
         try {
           const stat = await fs.stat(fullPath)
-          const mtime = stat.mtime
-
-          // 这里只做下界预筛：只要文件在窗口开始后仍被写过，就可能包含窗口内记录。
-          // 不能依赖上界过滤，因为 Claude/Codex 的会话文件可能在窗口结束后的次日继续写入，
-          // 但文件内部仍保留窗口内的真实日志；真正的时间窗口应交给逐行 timestamp 精确裁剪。
-          if (mtime < startTime) {
-            continue
-          }
-
-          candidates.push({
-            path: fullPath,
-            mtime
-          })
+          if (stat.mtime < startTime) continue
+          candidates.push({ path: fullPath, mtime: stat.mtime })
         } catch {
           // 单文件 stat 失败时静默跳过
         }
@@ -202,47 +184,141 @@ async function scanLogFilesInRange(basePath, startTime, endTime, options = {}) {
     }
   }
 
-  await collectCandidates(basePath, 0)
-
+  await collect(basePath, 0)
   // 优先读取最近更新的文件，避免截断时随机漏算
   candidates.sort((a, b) => b.mtime.getTime() - a.mtime.getTime())
+  return candidates
+}
 
-  const selectedCandidates = candidates.slice(0, maxFiles)
-  const truncated = candidates.length > maxFiles
+/**
+ * 读取已选中的候选文件，产出与旧实现同形的 `{path, lines, mtime}` 列表
+ *
+ * 逐工具语义保持原样：Codex 保留完整事件链、Claude 只取末尾 N 个非空行、其余走整份读 + 末尾截断。
+ * 单文件读取失败静默跳过，不影响整体统计。
+ *
+ * @param {Array<{path: string, mtime: Date}>} selectedCandidates - 已截断的选中文件
+ * @param {object} [options] - 扫描选项
+ * @returns {Promise<Array<{path: string, lines: string[], mtime: string}>>}
+ */
+async function readSelectedCandidates(selectedCandidates, options = {}) {
+  const maxLinesPerFile = typeof options.maxLinesPerFile === 'number' ? options.maxLinesPerFile : 10000
+  const files = []
 
   for (const candidate of selectedCandidates) {
     try {
-      let lines
-      if (options.codexUsageOnly === true) {
-        // 计量需要完整事件链，但不需要保留完整对话正文。
-        lines = await readCodexUsageLines(candidate.path)
-      } else if (options.claudeUsageOnly === true) {
-        // Claude 计量同样只需要末尾 N 行里的用量字段：流式读取，避免整份日志驻留内存。
-        lines = await readClaudeUsageLines(candidate.path, maxLinesPerFile)
-      } else {
-        const content = await fs.readFile(candidate.path, 'utf-8')
-        lines = takeRecentLines(content.split('\n').filter(line => line.trim()))
-      }
-
-      files.push({
-        path: candidate.path,
-        lines,
-        mtime: candidate.mtime.toISOString()
-      })
+      const lines = await readCandidateLines(candidate, options)
+      files.push({ path: candidate.path, lines, mtime: candidate.mtime.toISOString() })
     } catch {
       // 单文件读取失败时静默跳过，避免影响整体统计
     }
   }
 
+  return files
+}
+
+/**
+ * 读取单个候选文件的行（按选项选择逐工具读取方式）
+ * @param {{path: string}} candidate - 候选文件
+ * @param {object} [options] - 扫描选项
+ * @returns {Promise<string[]>}
+ */
+async function readCandidateLines(candidate, options = {}) {
+  const maxLinesPerFile = typeof options.maxLinesPerFile === 'number' ? options.maxLinesPerFile : 10000
+
+  if (options.codexUsageOnly === true) {
+    // 计量需要完整事件链，但不需要保留完整对话正文。
+    return readCodexUsageLines(candidate.path)
+  }
+  if (options.claudeUsageOnly === true) {
+    // Claude 计量只需要末尾 N 行里的用量字段：流式读取，避免整份日志驻留内存。
+    return readClaudeUsageLines(candidate.path, maxLinesPerFile)
+  }
+  const content = await fs.readFile(candidate.path, 'utf-8')
+  const lines = content.split('\n').filter(line => line.trim())
+  if (maxLinesPerFile <= 0) return []
+  return lines.length <= maxLinesPerFile ? lines : lines.slice(-maxLinesPerFile)
+}
+
+/**
+ * 创建「每个查询窗口只枚举一次、每个文件最多解析一次」的扫描上下文
+ *
+ * 存在意义：区间聚合原本逐日调用 `scanLogFilesInRange`，170 天要做 510 次目录遍历，
+ * 同一批文件也被反复解析。本上下文把这两件事各收敛到「每窗口一次」。
+ *
+ * **零行为变化的两个关键点**：
+ * 1. 每天的候选集由**同一份枚举结果按天重建**：`mtime >= 当天起点` → 取前 `maxFiles`。
+ *    枚举结果本身已按 mtime 倒序，`filter` 保持顺序，因此与逐日独立遍历的选中集合**逐条相同**。
+ * 2. **读取可以共用，归属不能共用**：解析结果按文件记忆、跨天复用，但某一天的记录只来自
+ *    「该文件属于那一天候选集」的那些文件。否则 mtime 落在前一天、内容含后一天事件的文件，
+ *    会把事件错误地计入后一天（旧实现因 mtime 下界本就不含它）。
+ *
+ * @param {Date} windowStart - 整个查询区间的起点（用于一次性枚举）
+ * @returns {{scanForDay: (basePath: string, dayStart: Date, options?: object) => Promise<object>, stats: () => object}}
+ */
+function createLogScanWindowContext(windowStart) {
+  const enumerationCache = new Map()
+  const readCache = new Map()
+
+  function optionsKey(options = {}) {
+    return [
+      options.maxFiles ?? 5000,
+      options.maxLinesPerFile ?? 10000,
+      options.maxDepth ?? 10,
+      options.codexUsageOnly === true ? 'codex' : (options.claudeUsageOnly === true ? 'claude' : 'raw')
+    ].join('|')
+  }
+
+  function enumerate(basePath, options) {
+    const key = `${basePath}|${optionsKey(options)}`
+    if (!enumerationCache.has(key)) {
+      enumerationCache.set(key, enumerateLogCandidates(basePath, windowStart, options))
+    }
+    return enumerationCache.get(key)
+  }
+
+  function readOnce(candidate, options) {
+    const key = `${candidate.path}|${candidate.mtime.getTime()}|${optionsKey(options)}`
+    if (!readCache.has(key)) {
+      // 失败也记忆（记为 null），与旧实现「该文件在所有天都被跳过」一致
+      readCache.set(key, Promise.resolve()
+        .then(() => readCandidateLines(candidate, options))
+        .catch(() => null))
+    }
+    return readCache.get(key)
+  }
+
   return {
-    files,
-    totalMatched: candidates.length,
-    scannedCount: selectedCandidates.length,
-    truncated
+    async scanForDay(basePath, dayStart, options = {}) {
+      const maxFiles = typeof options.maxFiles === 'number' ? options.maxFiles : 5000
+      const all = await enumerate(basePath, options)
+      const inDay = all.filter((candidate) => candidate.mtime.getTime() >= dayStart.getTime())
+      const selected = inDay.slice(0, maxFiles)
+      const files = []
+
+      for (const candidate of selected) {
+        const lines = await readOnce(candidate, options)
+        if (lines === null) continue
+        files.push({ path: candidate.path, lines, mtime: candidate.mtime.toISOString() })
+      }
+
+      return {
+        files,
+        totalMatched: inDay.length,
+        scannedCount: selected.length,
+        truncated: inDay.length > maxFiles
+      }
+    },
+
+    stats() {
+      return { enumerated: enumerationCache.size, parsedFiles: readCache.size }
+    }
   }
 }
 
 module.exports = {
   scanLogFilesInRange,
+  enumerateLogCandidates,
+  readCandidateLines,
+  createLogScanWindowContext,
   readClaudeUsageLines
 }
