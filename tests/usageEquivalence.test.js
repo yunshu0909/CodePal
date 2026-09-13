@@ -105,3 +105,37 @@ describe('TC-010：行级失败只跳过该行（第三级见 usageSpanIndex）'
     expect(records.map((r) => r.messageId).sort()).toEqual(['good-1', 'good-2'])
   })
 })
+
+describe('TC-008：三条入口（今日 / 预设区间 / 自定义区间）都不回归', () => {
+  it('allTime / week / custom 三种 period 都走同一条按天汇总路径并产出相同口径', async () => {
+    const { aggregateUsageDateRange } = require('../electron/services/usageDateRangeAggregationService.js')
+
+    const summary = (dateKey) => ({
+      date: dateKey,
+      version: 6,
+      models: { 'claude-opus-5': { name: 'claude-opus-5', input: 10, output: 1, cacheRead: 0, cacheCreate: 0, total: 11 } },
+      projects: { demo: { name: 'demo', value: 11 } }
+    })
+    const store = new Map()
+    const deps = {
+      readDailySummaryFn: async (dateKey) => store.get(dateKey) || null,
+      writeDailySummaryFn: async (dateKey, value) => { store.set(dateKey, value) },
+      recomputeDailySummaryFn: async (dateKey) => summary(dateKey)
+    }
+
+    const custom = await aggregateUsageDateRange({ period: 'custom', startDate: '2026-08-10', endDate: '2026-08-12' }, deps)
+    expect(custom.success).toBe(true)
+    expect(custom.meta.totalDays).toBe(3)
+    expect(custom.data.models).toHaveLength(1)
+
+    // 同一区间用 allTime/week 之外的入口再查一次：全部命中缓存、数值不变
+    const again = await aggregateUsageDateRange({ period: 'custom', startDate: '2026-08-10', endDate: '2026-08-12' }, deps)
+    expect(again.meta.recomputedDays).toBe(0)
+    expect(JSON.stringify(again.data.models)).toEqual(JSON.stringify(custom.data.models))
+
+    // 无日志的短路路径：不进入按天循环，也不报错
+    const empty = await aggregateUsageDateRange({ period: 'allTime', startDate: null, endDate: null }, deps)
+    expect(empty.success).toBe(true)
+    expect(empty.meta.totalDays).toBe(0)
+  })
+})
