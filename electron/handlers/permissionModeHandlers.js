@@ -232,7 +232,7 @@ async function getPermissionModeConfig(pathExists) {
  * @param {(filepath: string) => Promise<boolean>} pathExists - 路径存在检查函数
  * @returns {Promise<{success: boolean, backupPath?: string, error?: string, errorCode?: string}>}
  */
-async function setPermissionMode(mode, pathExists) {
+async function setPermissionMode(mode, pathExists, options = {}) {
   // 验证模式有效性
   if (!VALID_PERMISSION_MODES.includes(mode)) {
     return {
@@ -244,7 +244,10 @@ async function setPermissionMode(mode, pathExists) {
 
   // 单次事务：读、判断损坏/权限、改字段、备份、提交都在 broker 的同一队列任务内完成。
   // 因此不再依赖调用方预先读取的快照，也不会覆盖并发的 model / skillOverrides 改动。
-  const writeResult = await mutateClaudeSettingsFile(({ data, kind }) => {
+  // 企业 / 组织级托管设置优先级高于用户配置：被覆盖时必须告知，不能谎报「已生效」
+  let managedOverride = false
+  const writeResult = await mutateClaudeSettingsFile(({ data, kind, isManagedField }) => {
+    managedOverride = typeof isManagedField === 'function' && isManagedField('permissions.defaultMode')
     if (kind === 'corrupt') {
       // 历史行为：JSON 损坏时备份原文件后以空对象重建
       return { ok: true, next: { permissions: { defaultMode: mode } }, allowCorruptRepair: true }
@@ -256,7 +259,7 @@ async function setPermissionMode(mode, pathExists) {
     else next.permissions = { ...next.permissions }
     next.permissions.defaultMode = mode
     return { ok: true, next, create: true }
-  }, { backupSuffix: 'permission-mode' })
+  }, { backupSuffix: 'permission-mode', managedPaths: options.managedPaths || null })
 
   if (!writeResult.success) {
     const errorMap = {
@@ -279,6 +282,10 @@ async function setPermissionMode(mode, pathExists) {
     backupPath: writeResult.backupPath,
     error: null,
     errorCode: null,
+    managedOverride,
+    managedNotice: managedOverride
+      ? '该设置已被企业 / 组织托管配置覆盖，本次写入不会生效'
+      : null,
   }
 }
 

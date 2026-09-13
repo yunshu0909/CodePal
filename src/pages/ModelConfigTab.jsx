@@ -155,7 +155,9 @@ export default function ModelConfigTab({ onToast }) {
         setCurrentModel(null)
         setIsModelConfigured(false)
         setCustomInput('')
-        onToast('已切换为跟随账户默认', 'success')
+        onToast(result.managedOverride
+          ? (result.managedNotice || '已写入用户配置，但被企业托管配置覆盖，实际不会生效')
+          : '已切换为跟随账户默认', result.managedOverride ? 'error' : 'success')
       } else {
         onToast(result.error || '切换失败，无法写入配置文件', 'error')
       }
@@ -184,7 +186,9 @@ export default function ModelConfigTab({ onToast }) {
         setCurrentModel(modelId)
         setIsModelConfigured(true)
         setCustomInput('')
-        onToast(`已切换默认模型为「${displayName}」`, 'success')
+        onToast(result.managedOverride
+          ? (result.managedNotice || '已写入用户配置，但被企业托管配置覆盖，实际不会生效')
+          : `已切换默认模型为「${displayName}」`, result.managedOverride ? 'error' : 'success')
       } else {
         onToast(result.error || '切换失败，无法写入配置文件', 'error')
       }

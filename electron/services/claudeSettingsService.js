@@ -136,6 +136,55 @@ function mapFsError(error) {
 }
 
 /**
+ * 企业 / 组织级托管设置的候选路径
+ *
+ * 托管设置的优先级高于用户配置。已知覆盖却不告知，会让 UI 谎报「已生效」。
+ * 这里只做**已知来源的检测**（够用于消除误报）；远端 / MDM / Windows 策略等
+ * 完整来源清单留作后续。
+ * @returns {string[]} 候选路径
+ */
+function managedSettingsPaths() {
+  switch (process.platform) {
+    case 'darwin':
+      return ['/Library/Application Support/ClaudeCode/managed-settings.json']
+    case 'linux':
+      return ['/etc/claude-code/managed-settings.json']
+    default:
+      return []
+  }
+}
+
+/**
+ * 读取托管设置（多个来源时后者覆盖前者）
+ * @param {string[]} [paths] - 覆盖候选路径（测试注入用）；缺省走平台默认
+ * @returns {Promise<Record<string, any>|null>} 无托管设置时返回 null
+ */
+async function readManagedSettings(paths = null) {
+  let merged = null
+  for (const candidate of (paths || managedSettingsPaths())) {
+    const state = await readSettingsFileState(candidate)
+    if (state.kind === 'valid') merged = { ...(merged || {}), ...state.data }
+  }
+  return merged
+}
+
+/**
+ * 判断某个字段路径是否被托管设置强制覆盖
+ * @param {Record<string, any>|null} managed - readManagedSettings() 的结果
+ * @param {string} fieldPath - 形如 `permissions.defaultMode` / `model` 的点分路径
+ * @returns {boolean}
+ */
+function isManagedField(managed, fieldPath) {
+  if (!managed || typeof fieldPath !== 'string') return false
+  let cursor = managed
+  for (const segment of fieldPath.split('.')) {
+    if (!isPlainObject(cursor) || !Object.prototype.hasOwnProperty.call(cursor, segment)) return false
+    cursor = cursor[segment]
+  }
+  return true
+}
+
+/**
  * 检测 CodePal 尚未统一支持的 `CLAUDE_CONFIG_DIR` 自定义配置根
  *
  * 背景：Claude Code 用 `CLAUDE_CONFIG_DIR` 改变 settings / 历史等所有用户目录的位置，
@@ -384,7 +433,7 @@ async function replaceSettingsFileAtomically(filePath, contentBytes, { expectedB
  * @param {string} [options.backupSuffix] - 备份后缀
  * @returns {Promise<{success: boolean, backupPath: string|null, errorCode: string|null, error: string|null, exists: boolean}>}
  */
-async function mutateClaudeSettingsFile(mutator, { filePath = CLAUDE_SETTINGS_FILE_PATH, backupSuffix = 'settings' } = {}) {
+async function mutateClaudeSettingsFile(mutator, { filePath = CLAUDE_SETTINGS_FILE_PATH, backupSuffix = 'settings', managedPaths = null } = {}) {
   if (typeof mutator !== 'function') {
     return { success: false, committed: false, backupPath: null, errorCode: 'INVALID_MUTATOR', error: 'mutator 必须是函数', exists: false }
   }
@@ -406,6 +455,9 @@ async function mutateClaudeSettingsFile(mutator, { filePath = CLAUDE_SETTINGS_FI
     }
 
     const data = state.kind === 'valid' ? state.data : {}
+    // 企业 / 组织级托管设置的优先级高于用户配置：已知覆盖必须能被上层报告，
+    // 否则 UI 会在字段实际被托管强制时谎报「已生效」。
+    const managed = await readManagedSettings(managedPaths)
     // 传入完整的 state，并**同时**在顶层展开 errorCode/error/raw/rawBytes，
     // 避免调用方按任一种写法解构都拿不到值。
     const outcome = await mutator({
@@ -417,6 +469,8 @@ async function mutateClaudeSettingsFile(mutator, { filePath = CLAUDE_SETTINGS_FI
       kind: state.kind,
       errorCode: state.errorCode,
       error: state.error,
+      managed,
+      isManagedField: (fieldPath) => isManagedField(managed, fieldPath),
     })
     if (!outcome || outcome.ok !== true) {
       return {
@@ -485,7 +539,16 @@ async function mutateClaudeSettingsFile(mutator, { filePath = CLAUDE_SETTINGS_FI
         exists: state.exists,
       }
     }
-    return { success: true, committed: true, durability: writeResult.durability, backupPath, errorCode: null, error: null, exists: true }
+    return {
+      success: true,
+      committed: true,
+      durability: writeResult.durability,
+      backupPath,
+      errorCode: null,
+      error: null,
+      exists: true,
+      managed,
+    }
   }
 
   // 前一个任务失败也不阻塞后续（错误已通过各自返回值上抛）

@@ -157,6 +157,33 @@ describe('V1.9.8 writeClaudeSettingsFile（唯一写入口）', () => {
     }
   })
 
+  it('SW-13: 托管设置覆盖目标字段时必须被报告（不谎报已生效）', async () => {
+    const managedPath = path.join(tempHome, 'managed-settings.json')
+    await fs.writeFile(managedPath, `${JSON.stringify({
+      permissions: { defaultMode: 'plan' },
+      model: 'claude-opus-5',
+    }, null, 2)}\n`, 'utf-8')
+
+    // 权限页：permissions.defaultMode 被托管 → 必须报告覆盖
+    const perm = await setPermissionMode('acceptEdits', pathExists, { managedPaths: [managedPath] })
+    expect(perm.success).toBe(true)
+    expect(perm.managedOverride).toBe(true)
+    expect(perm.managedNotice).toBeTruthy()
+
+    // 模型页：model 被托管 → 报告；effortLevel 未被托管 → 不报告
+    const model = await setModelConfig('model', 'claude-sonnet-5', pathExists, { managedPaths: [managedPath] })
+    expect(model.success).toBe(true)
+    expect(model.managedOverride).toBe(true)
+
+    // 没有托管文件时不得误报
+    const plain = await mutateClaudeSettingsFile(
+      ({ data }) => ({ ok: true, next: { ...data, x: 1 }, create: true }),
+      { managedPaths: [path.join(tempHome, 'nonexistent-managed.json')] },
+    )
+    expect(plain.success).toBe(true)
+    expect(plain.managed).toBe(null)
+  })
+
   it('SW-11: 不存在的目标必须显式声明创建意图（静默复活防线）', async () => {
     // 目标不存在，mutator 却没说 create → 必须拒绝，不能顺手建出文件
     const refused = await mutateClaudeSettingsFile(({ data }) => ({ ok: true, next: { ...data, a: 1 } }))
