@@ -127,19 +127,24 @@ describe('每窗口只枚举一次、每文件只解析一次', () => {
     expect(stats.parsedFiles).toBe(1)
   })
 
-  it('单文件读取失败时被跳过，且重复查询结果一致', async () => {
+  it('读取失败只影响当次，恢复后后续日期会重试（CODE-001 回归）', async () => {
     writeLog('ok.jsonl', ['{"t":1}'], day(9))
     // 真文件但去掉读权限：枚举能 stat 到它，读取一定失败
     const broken = writeLog('broken.jsonl', ['{"t":2}'], day(9))
     fs.chmodSync(broken, 0o000)
 
     const ctx = createLogScanWindowContext(day(1))
-    for (const attempt of [1, 2]) {
-      const result = await ctx.scanForDay(dir, day(1), {})
-      expect(result.files.map((f) => path.basename(f.path))).toEqual(['ok.jsonl'])
-    }
 
-    // 两次读取尝试都被记忆（一次成功、一次失败），第二次查询不再重复读取
+    // 第 1 天：坏文件被跳过
+    const d1 = await ctx.scanForDay(dir, day(1), {})
+    expect(d1.files.map((f) => path.basename(f.path))).toEqual(['ok.jsonl'])
+
+    // 恢复可读后，**同一个窗口上下文**在第 2 天必须重新尝试并读到它
+    fs.chmodSync(broken, 0o644)
+    const d2 = await ctx.scanForDay(dir, day(2), {})
+    expect(d2.files.map((f) => path.basename(f.path)).sort()).toEqual(['broken.jsonl', 'ok.jsonl'])
+
+    // 成功结果才跨天复用：此时缓存里是 ok + broken 两条成功记录
     expect(ctx.stats().parsedFiles).toBe(2)
   })
 })

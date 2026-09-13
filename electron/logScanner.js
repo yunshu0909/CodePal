@@ -300,10 +300,16 @@ function createLogScanWindowContext(windowStart) {
   function readOnce(candidate, options) {
     const key = `${candidate.path}|${candidate.mtime.getTime()}|${optionsKey(options)}`
     if (!readCache.has(key)) {
-      // 失败也记忆（记为 null），与旧实现「该文件在所有天都被跳过」一致
+      // 只记忆**成功**的解析结果。
+      // 读取失败不能跨天记忆：文件第一天暂时不可读、第二天恢复时，旧逐日路径会重新尝试读取，
+      // 若把一次失败缓存整个窗口，就会把「少算」扩散到尚未计算的其它天。
+      // （A-011 保留的是已算过那天的缓存，不是把一次失败传播给别的天。）
       readCache.set(key, Promise.resolve()
         .then(() => readCandidateLines(candidate, options))
-        .catch(() => null))
+        .catch(() => {
+          readCache.delete(key)
+          return null
+        }))
     }
     return readCache.get(key)
   }
