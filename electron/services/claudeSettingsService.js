@@ -15,7 +15,8 @@
  */
 
 const fs = require('fs/promises')
-const fsConstants = require('fs').constants
+const fsSync = require('fs')
+const fsConstants = fsSync.constants
 const path = require('path')
 const os = require('os')
 const { normalizeEnvValue, atomicWriteText } = require('./envFileService')
@@ -219,10 +220,37 @@ function isManagedField(managed, fieldPath) {
  *
  * @returns {{errorCode: string, error: string}|null} 需要拒绝时返回错误对象，否则 null
  */
+/**
+ * 把一个路径规范化到文件系统层面（解析符号链接）
+ *
+ * `path.resolve` 只做词法规范化，**不建立文件系统身份**：`/alias/.claude` 与真实的
+ * `.claude` 词法不同却是同一处。目标可能尚不存在，因此对**父目录**做 realpath，
+ * 再拼回文件名；realpath 失败时退回词法解析。
+ * @param {string} target - 待规范化路径
+ * @returns {string} 规范化后的路径
+ */
+function canonicalizePath(target) {
+  const lexical = path.resolve(target)
+  try {
+    const dir = path.dirname(lexical)
+    const base = path.basename(lexical)
+    return path.join(fsSync.realpathSync(dir), base)
+  } catch {
+    return lexical
+  }
+}
+
+/**
+ * 判断目标路径是否就是「全应用唯一 settings 路径」
+ *
+ * 按**文件系统层面**比较：既做词法规范化（挡 `./`），也解析父目录符号链接（挡别名）。
+ * @param {string} filePath - 待判定路径
+ * @returns {boolean}
+ */
 function isDefaultSettingsPath(filePath) {
   if (typeof filePath !== 'string' || filePath === '') return false
   try {
-    return path.resolve(filePath) === path.resolve(CLAUDE_SETTINGS_FILE_PATH)
+    return canonicalizePath(filePath) === canonicalizePath(CLAUDE_SETTINGS_FILE_PATH)
   } catch {
     return false
   }
@@ -236,8 +264,8 @@ function isDefaultSettingsPath(filePath) {
 function detectUnsupportedCustomRoot() {
   const configured = process.env.CLAUDE_CONFIG_DIR
   if (typeof configured !== 'string' || configured.trim() === '') return null
-  const expectedDir = path.resolve(path.join(os.homedir(), '.claude'))
-  const resolved = path.resolve(configured.trim())
+  const expectedDir = canonicalizePath(path.join(os.homedir(), '.claude'))
+  const resolved = canonicalizePath(configured.trim())
   if (resolved === expectedDir) return null
   return {
     errorCode: 'SETTINGS_CUSTOM_ROOT_UNSUPPORTED',
@@ -272,36 +300,39 @@ async function readSettingsFileState(filePath) {
     handle = await fs.open(filePath, flags)
   } catch (error) {
     if (error.code === 'ENOENT') {
-      return { kind: 'missing', rawBytes: null, raw: '', data: null, exists: false, errorCode: null, error: null }
+      return { kind: 'missing', rawBytes: null, raw: '', data: null, exists: false, errorCode: null, error: null, identity: null }
     }
     if (error.code === 'ELOOP') {
-      return { kind: 'symlink', rawBytes: null, raw: '', data: null, exists: true, errorCode: 'SETTINGS_SYMLINK_REJECTED', error: 'settings 路径是符号链接，拒绝读写' }
+      return { kind: 'symlink', rawBytes: null, raw: '', data: null, exists: true, errorCode: 'SETTINGS_SYMLINK_REJECTED', error: 'settings 路径是符号链接，拒绝读写', identity: null }
     }
     const errorCode = mapFsError(error)
-    return { kind: 'io_error', rawBytes: null, raw: '', data: null, exists: false, errorCode, error: `无法读取 Claude settings.json: ${error.message}` }
+    return { kind: 'io_error', rawBytes: null, raw: '', data: null, exists: false, errorCode, error: `无法读取 Claude settings.json: ${error.message}`, identity: null }
   }
 
   try {
     const stat = await handle.stat()
     if (!stat.isFile()) {
-      return { kind: 'unsupported', rawBytes: null, raw: '', data: null, exists: true, errorCode: 'SETTINGS_UNSUPPORTED_FILE_TYPE', error: 'settings 路径不是普通文件' }
+      return { kind: 'unsupported', rawBytes: null, raw: '', data: null, exists: true, errorCode: 'SETTINGS_UNSUPPORTED_FILE_TYPE', error: 'settings 路径不是普通文件', identity: null }
     }
     const rawBytes = await handle.readFile()
+    // 文件身份：与内容一起构成"同一份文件"的判据。只比字节无法发现
+    // 「同字节但被删除重建」或「mode 被改」——那同样是复验之前已发生的外部变化。
+    const identity = `${stat.dev}:${stat.ino}:${stat.size}:${stat.mode}`
     // 文本视图仅供解析；非法 UTF-8 在这里可能出现替换字符，但备份/比对一律走 rawBytes
     const raw = rawBytes.toString('utf-8')
     let data = null
     try {
       data = JSON.parse(raw)
     } catch {
-      return { kind: 'corrupt', rawBytes, raw, data: null, exists: true, errorCode: 'CONFIG_CORRUPTED', error: 'Claude settings.json 已损坏（JSON 解析失败）' }
+      return { kind: 'corrupt', rawBytes, raw, data: null, exists: true, errorCode: 'CONFIG_CORRUPTED', error: 'Claude settings.json 已损坏（JSON 解析失败）', identity }
     }
     if (!isPlainObject(data)) {
-      return { kind: 'corrupt', rawBytes, raw, data: null, exists: true, errorCode: 'CONFIG_CORRUPTED', error: 'Claude settings.json 结构异常（顶层不是对象）' }
+      return { kind: 'corrupt', rawBytes, raw, data: null, exists: true, errorCode: 'CONFIG_CORRUPTED', error: 'Claude settings.json 结构异常（顶层不是对象）', identity }
     }
-    return { kind: 'valid', rawBytes, raw, data, exists: true, errorCode: null, error: null }
+    return { kind: 'valid', rawBytes, raw, data, exists: true, errorCode: null, error: null, identity }
   } catch (error) {
     const errorCode = mapFsError(error)
-    return { kind: 'io_error', rawBytes: null, raw: '', data: null, exists: false, errorCode, error: `无法读取 Claude settings.json: ${error.message}` }
+    return { kind: 'io_error', rawBytes: null, raw: '', data: null, exists: false, errorCode, error: `无法读取 Claude settings.json: ${error.message}`, identity: null }
   } finally {
     await handle.close().catch(() => {})
   }
@@ -387,7 +418,7 @@ async function createSettingsFileExclusive(filePath, contentBytes) {
  * @param {string} content - 完整文件内容
  * @returns {Promise<{success: boolean, errorCode: string|null, error: string|null}>}
  */
-async function replaceSettingsFileAtomically(filePath, contentBytes, { expectedBytes = null } = {}) {
+async function replaceSettingsFileAtomically(filePath, contentBytes, { expectedBytes = null, expectedIdentity = null } = {}) {
   const tempPath = `${filePath}.codepal-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.tmp`
   let handle = null
   // 只有**确实由本次创建**的临时文件才允许清理
@@ -414,10 +445,13 @@ async function replaceSettingsFileAtomically(filePath, contentBytes, { expectedB
     if (expectedBytes) {
       const current = await readSettingsFileState(filePath)
       // 只比字节，不要求 current 是 valid——损坏修复（含零字节）时原文本来就解析不出来
-      const unchanged = current.rawBytes && current.rawBytes.equals(expectedBytes)
-      if (!unchanged) {
+      const sameBytes = current.rawBytes && current.rawBytes.equals(expectedBytes)
+      // 还要比文件身份：同字节的"删除重建"或 mode 变更同样是本次事务期间的外部变化
+      const sameIdentity = !expectedIdentity
+        || (current.identity && current.identity === expectedIdentity)
+      if (!sameBytes || !sameIdentity) {
         if (ownsTemp) await fs.rm(tempPath, { force: true }).catch(() => {})
-        return { success: false, committed: false, errorCode: 'SETTINGS_CONFLICT', error: 'settings.json 在本次写入期间被外部修改，已放弃写入' }
+        return { success: false, committed: false, errorCode: 'SETTINGS_CONFLICT', error: 'settings.json 在本次写入期间被外部修改（内容或文件身份变化），已放弃写入' }
       }
     }
     await fs.rename(tempPath, filePath)
@@ -571,9 +605,11 @@ async function mutateClaudeSettingsFile(mutator, { filePath = CLAUDE_SETTINGS_FI
     const writeResult = createMode
       ? await createSettingsFileExclusive(filePath, contentBytes)
       : await replaceSettingsFileAtomically(filePath, contentBytes, {
-        // 提交前复验：目标必须仍是本次事务读到的字节，否则说明期间被外部改写 → 放弃。
+        // 提交前复验：目标必须仍是本次事务读到的**同一份文件、同一份字节**，
+        // 否则说明期间被外部改写（含同字节删除重建 / mode 变更）→ 放弃。
         // 损坏修复同样适用（原文不得被换掉），缺失态走创建分支、不经过这里。
         expectedBytes: state.exists ? state.rawBytes : null,
+        expectedIdentity: state.exists ? state.identity : null,
       })
 
     if (!writeResult.success) {

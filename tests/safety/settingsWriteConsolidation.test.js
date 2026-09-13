@@ -179,6 +179,16 @@ describe('V1.9.8 writeClaudeSettingsFile（唯一写入口）', () => {
       )
       expect(viaDotted.success).toBe(false)
       expect(viaDotted.errorCode).toBe('SETTINGS_CUSTOM_ROOT_UNSUPPORTED')
+
+      // 符号链接别名同样不得绕过：/alias → .claude，走别名应等价于走默认根
+      const alias = path.join(tempHome, 'claude-alias')
+      await fs.symlink(claudeDir, alias)
+      const viaAlias = await mutateClaudeSettingsFile(
+        ({ data }) => ({ ok: true, next: { ...data, a: 3 }, create: true }),
+        { filePath: path.join(alias, 'settings.json') },
+      )
+      expect(viaAlias.success).toBe(false)
+      expect(viaAlias.errorCode).toBe('SETTINGS_CUSTOM_ROOT_UNSUPPORTED')
     } finally {
       if (original === undefined) delete process.env.CLAUDE_CONFIG_DIR
       else process.env.CLAUDE_CONFIG_DIR = original
@@ -240,6 +250,25 @@ describe('V1.9.8 writeClaudeSettingsFile（唯一写入口）', () => {
     expect(result.errorCode).toBe('SETTINGS_ALREADY_EXISTS')
     // B 的内容必须逐字节保留（把 link 换成覆盖式 rename 后，本断言必须失败）
     expect(await fs.readFile(settingsPath, 'utf-8')).toBe(existing)
+  })
+
+  it('SW-15: 提交前复验必须比「文件身份」，不只是字节', async () => {
+    // 构造：事务读到内容后，把目标以**相同字节**删除重建（inode 变化）。
+    // 只比字节的实现会放行；比身份的实现必须拒绝。
+    await fs.writeFile(settingsPath, `${JSON.stringify({ keep: 1 }, null, 2)}\n`, 'utf-8')
+    const originalBytes = await fs.readFile(settingsPath)
+
+    const result = await mutateClaudeSettingsFile(async ({ data }) => {
+      // 模拟"事务读之后、提交之前"的外部变化：同字节重建 + 改 mode
+      await fs.rm(settingsPath, { force: true })
+      await fs.writeFile(settingsPath, originalBytes)
+      await fs.chmod(settingsPath, 0o400)
+      return { ok: true, next: { ...data, added: true } }
+    })
+    expect(result.success).toBe(false)
+    expect(result.errorCode).toBe('SETTINGS_CONFLICT')
+    // 外部那份内容没有被覆盖
+    expect((await fs.readFile(settingsPath)).equals(originalBytes)).toBe(true)
   })
 
   it('SW-11: 不存在的目标必须显式声明创建意图（静默复活防线）', async () => {
