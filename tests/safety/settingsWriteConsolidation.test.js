@@ -26,6 +26,7 @@ let settingsPath
 let backupsDir
 let writeClaudeSettingsFile
 let mutateClaudeSettingsFile
+let __testing
 let setPermissionMode
 let setModelConfig
 let createClaudeUsageStatusService
@@ -52,7 +53,7 @@ beforeAll(async () => {
   await fs.mkdir(claudeDir, { recursive: true })
 
   // HOME 就位后再加载：模块级路径常量在 require 时求值
-  ;({ writeClaudeSettingsFile, mutateClaudeSettingsFile } = require('../../electron/services/claudeSettingsService'))
+  ;({ writeClaudeSettingsFile, mutateClaudeSettingsFile, __testing } = require('../../electron/services/claudeSettingsService'))
   ;({ setPermissionMode } = require('../../electron/handlers/permissionModeHandlers'))
   ;({ setModelConfig } = require('../../electron/handlers/modelConfigHandlers'))
   ;({ createClaudeUsageStatusService } = require('../../electron/services/claudeUsageStatusService'))
@@ -90,6 +91,23 @@ describe('V1.9.8 writeClaudeSettingsFile（唯一写入口）', () => {
     expect(again.success).toBe(false)
     expect(again.errorCode).toBe('SETTINGS_ALREADY_EXISTS')
     expect(JSON.parse(await fs.readFile(settingsPath, 'utf-8')).model).toBe('opus')
+  })
+
+  it('SW-2b: 备份后目录必须是 0700（即使它此前是宽松的）', async () => {
+    // 覆盖范围（如实说明）：本用例能拦住「既不做 mkdir mode、也不 chmod」的实现，
+    // 但**无法**区分「chmod 失败被吞」与「chmod 失败即中止」——普通临时目录上
+    // chmod 不会失败，那条分支不可达。该分支目前靠代码审查保证，不靠本用例。
+    await fs.mkdir(backupsDir, { recursive: true })
+    await fs.chmod(backupsDir, 0o755)
+    expect((await fs.stat(backupsDir)).mode & 0o777).toBe(0o755)
+
+    await fs.writeFile(settingsPath, `${JSON.stringify({ a: 1 }, null, 2)}\n`, 'utf-8')
+    const result = await mutateClaudeSettingsFile(
+      ({ data }) => ({ ok: true, next: { ...data, b: 2 } }),
+      { backupSuffix: 'tighten-test' },
+    )
+    expect(result.success).toBe(true)
+    expect((await fs.stat(backupsDir)).mode & 0o777).toBe(0o700)
   })
 
   it('SW-2: 事务更新 → 先备份盘上已验证的真实内容，再替换', async () => {
@@ -170,10 +188,22 @@ describe('V1.9.8 writeClaudeSettingsFile（唯一写入口）', () => {
     expect(perm.managedOverride).toBe(true)
     expect(perm.managedNotice).toBeTruthy()
 
-    // 模型页：model 被托管 → 报告；effortLevel 未被托管 → 不报告
+    // 模型页：model 被托管 → 报告
     const model = await setModelConfig('model', 'claude-sonnet-5', pathExists, { managedPaths: [managedPath] })
     expect(model.success).toBe(true)
     expect(model.managedOverride).toBe(true)
+
+    // 反向防误报：effortLevel **未被**托管 → 不得报告覆盖
+    // （把 managedOverride 改成恒真后，本断言必须失败）
+    const effort = await setModelConfig('effortLevel', 'low', pathExists, { managedPaths: [managedPath] })
+    expect(effort.success).toBe(true)
+    expect(effort.managedOverride).toBe(false)
+    expect(effort.managedNotice).toBe(null)
+
+    // 反向防误报：没有托管文件时，permission 也不得报告覆盖
+    const noManaged = await setPermissionMode('plan', pathExists, { managedPaths: [path.join(tempHome, 'none.json')] })
+    expect(noManaged.success).toBe(true)
+    expect(noManaged.managedOverride).toBe(false)
 
     // 没有托管文件时不得误报
     const plain = await mutateClaudeSettingsFile(
@@ -182,6 +212,24 @@ describe('V1.9.8 writeClaudeSettingsFile（唯一写入口）', () => {
     )
     expect(plain.success).toBe(true)
     expect(plain.managed).toBe(null)
+  })
+
+  it('SW-14: 创建原语本身必须 no-replace——目标已存在时绝不覆盖（直接测原语，不经 broker 存在性检查）', async () => {
+    // SW-10 只能证明"队列内恰好一次成功"：后四个请求在 broker 的存在性检查就被拦下了，
+    // 因此它无法证明**文件系统发布本身**是 no-replace。这里直接打原语。
+    const existing = `${JSON.stringify({ who: 'B', keep: true }, null, 2)}\n`
+    await fs.writeFile(settingsPath, existing, 'utf-8')
+
+    const result = await __testing.createSettingsFileExclusive(
+      settingsPath,
+      Buffer.from(`${JSON.stringify({ who: 'A' }, null, 2)}\n`, 'utf-8'),
+    )
+
+    expect(result.success).toBe(false)
+    expect(result.committed).toBe(false)
+    expect(result.errorCode).toBe('SETTINGS_ALREADY_EXISTS')
+    // B 的内容必须逐字节保留（把 link 换成覆盖式 rename 后，本断言必须失败）
+    expect(await fs.readFile(settingsPath, 'utf-8')).toBe(existing)
   })
 
   it('SW-11: 不存在的目标必须显式声明创建意图（静默复活防线）', async () => {

@@ -331,8 +331,21 @@ enabled = false
 
     expect(await countRealBackups()).toBe(realBefore)
 
-    const localBackups = await fs.readdir(path.join(homeDir, '.claude', 'backups'))
-    expect(localBackups.filter((f) => f.startsWith('settings-skill-override-'))).toHaveLength(2)
+    const backupDir = path.join(homeDir, '.claude', 'backups')
+    const localBackups = (await fs.readdir(backupDir)).filter((f) => f.startsWith('settings-skill-override-'))
+    expect(localBackups).toHaveLength(2)
+
+    // 只数数量证明不了什么：两份备份必须分别对应**两次写入前的真实内容**
+    // （第一次写前的原文件、第二次写前即第一次写入后的内容）。
+    const backupContents = await Promise.all(
+      localBackups.map(async (f) => JSON.parse(await fs.readFile(path.join(backupDir, f), 'utf8'))),
+    )
+    const firstWriteSnapshot = backupContents.find((d) => d.skillOverrides && d.skillOverrides.bk === undefined)
+    const secondWriteSnapshot = backupContents.find((d) => d.skillOverrides && d.skillOverrides.bk === 'off')
+    expect(firstWriteSnapshot).toBeTruthy()
+    expect(firstWriteSnapshot.unknownSetting).toEqual({ keep: true })
+    expect(secondWriteSnapshot).toBeTruthy()
+    expect(secondWriteSnapshot.unknownSetting).toEqual({ keep: true })
 
     const settings = JSON.parse(await fs.readFile(path.join(homeDir, '.claude', 'settings.json'), 'utf8'))
     expect(settings.skillOverrides).toEqual({ other: true })

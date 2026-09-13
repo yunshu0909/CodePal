@@ -810,6 +810,12 @@ module.exports = {
   isPlainObject,
   resolveBackupDir,
   readSettingsFileState,
+  // 仅供测试直接验证「no-replace 发布」原语；业务代码请走 mutateClaudeSettingsFile
+  __testing: {
+    createSettingsFileExclusive,
+    replaceSettingsFileAtomically,
+    managedSettingsPaths,
+  },
   backupClaudeSettingsRaw,
   writeClaudeSettingsFile,
   mutateClaudeSettingsFile,
