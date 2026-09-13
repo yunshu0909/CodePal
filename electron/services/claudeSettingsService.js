@@ -51,7 +51,12 @@ const CLAUDE_SETTINGS_BACKUP_DIR = path.join(os.homedir(), '.claude', 'backups')
  * @returns {string} 备份目录绝对路径
  */
 function resolveBackupDir(filePath) {
-  if (!filePath || filePath === CLAUDE_SETTINGS_FILE_PATH) return CLAUDE_SETTINGS_BACKUP_DIR
+  if (!filePath) return CLAUDE_SETTINGS_BACKUP_DIR
+  try {
+    if (path.resolve(filePath) === path.resolve(CLAUDE_SETTINGS_FILE_PATH)) return CLAUDE_SETTINGS_BACKUP_DIR
+  } catch {
+    return CLAUDE_SETTINGS_BACKUP_DIR
+  }
   return path.join(path.dirname(filePath), 'backups')
 }
 
@@ -213,6 +218,20 @@ function isManagedField(managed, fieldPath) {
  * 完整统一（含 skills / hooks / MCP / session 等全部路径）留作独立工作单元。
  *
  * @returns {{errorCode: string, error: string}|null} 需要拒绝时返回错误对象，否则 null
+ */
+function isDefaultSettingsPath(filePath) {
+  if (typeof filePath !== 'string' || filePath === '') return false
+  try {
+    return path.resolve(filePath) === path.resolve(CLAUDE_SETTINGS_FILE_PATH)
+  } catch {
+    return false
+  }
+}
+
+/**
+ * 判断目标路径是否就是「全应用唯一 settings 路径」（按解析后比较，避免 `./` 之类的等价写法绕过）
+ * @param {string} filePath - 待判定路径
+ * @returns {boolean}
  */
 function detectUnsupportedCustomRoot() {
   const configured = process.env.CLAUDE_CONFIG_DIR
@@ -465,7 +484,7 @@ async function mutateClaudeSettingsFile(mutator, { filePath = CLAUDE_SETTINGS_FI
   }
 
   // 默认根写入前先确认 CLAUDE_CONFIG_DIR 没有把它挪走（绝不悄悄写错位置）
-  if (filePath === CLAUDE_SETTINGS_FILE_PATH) {
+  if (isDefaultSettingsPath(filePath)) {
     const unsupported = detectUnsupportedCustomRoot()
     if (unsupported) {
       return { success: false, committed: false, backupPath: null, exists: false, ...unsupported }
@@ -617,7 +636,7 @@ async function writeClaudeSettingsFile(
   if (!isPlainObject(settingsData)) {
     return { success: false, backupPath: null, errorCode: 'INVALID_SETTINGS_DATA', error: 'settings 数据必须是普通对象' }
   }
-  if (filePath === CLAUDE_SETTINGS_FILE_PATH) {
+  if (isDefaultSettingsPath(filePath)) {
     const unsupported = detectUnsupportedCustomRoot()
     if (unsupported) {
       return { success: false, backupPath: null, ...unsupported }
@@ -796,6 +815,10 @@ if (token) {
   return {
     settingsFilePath: CLAUDE_SETTINGS_FILE_PATH,
     apiKeyHelperPath: CLAUDE_API_KEY_HELPER_PATH,
+    // 调用方在产生副作用之前自检配置根用
+    detectUnsupportedCustomRoot,
+    readManagedSettings,
+    isManagedField,
     backupClaudeSettingsRaw,
     writeClaudeSettingsFile,
     mutateClaudeSettingsFile,
@@ -810,6 +833,8 @@ module.exports = {
   isPlainObject,
   resolveBackupDir,
   readSettingsFileState,
+  // 公开：调用方在**产生任何副作用之前**（写脚本 / 装依赖 / 部署目录）先自检配置根
+  detectUnsupportedCustomRoot,
   // 仅供测试直接验证「no-replace 发布」原语；业务代码请走 mutateClaudeSettingsFile
   __testing: {
     createSettingsFileExclusive,

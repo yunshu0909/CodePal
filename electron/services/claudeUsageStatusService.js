@@ -373,6 +373,21 @@ function createClaudeUsageStatusService({ pathExists, claudeSettingsService }) {
   async function ensureUsageStatusInstalled(options = {}) {
     const { force = false, intent = 'silent' } = options
     const allowCreate = intent === 'explicit'
+
+    // 配置根不支持时必须在**任何副作用之前**拒绝：
+    // 否则脚本 / config 已经落盘，settings 才被拒，会留下半完成状态。
+    const unsupportedRoot = claudeSettingsService.detectUnsupportedCustomRoot
+      ? claudeSettingsService.detectUnsupportedCustomRoot()
+      : null
+    if (unsupportedRoot) {
+      return {
+        success: false,
+        integrationState: 'setup_failed',
+        error: unsupportedRoot.error,
+        errorCode: unsupportedRoot.errorCode,
+      }
+    }
+
     const currentState = await getUsageStatusState()
 
     if (!currentState.claudeInstalled) {

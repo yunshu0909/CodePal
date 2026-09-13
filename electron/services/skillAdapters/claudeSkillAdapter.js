@@ -16,7 +16,7 @@ const {
 } = require('../skillControlService')
 // settings.json 写入统一走唯一 broker（V1.9.8 收口）。本 adapter 曾自带一套原子写，
 // 绕过 broker 的串行队列与备份，是「Skill override 与权限/模型并发写互相覆盖」的根因，已收口。
-const { mutateClaudeSettingsFile } = require('../claudeSettingsService')
+const { mutateClaudeSettingsFile, detectUnsupportedCustomRoot } = require('../claudeSettingsService')
 
 async function readSettings(settingsPath) {
   try {
@@ -119,6 +119,11 @@ async function setSkillOverride(settingsPath, skillName, nextState) {
 async function applyClaudeCommand(params, deps = {}) {
   const userPath = path.join(params.homeDir, '.claude', 'skills', params.skillName)
   if (params.action === 'enable') {
+    // 写 settings 的路径不支持自定义根时，不得先把 Skill 目录部署出去（会留半完成状态）
+    const unsupportedRoot = detectUnsupportedCustomRoot()
+    if (unsupportedRoot) {
+      throw Object.assign(new Error(unsupportedRoot.error), { code: unsupportedRoot.errorCode })
+    }
     const deployed = await deployManagedSkill({ repoPath: params.repoPath, targetPath: userPath, skillName: params.skillName }, deps)
     // 目录存在不代表 Claude 会加载它；显式启用必须覆盖遗留的 off/false。
     await setSkillOverride(path.join(params.homeDir, '.claude', 'settings.json'), params.skillName, 'enabled')

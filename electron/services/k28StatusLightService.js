@@ -15,7 +15,7 @@ const os = require('os')
 const { execFile } = require('child_process')
 const { getK28AudioState } = require('./k28AudioGuardService')
 // settings.json 写入统一走唯一 broker（V1.9.8 收口）；本模块局部 atomicWriteText 仅用于 Codex config / K28 conf
-const { mutateClaudeSettingsFile } = require('./claudeSettingsService')
+const { mutateClaudeSettingsFile, detectUnsupportedCustomRoot } = require('./claudeSettingsService')
 
 const K28_DIR = path.join(os.homedir(), '.claude', 'k28-status-light')
 const K28_TEMPLATE_DIR = path.resolve(__dirname, '..', '..', 'templates', 'k28-status-light')
@@ -376,6 +376,11 @@ async function ensurePythonEnvironment() {
  * @returns {Promise<void>}
  */
 async function installClaudeHooks() {
+  // 配置根不支持时必须在任何副作用之前拒绝（前面已有脚本复制 / 依赖安装）
+  const unsupportedRoot = detectUnsupportedCustomRoot()
+  if (unsupportedRoot) {
+    throw Object.assign(new Error(unsupportedRoot.error), { code: unsupportedRoot.errorCode })
+  }
   // 单次事务：hooks 的构造必须基于**事务内最新** settings，
   // 否则会按旧快照重建，覆盖并发的其他 settings 改动。
   const writeResult = await mutateClaudeSettingsFile(({ data, kind, errorCode, error }) => {

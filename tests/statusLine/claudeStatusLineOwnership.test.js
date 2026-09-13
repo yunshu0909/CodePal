@@ -231,6 +231,28 @@ describe.sequential('V1.9.9 Claude statusLine ownership', () => {
     expect(after.statusLine.command).toBe(customCommand)
   })
 
+  it('Q-TC-12: 不支持的配置根必须在任何副作用之前拒绝（不留半完成状态）', async () => {
+    const { usageModule } = loadModuleWithHome(tempHome)
+    const settingsModule = loadModuleWithHome(tempHome).settingsModule
+    const settingsService = settingsModule.createClaudeSettingsService({ pathExists })
+
+    const original = process.env.CLAUDE_CONFIG_DIR
+    try {
+      process.env.CLAUDE_CONFIG_DIR = path.join(tempHome, 'elsewhere')
+      const service = usageModule.createClaudeUsageStatusService({ pathExists, claudeSettingsService: settingsService })
+      const result = await service.ensureUsageStatusInstalled({ force: false, intent: 'explicit' })
+
+      expect(result.success).toBe(false)
+      expect(result.errorCode).toBe('SETTINGS_CUSTOM_ROOT_UNSUPPORTED')
+      // 关键：脚本与 config 都不得落盘（拒绝发生在副作用之前）
+      expect(await pathExists(service.scriptPath)).toBe(false)
+      expect(await pathExists(service.configPath)).toBe(false)
+    } finally {
+      if (original === undefined) delete process.env.CLAUDE_CONFIG_DIR
+      else process.env.CLAUDE_CONFIG_DIR = original
+    }
+  })
+
   it('Q-TC-11: 静默维护不得复活被删除的 settings.json；显式接入可创建', async () => {
     const { usageModule } = loadModuleWithHome(tempHome)
     await fs.writeFile(path.join(tempHome, '.claude', 'codepal-usage-statusline.sh'), '# codepal-script-version: 1\n', { mode: 0o700 })
