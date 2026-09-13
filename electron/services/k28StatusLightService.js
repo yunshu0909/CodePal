@@ -422,7 +422,12 @@ async function installClaudeHooks() {
   }, { backupSuffix: 'k28-hooks' })
 
   if (!writeResult.success) {
-    throw new Error(writeResult.error || '写入 Claude settings.json 失败')
+    // 结构化提交状态不能只留在 broker：抛错时一并带上，供上层区分"完全没写"与"已写入未验证"
+    const error = new Error(writeResult.error || '写入 Claude settings.json 失败')
+    error.code = writeResult.errorCode || 'WRITE_FAILED'
+    error.committed = writeResult.committed === true
+    error.durability = writeResult.durability || null
+    throw error
   }
 }
 
@@ -947,6 +952,15 @@ async function installK28StatusLight() {
       steps.push({ id, label, status: 'error', error: error.message })
       throw error
     }
+  }
+
+  // 配置根不支持时必须在**任何副作用之前**拒绝：
+  // 这里之后会 mkdir / 复制脚本 / 调子进程装依赖，事后再拒会留下半完成状态。
+  // 守卫必须放在公开入口，不能只放在私有的 installClaudeHooks 里。
+  const unsupportedRoot = detectUnsupportedCustomRoot()
+  if (unsupportedRoot) {
+    steps.push({ id: 'config-root', label: '检查配置根', status: 'error', error: unsupportedRoot.error })
+    return { success: false, steps, state: null, error: unsupportedRoot.error, errorCode: unsupportedRoot.errorCode }
   }
 
   try {

@@ -79,6 +79,8 @@ export default function ClaudeUsageColumn({ statusState, loading, installing, er
   const [takeoverOpen, setTakeoverOpen] = useState(false)
   useStaleDeadline(statusState?.snapshot?.updatedAt)
   const renderState = deriveRenderState(statusState, error)
+  // 托管事实与提交状态都由服务层随状态返回，UI 必须消费，否则会谎报"已接入/已切换"
+  const managedNotice = statusState?.managedNotice || null
   const badge = getBadge(renderState)
   const snapshot = statusState?.snapshot || null
   const updatedAtLabel = formatUpdatedAt(snapshot?.updatedAt)
@@ -110,7 +112,9 @@ export default function ClaudeUsageColumn({ statusState, loading, installing, er
           icon="⏳"
           iconVariant="warning"
           title="等待首个额度快照"
-          desc={<>状态栏已接入，但 Claude Code 还没发送 rate_limits。打开一次对话，额度会自动出现。</>}
+          desc={managedNotice
+            ? <>{managedNotice}</>
+            : <>状态栏已接入，但 Claude Code 还没发送 rate_limits。打开一次对话，额度会自动出现。</>}
           primaryLabel={loading ? '刷新中...' : '刷新状态'}
           primaryLoading={loading}
           onPrimary={onRefresh}
@@ -175,8 +179,10 @@ export default function ClaudeUsageColumn({ statusState, loading, installing, er
         <ColumnEmpty
           icon="✕"
           iconVariant="danger"
-          title="无法写入 Claude 配置"
-          desc={<>写入 ~/.claude/settings.json 失败，通常是权限不足或文件被占用。</>}
+          title={statusState?.committed ? '配置已写入但未通过校验' : '无法写入 Claude 配置'}
+          desc={statusState?.committed
+            ? <>文件已经被改动，但回读校验或持久化未达成{statusState?.durability === 'unsynced' ? '（目录项未持久化）' : ''}。请检查 settings.json 内容后重试。</>
+            : <>写入 ~/.claude/settings.json 失败，通常是权限不足或文件被占用。</>}
           primaryLabel={installing ? '处理中...' : '重试接入'}
           primaryLoading={installing}
           onPrimary={() => onEnsureInstalled?.({ force: false })}

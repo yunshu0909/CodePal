@@ -281,6 +281,21 @@ describe.sequential('V1.9.9 Claude statusLine ownership', () => {
     result = await service.ensureUsageStatusInstalled({ force: false, intent: 'silent' })
     expect(result.integrationState).toBe('not_configured')
     expect(await pathExists(settingsPath)).toBe(false)
+
+    // E) 文件还在、但用户**只删掉了 statusLine 字段** → 同样是撤销接入，静默维护不得写回。
+    // （删掉 mutator 里的 NOT_MANAGED 判断后，本断言必须失败）
+    await fs.writeFile(settingsPath, `${JSON.stringify({ model: 'keep-me' }, null, 2)}\n`, 'utf8')
+    service = usageModule.createClaudeUsageStatusService({ pathExists, claudeSettingsService: settingsService })
+    result = await service.ensureUsageStatusInstalled({ force: false, intent: 'silent' })
+    const after = JSON.parse(await fs.readFile(settingsPath, 'utf8'))
+    expect(after.statusLine).toBeUndefined()
+    expect(after.model).toBe('keep-me')
+
+    // F) 同上的空对象形态
+    await fs.writeFile(settingsPath, `${JSON.stringify({ statusLine: {} }, null, 2)}\n`, 'utf8')
+    service = usageModule.createClaudeUsageStatusService({ pathExists, claudeSettingsService: settingsService })
+    await service.ensureUsageStatusInstalled({ force: false, intent: 'silent' })
+    expect(JSON.parse(await fs.readFile(settingsPath, 'utf8')).statusLine).toEqual({})
   })
 
   it('Q-TC-10d: 预读看到托管、事务内看到自定义 → 事务必须拒绝写入', async () => {

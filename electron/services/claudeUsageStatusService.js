@@ -257,7 +257,7 @@ function createClaudeUsageStatusService({ pathExists, claudeSettingsService }) {
    * 汇总前端展示所需状态
    * @returns {Promise<object>}
    */
-  async function getUsageStatusState() {
+  async function computeUsageStatusState() {
     const claudeCommandAvailable = await isClaudeCommandAvailable()
     const claudeDirExists = await pathExists(CLAUDE_DIR)
     const claudeInstalled = claudeCommandAvailable || claudeDirExists
@@ -356,6 +356,32 @@ function createClaudeUsageStatusService({ pathExists, claudeSettingsService }) {
       configPath: STATUS_CONFIG_PATH,
       snapshotPath: STATUS_SNAPSHOT_PATH,
       ...ownership,
+    }
+  }
+
+  /**
+   * 读取会员额度状态（在原始状态上附加托管事实）
+   *
+   * 托管事实必须随状态一起返回：否则"已接入"的 UI 提示在刷新后会消失，
+   * 用户会以为 CodePal 的设置真的生效了。
+   * @returns {Promise<object>}
+   */
+  async function getUsageStatusState() {
+    const state = await computeUsageStatusState()
+    const managedInfo = claudeSettingsService.readManagedSettings
+      ? await claudeSettingsService.readManagedSettings()
+      : { data: null, unknown: false }
+    const managedOverride = claudeSettingsService.isManagedField
+      ? claudeSettingsService.isManagedField(managedInfo.data, 'statusLine')
+      : false
+    const managedUnknown = managedInfo.unknown === true
+    return {
+      ...state,
+      managedOverride,
+      managedUnknown,
+      managedNotice: managedOverride
+        ? '该状态栏已被企业 / 组织托管配置覆盖，CodePal 的设置实际不会生效'
+        : (managedUnknown ? '无法确认该状态栏是否被托管配置覆盖，实际生效未验证' : null),
     }
   }
 
@@ -501,6 +527,9 @@ function createClaudeUsageStatusService({ pathExists, claudeSettingsService }) {
         integrationState: 'setup_failed',
         error: `写入 Claude settings 失败: ${settingsWriteResult.error}`,
         errorCode: settingsWriteResult.errorCode || 'WRITE_FAILED',
+        // 已提交但校验/持久化未达成的状态必须上报，调用方不能当成"完全没写"
+        committed: settingsWriteResult.committed === true,
+        durability: settingsWriteResult.durability || null,
       }
     }
 
@@ -508,6 +537,8 @@ function createClaudeUsageStatusService({ pathExists, claudeSettingsService }) {
     const finalState = await getUsageStatusState()
     return {
       ...finalState,
+      committed: settingsWriteResult.committed === true,
+      durability: settingsWriteResult.durability || null,
       managedOverride,
       managedUnknown,
       managedNotice: managedOverride

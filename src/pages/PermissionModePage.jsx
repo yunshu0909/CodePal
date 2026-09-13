@@ -243,9 +243,9 @@ function PermissionModeTab({ onToast }) {
         setIsConfigured(true)
         setIsKnownMode(true)
         const modeName = PERMISSION_MODES.find((m) => m.id === mode)?.name || mode
-        if (result.managedOverride) {
-          // 托管设置优先级更高：写入成功但不生效，不能宣称「已切换」
-          onToast(result.managedNotice || '已写入用户配置，但被企业托管配置覆盖，实际不会生效', 'error')
+        if (result.managedNotice) {
+          // 托管设置优先级更高（或被托管但读不出）：写入成功也可能不生效，不能宣称「已切换」
+          onToast(result.managedNotice, 'error')
         } else {
           onToast(`已切换至「${modeName}」`, 'success')
         }

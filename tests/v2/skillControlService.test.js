@@ -326,7 +326,10 @@ enabled = false
     const countRealBackups = async () => (await fs.readdir(realBackupDir).catch(() => [])).length
     const realBefore = await countRealBackups()
 
+    // 两次调用前各存一份**原始字节**，后面拿它跟备份逐字节对账
+    const rawBeforeFirst = await fs.readFile(path.join(homeDir, '.claude', 'settings.json'))
     await applyClaudeCommand({ repoPath, homeDir, skillName: 'bk', action: 'set-override', overrideState: 'disabled' })
+    const rawBeforeSecond = await fs.readFile(path.join(homeDir, '.claude', 'settings.json'))
     await applyClaudeCommand({ repoPath, homeDir, skillName: 'bk', action: 'clear-override' })
 
     expect(await countRealBackups()).toBe(realBefore)
@@ -335,17 +338,14 @@ enabled = false
     const localBackups = (await fs.readdir(backupDir)).filter((f) => f.startsWith('settings-skill-override-'))
     expect(localBackups).toHaveLength(2)
 
-    // 只数数量证明不了什么：两份备份必须分别对应**两次写入前的真实内容**
-    // （第一次写前的原文件、第二次写前即第一次写入后的内容）。
-    const backupContents = await Promise.all(
-      localBackups.map(async (f) => JSON.parse(await fs.readFile(path.join(backupDir, f), 'utf8'))),
+    // 只数数量、或只挑字段看，都会漏掉"备份被换了内容"。两份备份必须与
+    // 两次写入前的**原始字节完全相等**（缺字段/多字段/顺序变化都能被抓出）。
+    const backupRaws = await Promise.all(
+      localBackups.map((f) => fs.readFile(path.join(backupDir, f))),
     )
-    const firstWriteSnapshot = backupContents.find((d) => d.skillOverrides && d.skillOverrides.bk === undefined)
-    const secondWriteSnapshot = backupContents.find((d) => d.skillOverrides && d.skillOverrides.bk === 'off')
-    expect(firstWriteSnapshot).toBeTruthy()
-    expect(firstWriteSnapshot.unknownSetting).toEqual({ keep: true })
-    expect(secondWriteSnapshot).toBeTruthy()
-    expect(secondWriteSnapshot.unknownSetting).toEqual({ keep: true })
+    const matches = (target) => backupRaws.some((buf) => buf.equals(target))
+    expect(matches(rawBeforeFirst)).toBe(true)
+    expect(matches(rawBeforeSecond)).toBe(true)
 
     const settings = JSON.parse(await fs.readFile(path.join(homeDir, '.claude', 'settings.json'), 'utf8'))
     expect(settings.skillOverrides).toEqual({ other: true })

@@ -169,6 +169,16 @@ describe('V1.9.8 writeClaudeSettingsFile（唯一写入口）', () => {
       process.env.CLAUDE_CONFIG_DIR = claudeDir
       const ok = await mutateClaudeSettingsFile(({ data }) => ({ ok: true, next: { ...data, a: 1 }, create: true }))
       expect(ok.success).toBe(true)
+
+      // 等价写法不得绕过守卫：`…/.claude/./settings.json` 解析后就是默认目标
+      process.env.CLAUDE_CONFIG_DIR = path.join(tempHome, 'somewhere-else')
+      const dotted = path.join(claudeDir, '.', 'settings.json')
+      const viaDotted = await mutateClaudeSettingsFile(
+        ({ data }) => ({ ok: true, next: { ...data, a: 2 }, create: true }),
+        { filePath: dotted },
+      )
+      expect(viaDotted.success).toBe(false)
+      expect(viaDotted.errorCode).toBe('SETTINGS_CUSTOM_ROOT_UNSUPPORTED')
     } finally {
       if (original === undefined) delete process.env.CLAUDE_CONFIG_DIR
       else process.env.CLAUDE_CONFIG_DIR = original

@@ -110,6 +110,9 @@ async function setSkillOverride(settingsPath, skillName, nextState) {
   if (!result.success) {
     throw Object.assign(new Error(result.errorCode || 'WRITE_FAILED'), {
       code: result.errorCode || 'WRITE_FAILED',
+      // 已提交但校验/持久化未达成时不得被上层当成"完全没写"
+      committed: result.committed === true,
+      durability: result.durability || null,
     })
   }
   return nextState
