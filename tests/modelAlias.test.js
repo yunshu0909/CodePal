@@ -12,7 +12,7 @@
  */
 
 import { describe, it, expect } from 'vitest'
-import { normalizeModelKey, resolveCanonicalName, mergeAliasedModels } from '../electron/services/modelAlias.mjs'
+import { normalizeModelKey, resolveCanonicalName, mergeAliasedModels, normalizeClaudeModelName } from '../electron/services/modelAlias.mjs'
 
 const ALIASES = {
   'deepseek-v4-flash': 'deepseek-v4.1-flash',
@@ -60,6 +60,37 @@ describe('resolveCanonicalName', () => {
   })
 })
 
+describe('normalizeClaudeModelName', () => {
+  it('带 minor 的照旧格式化', () => {
+    expect(normalizeClaudeModelName('claude-opus-4-7')).toBe('Claude Opus 4.7')
+    expect(normalizeClaudeModelName('claude-sonnet-4-6')).toBe('Claude Sonnet 4.6')
+    expect(normalizeClaudeModelName('claude-haiku-4-5-20251001')).toBe('Claude Haiku 4.5')
+  })
+
+  it('缺 minor 的也格式化（回归：此前会漏成原始 id）', () => {
+    expect(normalizeClaudeModelName('claude-opus-5')).toBe('Claude Opus 5')
+    expect(normalizeClaudeModelName('claude-sonnet-5')).toBe('Claude Sonnet 5')
+    expect(normalizeClaudeModelName('claude-opus-4')).toBe('Claude Opus 4')
+  })
+
+  it('8 位日期不会被当成 minor', () => {
+    expect(normalizeClaudeModelName('claude-opus-4-20251001')).toBe('Claude Opus 4')
+    expect(normalizeClaudeModelName('claude-haiku-4-5-20251001')).toBe('Claude Haiku 4.5')
+  })
+
+  it('非 Claude 写法 / 老顺序写法原样返回，不猜', () => {
+    expect(normalizeClaudeModelName('deepseek-flash')).toBe('deepseek-flash')
+    expect(normalizeClaudeModelName('glm-5.3')).toBe('glm-5.3')
+    // claude-3-5-sonnet 这种旧顺序不在支持范围（与改动前一致）
+    expect(normalizeClaudeModelName('claude-3-5-sonnet')).toBe('claude-3-5-sonnet')
+  })
+
+  it('空值返回 unknown（与改动前一致）', () => {
+    expect(normalizeClaudeModelName('')).toBe('unknown')
+    expect(normalizeClaudeModelName(undefined)).toBe('unknown')
+  })
+})
+
 describe('mergeAliasedModels', () => {
   it('别名先出现：合并成一行，token 相加，sourceModels 保留全部原始 id', () => {
     const merged = mergeAliasedModels(
@@ -103,6 +134,18 @@ describe('mergeAliasedModels', () => {
       'deepseek-v4-pro',
       'glm-5.3',
     ])
+  })
+
+  it('视图层把缓存的 Claude 原始 id 也变成可读名（幂等，新旧数据一致）', () => {
+    const merged = mergeAliasedModels(
+      [row('claude-opus-5', 10), row('Claude Sonnet 5', 5), row('deepseek-flash', 1)],
+      ALIASES,
+      KNOWN
+    )
+
+    expect(merged.map((m) => m.name)).toEqual(['Claude Opus 5', 'Claude Sonnet 5', 'deepseek-v4.1-flash'])
+    // 已经格式化的名字不会被二次加工
+    expect(mergeAliasedModels([row('Claude Opus 4.7', 1)], ALIASES, KNOWN)[0].name).toBe('Claude Opus 4.7')
   })
 
   it('合并前后总量不变（占比与费用口径不受影响）', () => {

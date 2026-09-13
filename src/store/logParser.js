@@ -9,6 +9,8 @@
  * @module store/logParser
  */
 
+import { normalizeClaudeModelName } from '../../electron/services/modelAlias.mjs';
+
 /**
  * 解析 Claude 日志行
  * Claude 日志格式：包含 message.usage 字段
@@ -138,25 +140,14 @@ export function parseCodexTokenSnapshot(line) {
 
 /**
  * 标准化模型名称
- * Claude 模型做可读化：claude-opus-4-6 → Claude Opus 4.6
- * 非 Claude 模型保留原始名称，不同版本不合并
+ * Claude 模型做可读化（含没有 minor 的型号，如 claude-opus-5 → Claude Opus 5）；
+ * 非 Claude 模型保留原始名称，不同版本不合并。
+ * 实现在 modelAlias.mjs，与主进程共用同一份（避免两处正则漂移）。
  * @param {string} model - 原始模型名称
  * @returns {string} 标准化后的模型名称
  */
 function normalizeModelName(model) {
-  if (!model || typeof model !== 'string') {
-    return 'unknown';
-  }
-
-  // Claude 完整格式：claude-{tier}-{major}-{minor}[-datestring]
-  const claudeMatch = model.match(/^claude-([a-z]+)-(\d+)-(\d+)(?:-\d{8,})?$/i);
-  if (claudeMatch) {
-    const tier = claudeMatch[1].charAt(0).toUpperCase() + claudeMatch[1].slice(1).toLowerCase();
-    return `Claude ${tier} ${claudeMatch[2]}.${claudeMatch[3]}`;
-  }
-
-  // 非 Claude 模型：保留原始名称
-  return model;
+  return normalizeClaudeModelName(model);
 }
 
 /**
