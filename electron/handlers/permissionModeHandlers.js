@@ -246,8 +246,10 @@ async function setPermissionMode(mode, pathExists, options = {}) {
   // 因此不再依赖调用方预先读取的快照，也不会覆盖并发的 model / skillOverrides 改动。
   // 企业 / 组织级托管设置优先级高于用户配置：被覆盖时必须告知，不能谎报「已生效」
   let managedOverride = false
-  const writeResult = await mutateClaudeSettingsFile(({ data, kind, isManagedField }) => {
+  let managedUnknown = false
+  const writeResult = await mutateClaudeSettingsFile(({ data, kind, isManagedField, managedUnknown: unknown }) => {
     managedOverride = typeof isManagedField === 'function' && isManagedField('permissions.defaultMode')
+    managedUnknown = unknown === true
     if (kind === 'corrupt') {
       // 历史行为：JSON 损坏时备份原文件后以空对象重建
       return { ok: true, next: { permissions: { defaultMode: mode } }, allowCorruptRepair: true }
@@ -274,6 +276,9 @@ async function setPermissionMode(mode, pathExists, options = {}) {
       success: false,
       error: errorMap[writeResult.errorCode] || writeResult.error || `写入失败: ${writeResult.errorCode}`,
       errorCode,
+      // 已提交但校验/持久化未达成的状态必须一并上报，调用方不能把它当成"完全没写"
+      committed: writeResult.committed === true,
+      durability: writeResult.durability || null,
     }
   }
 
@@ -282,10 +287,13 @@ async function setPermissionMode(mode, pathExists, options = {}) {
     backupPath: writeResult.backupPath,
     error: null,
     errorCode: null,
+    committed: writeResult.committed === true,
+    durability: writeResult.durability || null,
     managedOverride,
+    managedUnknown,
     managedNotice: managedOverride
       ? '该设置已被企业 / 组织托管配置覆盖，本次写入不会生效'
-      : null,
+      : (managedUnknown ? '无法确认该设置是否被托管配置覆盖，实际生效未验证' : null),
   }
 }
 

@@ -66,7 +66,18 @@ async function backupClaudeSettingsRaw(rawContent, suffix = 'snapshot', backupDi
   try {
     // 备份目录私有化：mkdir 的 mode 只影响新建目录，已存在的目录必须显式收紧
     await fs.mkdir(backupDir, { recursive: true, mode: PRIVATE_DIR_MODE })
-    await fs.chmod(backupDir, PRIVATE_DIR_MODE).catch(() => {})
+    try {
+      // mkdir 的 mode 只影响新建目录：已存在的宽松目录必须显式收紧。
+      // 收紧失败就不能宣称「备份安全」——备份里可能含 API key。
+      await fs.chmod(backupDir, PRIVATE_DIR_MODE)
+    } catch (chmodError) {
+      return {
+        success: false,
+        backupPath: null,
+        errorCode: 'PERMISSION_DENIED',
+        error: `备份目录无法收紧为 0700（${chmodError.code || chmodError.message}），已中止备份与写入`,
+      }
+    }
 
     const base = `settings-${suffix}-${createBackupTimestamp()}`
     // 用 wx 独占创建：同毫秒重名时**不覆盖已有备份**，换个名字重试
@@ -88,9 +99,12 @@ async function backupClaudeSettingsRaw(rawContent, suffix = 'snapshot', backupDi
     }
 
     // 原始字节原样落地，不做任何编码转换；fsync 后才算备份成立
-    await handle.writeFile(rawContent)
-    await handle.sync()
-    await handle.close()
+    try {
+      await handle.writeFile(rawContent)
+      await handle.sync()
+    } finally {
+      await handle.close().catch(() => {})
+    }
     return { success: true, backupPath, errorCode: null, error: null }
   } catch (error) {
     if (error.code === 'EACCES' || error.code === 'EPERM') {
@@ -161,11 +175,15 @@ function managedSettingsPaths() {
  */
 async function readManagedSettings(paths = null) {
   let merged = null
+  let unknown = false
   for (const candidate of (paths || managedSettingsPaths())) {
     const state = await readSettingsFileState(candidate)
     if (state.kind === 'valid') merged = { ...(merged || {}), ...state.data }
+    // 存在却读不出（权限 / 解析失败 / 类型异常）→ 无法判断是否覆盖，必须标为未知，
+    // 不能把「读不到」当成「没被托管」，那正是谎报已生效的来源。
+    else if (state.kind !== 'missing') unknown = true
   }
-  return merged
+  return { data: merged, unknown }
 }
 
 /**
@@ -286,47 +304,52 @@ async function readSettingsFileState(filePath) {
  */
 async function createSettingsFileExclusive(filePath, contentBytes) {
   const tempPath = `${filePath}.codepal-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.tmp`
-  let handle
+  let handle = null
+  // 只有**确实由本次创建**的临时文件才允许清理；O_EXCL 返回 EEXIST 说明它不是我们的
+  let ownsTemp = false
   try {
     await fs.mkdir(path.dirname(filePath), { recursive: true, mode: PRIVATE_DIR_MODE })
     handle = await fs.open(tempPath, fsConstants.O_WRONLY | fsConstants.O_CREAT | fsConstants.O_EXCL, PRIVATE_FILE_MODE)
+    ownsTemp = true
     await handle.writeFile(contentBytes)
     await handle.sync()
-    await handle.close()
-    handle = null
   } catch (error) {
-    if (handle) await handle.close().catch(() => {})
-    await fs.rm(tempPath, { force: true }).catch(() => {})   // 只删自己的临时文件
     const errorCode = error.code === 'EACCES' || error.code === 'EPERM'
       ? 'PERMISSION_DENIED'
       : error.code === 'ENOSPC' ? 'DISK_FULL' : 'WRITE_FAILED'
     return { success: false, committed: false, errorCode, error: `创建 Claude settings.json 失败: ${error.message}` }
+  } finally {
+    if (handle) await handle.close().catch(() => {})
   }
 
   try {
     await fs.link(tempPath, filePath)   // no-replace：目标已存在即 EEXIST
   } catch (error) {
-    await fs.rm(tempPath, { force: true }).catch(() => {})
+    if (ownsTemp) await fs.rm(tempPath, { force: true }).catch(() => {})
     if (error.code === 'EEXIST') {
       return { success: false, committed: false, errorCode: 'SETTINGS_ALREADY_EXISTS', error: 'settings.json 已被其他操作创建，本次未写入' }
     }
-    const errorCode = error.code === 'EACCES' || error.code === 'EPERM' ? 'PERMISSION_DENIED' : 'WRITE_FAILED'
+    const errorCode = error.code === 'EACCES' || error.code === 'EPERM'
+      ? 'PERMISSION_DENIED'
+      : error.code === 'ENOSPC' ? 'DISK_FULL' : 'WRITE_FAILED'
     return { success: false, committed: false, errorCode, error: `创建 Claude settings.json 失败: ${error.message}` }
   }
-  await fs.rm(tempPath, { force: true }).catch(() => {})
+  if (ownsTemp) await fs.rm(tempPath, { force: true }).catch(() => {})
 
   let durability = 'synced'
+  let dirHandle = null
   try {
-    const dirHandle = await fs.open(path.dirname(filePath), 'r')
+    dirHandle = await fs.open(path.dirname(filePath), 'r')
     await dirHandle.sync()
-    await dirHandle.close()
   } catch {
     durability = 'unsynced'
+  } finally {
+    if (dirHandle) await dirHandle.close().catch(() => {})
   }
 
   const readback = await readSettingsFileState(filePath)
   if (readback.kind !== 'valid' || !readback.rawBytes || !readback.rawBytes.equals(contentBytes)) {
-    return { success: false, committed: true, errorCode: 'SETTINGS_READBACK_MISMATCH', error: '文件已创建但回读校验失败，内容与预期不一致' }
+    return { success: false, committed: true, durability, errorCode: 'SETTINGS_READBACK_MISMATCH', error: '文件已创建但回读校验失败，内容与预期不一致' }
   }
   return { success: true, committed: true, durability, errorCode: null, error: null }
 }
@@ -347,21 +370,22 @@ async function createSettingsFileExclusive(filePath, contentBytes) {
  */
 async function replaceSettingsFileAtomically(filePath, contentBytes, { expectedBytes = null } = {}) {
   const tempPath = `${filePath}.codepal-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.tmp`
-  let handle
+  let handle = null
+  // 只有**确实由本次创建**的临时文件才允许清理
+  let ownsTemp = false
   try {
     await fs.mkdir(path.dirname(filePath), { recursive: true, mode: PRIVATE_DIR_MODE })
     handle = await fs.open(tempPath, fsConstants.O_WRONLY | fsConstants.O_CREAT | fsConstants.O_EXCL, PRIVATE_FILE_MODE)
+    ownsTemp = true
     await handle.writeFile(contentBytes)
     await handle.sync()
-    await handle.close()
-    handle = null
   } catch (error) {
-    if (handle) await handle.close().catch(() => {})
-    await fs.rm(tempPath, { force: true }).catch(() => {})
     const errorCode = error.code === 'EACCES' || error.code === 'EPERM'
       ? 'PERMISSION_DENIED'
       : error.code === 'ENOSPC' ? 'DISK_FULL' : 'WRITE_FAILED'
     return { success: false, committed: false, errorCode, error: `写入 Claude settings.json 失败: ${error.message}` }
+  } finally {
+    if (handle) await handle.close().catch(() => {})
   }
 
   try {
@@ -373,13 +397,13 @@ async function replaceSettingsFileAtomically(filePath, contentBytes, { expectedB
       // 只比字节，不要求 current 是 valid——损坏修复（含零字节）时原文本来就解析不出来
       const unchanged = current.rawBytes && current.rawBytes.equals(expectedBytes)
       if (!unchanged) {
-        await fs.rm(tempPath, { force: true }).catch(() => {})
+        if (ownsTemp) await fs.rm(tempPath, { force: true }).catch(() => {})
         return { success: false, committed: false, errorCode: 'SETTINGS_CONFLICT', error: 'settings.json 在本次写入期间被外部修改，已放弃写入' }
       }
     }
     await fs.rename(tempPath, filePath)
   } catch (error) {
-    await fs.rm(tempPath, { force: true }).catch(() => {})
+    if (ownsTemp) await fs.rm(tempPath, { force: true }).catch(() => {})
     const errorCode = error.code === 'EACCES' || error.code === 'EPERM'
       ? 'PERMISSION_DENIED'
       : error.code === 'ENOSPC' ? 'DISK_FULL' : 'WRITE_FAILED'
@@ -388,13 +412,15 @@ async function replaceSettingsFileAtomically(filePath, contentBytes, { expectedB
 
   // 目标已被替换（committed=true）。此后任何失败都不得谎报成"完全没写"。
   let durability = 'synced'
+  let dirHandle = null
   try {
-    const dirHandle = await fs.open(path.dirname(filePath), 'r')
+    dirHandle = await fs.open(path.dirname(filePath), 'r')
     await dirHandle.sync()
-    await dirHandle.close()
   } catch {
     // 目录项未持久化：极端断电下有丢失风险，但本次替换确实已生效
     durability = 'unsynced'
+  } finally {
+    if (dirHandle) await dirHandle.close().catch(() => {})
   }
 
   const readback = await readSettingsFileState(filePath)
@@ -457,7 +483,8 @@ async function mutateClaudeSettingsFile(mutator, { filePath = CLAUDE_SETTINGS_FI
     const data = state.kind === 'valid' ? state.data : {}
     // 企业 / 组织级托管设置的优先级高于用户配置：已知覆盖必须能被上层报告，
     // 否则 UI 会在字段实际被托管强制时谎报「已生效」。
-    const managed = await readManagedSettings(managedPaths)
+    const managedInfo = await readManagedSettings(managedPaths)
+    const managed = managedInfo.data
     // 传入完整的 state，并**同时**在顶层展开 errorCode/error/raw/rawBytes，
     // 避免调用方按任一种写法解构都拿不到值。
     const outcome = await mutator({
@@ -470,6 +497,7 @@ async function mutateClaudeSettingsFile(mutator, { filePath = CLAUDE_SETTINGS_FI
       errorCode: state.errorCode,
       error: state.error,
       managed,
+      managedUnknown: managedInfo.unknown,
       isManagedField: (fieldPath) => isManagedField(managed, fieldPath),
     })
     if (!outcome || outcome.ok !== true) {
@@ -530,13 +558,15 @@ async function mutateClaudeSettingsFile(mutator, { filePath = CLAUDE_SETTINGS_FI
       })
 
     if (!writeResult.success) {
+      // committed=true 表示目标**已经被改动**（例如替换后回读失败）：不得谎报成完全没写
       return {
         success: false,
         committed: writeResult.committed === true,
+        durability: writeResult.durability || null,
         backupPath,
         errorCode: writeResult.errorCode,
         error: writeResult.error,
-        exists: state.exists,
+        exists: writeResult.committed === true ? true : state.exists,
       }
     }
     return {
@@ -548,6 +578,7 @@ async function mutateClaudeSettingsFile(mutator, { filePath = CLAUDE_SETTINGS_FI
       error: null,
       exists: true,
       managed,
+      managedUnknown: managedInfo.unknown,
     }
   }
 

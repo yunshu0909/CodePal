@@ -439,7 +439,11 @@ function createClaudeUsageStatusService({ pathExists, claudeSettingsService }) {
     // 拒绝时把**事务内实际看到的所有权事实**带出来给 UI——不再用调用方读去重读，
     // 那样等于让呈现又回到可能过时的路径上。
     let ownershipAtCommit = null
-    const settingsWriteResult = await claudeSettingsService.mutateClaudeSettingsFile(({ data, kind }) => {
+    let managedOverride = false
+    let managedUnknown = false
+    const settingsWriteResult = await claudeSettingsService.mutateClaudeSettingsFile(({ data, kind, isManagedField, managedUnknown: unknown }) => {
+      managedOverride = typeof isManagedField === 'function' && isManagedField('statusLine')
+      managedUnknown = unknown === true
       if (kind === 'corrupt') {
         return { ok: false, errorCode: 'CONFIG_CORRUPTED', error: 'Claude settings.json 已损坏' }
       }
@@ -454,13 +458,20 @@ function createClaudeUsageStatusService({ pathExists, claudeSettingsService }) {
         // 事务内复判：用户已改为自定义状态栏 → 取消本次静默维护，绝不覆盖
         return { ok: false, errorCode: 'USAGE_STATUS_OWNERSHIP_CONFLICT', error: '检测到用户已更改 Claude 状态栏' }
       }
+      // 静默维护只作用于「当前确实由 CodePal 托管」的状态栏：
+      // 用户只删掉 statusLine 字段（或留空对象）同样是撤销配置，不得借静默维护写回去。
+      // force=true 是"用户在二次确认弹窗里同意接管"的显式路径，不受此限。
+      if (!force && !allowCreate && !ownership.usesManagedStatusLine) {
+        return { ok: false, errorCode: 'USAGE_STATUS_NOT_MANAGED', error: '静默维护仅作用于已由 CodePal 托管的状态栏' }
+      }
       const next = { ...data, statusLine: { type: 'command', command: MANAGED_STATUS_COMMAND } }
       return { ok: true, next, create: allowCreate }
     }, { backupSuffix: 'codepal-usage-status' })
 
     if (!settingsWriteResult.success) {
-      if (settingsWriteResult.errorCode === 'USAGE_STATUS_SILENT_NO_CREATE') {
-        // 不是错误：文件不存在＝用户未接入（或已撤销）。如实返回未接入状态，不创建。
+      if (settingsWriteResult.errorCode === 'USAGE_STATUS_SILENT_NO_CREATE'
+        || settingsWriteResult.errorCode === 'USAGE_STATUS_NOT_MANAGED') {
+        // 不是错误：文件不存在 / 已被用户撤销接入。如实返回未接入状态，不写回。
         return getUsageStatusState()
       }
       if (settingsWriteResult.errorCode === 'USAGE_STATUS_OWNERSHIP_CONFLICT') {
@@ -478,7 +489,16 @@ function createClaudeUsageStatusService({ pathExists, claudeSettingsService }) {
       }
     }
 
-    return getUsageStatusState()
+    // 托管配置优先级更高：写入成功也可能不生效，必须如实带上，UI 不得宣称已接入
+    const finalState = await getUsageStatusState()
+    return {
+      ...finalState,
+      managedOverride,
+      managedUnknown,
+      managedNotice: managedOverride
+        ? '该状态栏已被企业 / 组织托管配置覆盖，本次接入实际不会生效'
+        : (managedUnknown ? '无法确认该状态栏是否被托管配置覆盖，实际生效未验证' : null),
+    }
   }
 
   /**

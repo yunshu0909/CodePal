@@ -217,7 +217,7 @@ export default function ModelConfigTab({ onToast }) {
       if (result.success) {
         setCurrentModel(val)
         setIsModelConfigured(true)
-        onToast(`已切换默认模型为「${val}」`, 'success')
+        onToast(result.managedNotice || `已切换默认模型为「${val}」`, result.managedNotice ? 'error' : 'success')
       } else {
         onToast(result.error || '切换失败，无法写入配置文件', 'error')
       }
@@ -244,7 +244,7 @@ export default function ModelConfigTab({ onToast }) {
       if (result.success) {
         setCurrentEffort(effortId)
         setIsEffortConfigured(true)
-        onToast(`已切换推理等级为「${displayName}」`, 'success')
+        onToast(result.managedNotice || `已切换推理等级为「${displayName}」`, result.managedNotice ? 'error' : 'success')
       } else {
         onToast(result.error || '切换失败，无法写入配置文件', 'error')
       }

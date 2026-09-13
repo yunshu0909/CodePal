@@ -163,8 +163,10 @@ async function setModelConfig(field, value, pathExists, options = {}) {
   // 不再依赖调用方预先读取的快照，也不会覆盖并发的 permissions / skillOverrides 改动。
   // 企业 / 组织级托管设置优先级高于用户配置：被覆盖时必须告知，不能谎报「已生效」
   let managedOverride = false
-  const writeResult = await mutateClaudeSettingsFile(({ data, kind, isManagedField }) => {
+  let managedUnknown = false
+  const writeResult = await mutateClaudeSettingsFile(({ data, kind, isManagedField, managedUnknown: unknown }) => {
     managedOverride = typeof isManagedField === 'function' && isManagedField(field)
+    managedUnknown = unknown === true
     if (kind === 'corrupt') {
       // 历史行为：JSON 损坏时备份原文件后以空对象重建
       return { ok: true, next: { [field]: value }, allowCorruptRepair: true }
@@ -185,6 +187,8 @@ async function setModelConfig(field, value, pathExists, options = {}) {
       success: false,
       error: errorMap[writeResult.errorCode] || writeResult.error || `写入失败: ${writeResult.errorCode}`,
       errorCode,
+      committed: writeResult.committed === true,
+      durability: writeResult.durability || null,
     }
   }
 
@@ -193,10 +197,13 @@ async function setModelConfig(field, value, pathExists, options = {}) {
     backupPath: writeResult.backupPath,
     error: null,
     errorCode: null,
+    committed: writeResult.committed === true,
+    durability: writeResult.durability || null,
     managedOverride,
+    managedUnknown,
     managedNotice: managedOverride
       ? '该设置已被企业 / 组织托管配置覆盖，本次写入不会生效'
-      : null,
+      : (managedUnknown ? '无法确认该设置是否被托管配置覆盖，实际生效未验证' : null),
   }
 }
 
