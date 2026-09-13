@@ -13,6 +13,7 @@ const fs = require('fs/promises')
 const path = require('path')
 const { createReadStream } = require('fs')
 const readline = require('readline')
+const { StringDecoder } = require('string_decoder')
 
 /**
  * 流式提取 Codex 计量证据，不让正文和工具输出滞留或跨 IPC 传输。
@@ -67,45 +68,62 @@ async function readCodexUsageLines(filePath) {
  * @returns {Promise<string[]>} 紧凑化后的用量行（保持原顺序）
  */
 async function readClaudeUsageLines(filePath, maxLinesPerFile) {
-  const stream = createReadStream(filePath, { encoding: 'utf-8' })
-  const reader = readline.createInterface({ input: stream, crlfDelay: Infinity })
+  const stream = createReadStream(filePath)
+  const decoder = new StringDecoder('utf8')
 
   const limit = maxLinesPerFile > 0 ? maxLinesPerFile : 0
   const ring = limit > 0 ? new Array(limit).fill(null) : null
   let nonEmptyCount = 0
+  let pending = ''
+
+  /**
+   * 与旧实现 `content.split('\n').filter(line => line.trim())` **逐行等价**：
+   * - 只按 LF 分行。不要用 readline：它把裸 CR 也当行边界，而 JSON 字段之间的
+   *   CR 是合法空白，按 readline 会把一条完整记录拆坏（旧实现不会）。
+   * - 不做 `"usage"` 子串预筛。子串匹配不是「含 usage 字段」的必要条件——
+   *   键写成 `"us\u0061ge"` 时 JSON.parse 仍得到 usage，但子串不中，
+   *   预筛会静默丢掉这条合法记录。正确性优先于这点 CPU。
+   */
+  function handleLine(raw) {
+    if (!raw.trim()) return
+
+    const index = nonEmptyCount
+    nonEmptyCount += 1
+
+    let compact = null
+    try {
+      const data = JSON.parse(raw)
+      const message = data?.message
+      if (message?.usage) {
+        compact = JSON.stringify({
+          timestamp: data.timestamp || message.timestamp || null,
+          cwd: typeof data.cwd === 'string' ? data.cwd : null,
+          message: {
+            id: typeof message.id === 'string' ? message.id : null,
+            model: message.model,
+            usage: message.usage,
+          },
+        })
+      }
+    } catch {
+      compact = null
+    }
+
+    if (ring) ring[index % limit] = compact
+  }
 
   try {
-    for await (const raw of reader) {
-      if (!raw.trim()) continue
-
-      const index = nonEmptyCount
-      nonEmptyCount += 1
-
-      let compact = null
-      if (raw.includes('"usage"')) {
-        try {
-          const data = JSON.parse(raw)
-          const message = data?.message
-          if (message?.usage) {
-            compact = JSON.stringify({
-              timestamp: data.timestamp || message.timestamp || null,
-              cwd: typeof data.cwd === 'string' ? data.cwd : null,
-              message: {
-                id: typeof message.id === 'string' ? message.id : null,
-                model: message.model,
-                usage: message.usage,
-              },
-            })
-          }
-        } catch {
-          compact = null
-        }
+    for await (const chunk of stream) {
+      pending += decoder.write(chunk)
+      let index
+      while ((index = pending.indexOf('\n')) >= 0) {
+        handleLine(pending.slice(0, index))
+        pending = pending.slice(index + 1)
       }
-
-      if (ring) ring[index % limit] = compact
     }
+    pending += decoder.end()
+    if (pending !== '') handleLine(pending)
   } finally {
-    reader.close()
     stream.destroy()
   }
 

@@ -16,7 +16,7 @@
  * @module tests/claudeUsageStreaming
  */
 
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { createRequire } from 'node:module'
 import fs from 'node:fs'
 import os from 'node:os'
@@ -183,5 +183,67 @@ describe('TC-104 scanClaudeLogs 端到端等价', () => {
 
     fs.rmSync(dir, { recursive: true, force: true })
     fs.rmSync(home, { recursive: true, force: true })
+  })
+})
+
+/**
+ * 回归：流式读取必须与旧实现（整份读 → 按 LF 切分 → 逐行 JSON.parse）逐行等价
+ *
+ * 这两个夹具来自代码门 Astra CODE-001：我先前的实现里有两个不等价假设，
+ * 真机语料对账抓不到（真实日志不含这两种写法），只有构造夹具才能钉住。
+ */
+describe('与旧实现逐行等价的边界夹具', () => {
+  let dir
+
+  beforeEach(() => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'claude-edge-'))
+  })
+
+  afterEach(() => {
+    fs.rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('键写成转义形式（"us\\u0061ge"）时仍然保留该条用量记录', async () => {
+    // '"usage"' → '"us\u0061ge"'：JSON.parse 后仍是 usage，但子串 "usage" 不出现。
+    // 若用 raw.includes('"usage"') 预筛，这条合法记录会被静默丢掉。
+    const line = JSON.stringify({
+      timestamp: '2026-08-09T01:00:00.000Z',
+      message: { id: 'esc-1', usage: { input_tokens: 5, output_tokens: 1 } }
+    }).replace('"usage"', '"us\\u0061ge"')
+
+    const full = path.join(dir, 'escaped.jsonl')
+    fs.writeFileSync(full, line + '\n', 'utf-8')
+
+    const lines = await readClaudeUsageLines(full, 10000)
+    expect(lines).toHaveLength(1)
+    expect(JSON.parse(lines[0]).message.usage.input_tokens).toBe(5)
+  })
+
+  it('JSON 字段之间含裸 CR 空白时不会被拆坏', async () => {
+    // 旧实现只按 LF 切分；readline 会把裸 CR 也当行边界，从而把一条记录拆成两半。
+    const raw = '{"timestamp":"2026-08-09T01:00:00.000Z",\r"message":{"id":"cr-1","usage":{"input_tokens":7}}}\n'
+
+    const full = path.join(dir, 'bare-cr.jsonl')
+    fs.writeFileSync(full, raw, 'utf-8')
+
+    const lines = await readClaudeUsageLines(full, 10000)
+    expect(lines).toHaveLength(1)
+    expect(JSON.parse(lines[0]).message.usage.input_tokens).toBe(7)
+  })
+
+  it('末尾无换行与连续空行的处理与旧实现一致', async () => {
+    const a = JSON.stringify({ timestamp: '2026-08-09T01:00:00.000Z', message: { id: 'a', usage: { input_tokens: 1 } } })
+    const b = JSON.stringify({ timestamp: '2026-08-09T02:00:00.000Z', message: { id: 'b', usage: { input_tokens: 2 } } })
+
+    const full = path.join(dir, 'tail.jsonl')
+    // a / 空行 / b / 结尾无换行
+    fs.writeFileSync(full, `${a}\n\n${b}`, 'utf-8')
+
+    const lines = await readClaudeUsageLines(full, 10000)
+    expect(lines.map((l) => JSON.parse(l).message.id)).toEqual(['a', 'b'])
+
+    // 只取末尾 1 个非空行 → 只剩 b
+    const tail1 = await readClaudeUsageLines(full, 1)
+    expect(tail1.map((l) => JSON.parse(l).message.id)).toEqual(['b'])
   })
 })
