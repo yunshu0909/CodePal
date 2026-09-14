@@ -59,8 +59,8 @@ async function readCodexUsageLines(filePath) {
  *
  * - 环形缓冲**按「非空行」占槽**，而不是按「用量行」占槽。否则"末尾 N 行里没有用量行"
  *   的情况下会把本应被裁掉的旧用量行多算出来 —— 那是行为漂移，不是优化。
- * - 不含 `"usage"` 字样的行不可能是用量行（`parseClaudeLog` 必返回 null），直接跳过，
- *   省掉 `JSON.parse`；这只是必要条件预筛，不改变结果。
+ * - 每个非空行都必须交给 `JSON.parse` 判断结构；不能用 `"usage"` 子串预筛，因为 JSON
+ *   键允许 Unicode 转义，合法的 `"us\u0061ge"` 会被字符串匹配错误丢弃。
  * - 只保留用量必要字段，逐行紧凑化，内存量级由"末尾 N 行"决定，与文件总大小无关。
  *
  * @param {string} filePath - JSONL 文件
