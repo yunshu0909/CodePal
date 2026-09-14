@@ -141,21 +141,23 @@ export default function ModelConfigTab({ onToast }) {
   }, [])
 
   /**
-   * 切回"跟随账户默认"（写空字符串，Claude Code 会 fallback 到账户默认模型）
+   * 同一事务删除 model 与 effortLevel，恢复 Claude 客户端默认。
    */
   const handleResetToDefault = async () => {
-    if (!isModelConfigured) return
+    if (!isModelConfigured && !isEffortConfigured) return
     if (isSwitching) return
 
     try {
       setIsSwitching(true)
-      const result = await window.electronAPI.setModelConfig('model', '')
+      const result = await window.electronAPI.resetModelConfig()
 
       if (result.success) {
         setCurrentModel(null)
+        setCurrentEffort(null)
         setIsModelConfigured(false)
+        setIsEffortConfigured(false)
         setCustomInput('')
-        onToast('已切换为跟随账户默认', 'success')
+        onToast(result.managedNotice || '已恢复 Claude 客户端默认', result.managedNotice ? 'error' : 'success')
       } else {
         onToast(result.error || '切换失败，无法写入配置文件', 'error')
       }
@@ -184,7 +186,7 @@ export default function ModelConfigTab({ onToast }) {
         setCurrentModel(modelId)
         setIsModelConfigured(true)
         setCustomInput('')
-        onToast(`已切换默认模型为「${displayName}」`, 'success')
+        onToast(result.managedNotice || `已切换默认模型为「${displayName}」`, result.managedNotice ? 'error' : 'success')
       } else {
         onToast(result.error || '切换失败，无法写入配置文件', 'error')
       }
@@ -213,7 +215,7 @@ export default function ModelConfigTab({ onToast }) {
       if (result.success) {
         setCurrentModel(val)
         setIsModelConfigured(true)
-        onToast(`已切换默认模型为「${val}」`, 'success')
+        onToast(result.managedNotice || `已切换默认模型为「${val}」`, result.managedNotice ? 'error' : 'success')
       } else {
         onToast(result.error || '切换失败，无法写入配置文件', 'error')
       }
@@ -240,7 +242,7 @@ export default function ModelConfigTab({ onToast }) {
       if (result.success) {
         setCurrentEffort(effortId)
         setIsEffortConfigured(true)
-        onToast(`已切换推理等级为「${displayName}」`, 'success')
+        onToast(result.managedNotice || `已切换推理等级为「${displayName}」`, result.managedNotice ? 'error' : 'success')
       } else {
         onToast(result.error || '切换失败，无法写入配置文件', 'error')
       }
@@ -328,6 +330,16 @@ export default function ModelConfigTab({ onToast }) {
           <InfoIcon />
           仅适用于 Claude 原生接入
         </span>
+        <Button
+          variant="secondary"
+          size="sm"
+          className="model-config-reset"
+          onClick={handleResetToDefault}
+          disabled={isSwitching || (!isModelConfigured && !isEffortConfigured)}
+          data-testid="model-config-reset"
+        >
+          恢复模型和推理强度默认
+        </Button>
       </div>
 
       <div className="model-grid">
@@ -335,18 +347,6 @@ export default function ModelConfigTab({ onToast }) {
         <div className="model-column">
           <div className="column-title">默认模型</div>
           <div className="radio-list">
-            {/* 跟随账户默认选项 */}
-            <label
-              className={`radio-item ${!isModelConfigured ? 'is-selected' : ''} ${isSwitching ? 'is-disabled' : ''}`}
-              onClick={() => !isSwitching && handleResetToDefault()}
-              data-testid="model-radio-default"
-            >
-              <span className="radio-circle" />
-              <span className="radio-label radio-label--text">跟随账户默认</span>
-              <span className="radio-sublabel">自动</span>
-            </label>
-            <div className="radio-list-divider" />
-
             {registry.models.map((model) => (
               <label
                 key={model.id}

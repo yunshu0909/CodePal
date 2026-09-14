@@ -43,10 +43,36 @@ function createSettingsService(settingsPath, onWrite = () => {}) {
       const content = await fs.readFile(settingsPath, 'utf8')
       return { success: true, exists: true, content, data: JSON.parse(content) }
     },
-    async writeClaudeSettingsFile(data, options) {
-      onWrite(data, options)
-      await fs.writeFile(settingsPath, `${JSON.stringify(data, null, 2)}\n`, 'utf8')
-      return { success: true }
+    // 事务版写入口：最小实现复现"读真实状态 → 交 mutator → 提交"，
+    // 并记录 mutator 产出的 next 与调用方给的 options，供断言核验。
+    async mutateClaudeSettingsFile(mutator, options = {}) {
+      let raw = ''
+      let data = {}
+      try {
+        raw = await fs.readFile(settingsPath, 'utf8')
+        data = JSON.parse(raw)
+      } catch {
+        data = {}
+      }
+      const outcome = await mutator({
+        state: { kind: 'valid', exists: true, errorCode: null, error: null, raw },
+        data,
+        raw,
+        exists: true,
+        kind: 'valid',
+      })
+      if (!outcome || outcome.ok !== true) {
+        return {
+          success: false,
+          backupPath: null,
+          errorCode: (outcome && outcome.errorCode) || 'MUTATION_REFUSED',
+          error: (outcome && outcome.error) || '变更被拒绝',
+          exists: true,
+        }
+      }
+      onWrite(outcome.next, options)
+      await fs.writeFile(settingsPath, `${JSON.stringify(outcome.next, null, 2)}\n`, 'utf8')
+      return { success: true, backupPath: null, errorCode: null, error: null, exists: true }
     },
   }
 }
@@ -108,8 +134,9 @@ describe.sequential('V1.9.9 Claude statusLine ownership', () => {
 
     expect(result.success).toBe(true)
     expect(writes).toHaveLength(1)
+    // 事务版：备份后缀由调用方声明；原内容由 broker 在事务内读取并备份，
+    // 不再依赖调用方回传 previousContent（那是旧接口的传参方式）。
     expect(writes[0].options.backupSuffix).toBe('codepal-usage-status')
-    expect(writes[0].options.previousContent).toBe(originalContent)
     expect(writes[0].data.statusLine.command).toBe(moduleUnderTest.MANAGED_STATUS_COMMAND)
   })
 
@@ -167,7 +194,7 @@ describe.sequential('V1.9.9 Claude statusLine ownership', () => {
     const { usageModule } = loadModuleWithHome(tempHome)
     const failingSettingsService = {
       ...createSettingsService(settingsPath),
-      writeClaudeSettingsFile: async () => ({ success: false, errorCode, error }),
+      mutateClaudeSettingsFile: async () => ({ success: false, errorCode, error }),
     }
     const service = usageModule.createClaudeUsageStatusService({ pathExists, claudeSettingsService: failingSettingsService })
 
@@ -204,30 +231,114 @@ describe.sequential('V1.9.9 Claude statusLine ownership', () => {
     expect(after.statusLine.command).toBe(customCommand)
   })
 
-  it('Q-TC-10d: service 内第二次读取发现自定义时零写入', async () => {
+  it('Q-TC-12: 不支持的配置根必须在任何副作用之前拒绝（不留半完成状态）', async () => {
     const { usageModule } = loadModuleWithHome(tempHome)
-    const managedSettings = {
-      statusLine: { type: 'command', command: usageModule.MANAGED_STATUS_COMMAND },
+    const settingsModule = loadModuleWithHome(tempHome).settingsModule
+    const settingsService = settingsModule.createClaudeSettingsService({ pathExists })
+
+    const original = process.env.CLAUDE_CONFIG_DIR
+    try {
+      process.env.CLAUDE_CONFIG_DIR = path.join(tempHome, 'elsewhere')
+      const service = usageModule.createClaudeUsageStatusService({ pathExists, claudeSettingsService: settingsService })
+      const result = await service.ensureUsageStatusInstalled({ force: false, intent: 'explicit' })
+
+      expect(result.success).toBe(false)
+      expect(result.errorCode).toBe('SETTINGS_CUSTOM_ROOT_UNSUPPORTED')
+      // 关键：脚本与 config 都不得落盘（拒绝发生在副作用之前）
+      expect(await pathExists(service.scriptPath)).toBe(false)
+      expect(await pathExists(service.configPath)).toBe(false)
+    } finally {
+      if (original === undefined) delete process.env.CLAUDE_CONFIG_DIR
+      else process.env.CLAUDE_CONFIG_DIR = original
     }
+  })
+
+  it('Q-TC-11: 静默维护不得复活被删除的 settings.json；显式接入可创建', async () => {
+    const { usageModule } = loadModuleWithHome(tempHome)
+    await fs.writeFile(path.join(tempHome, '.claude', 'codepal-usage-statusline.sh'), '# codepal-script-version: 1\n', { mode: 0o700 })
+    const settingsService = loadModuleWithHome(tempHome).settingsModule.createClaudeSettingsService({ pathExists })
+
+    // A) 静默 + 文件不存在 → 不创建
+    await fs.rm(settingsPath, { force: true })
+    let service = usageModule.createClaudeUsageStatusService({ pathExists, claudeSettingsService: settingsService })
+    let result = await service.ensureUsageStatusInstalled({ force: false, intent: 'silent' })
+    expect(result.integrationState).toBe('not_configured')
+    expect(await pathExists(settingsPath)).toBe(false)
+
+    // B) 未传 intent（老调用方）→ 安全默认静默，同样不创建
+    result = await service.ensureUsageStatusInstalled({ force: false })
+    expect(await pathExists(settingsPath)).toBe(false)
+
+    // C) 显式接入 + 文件不存在 → 允许创建
+    service = usageModule.createClaudeUsageStatusService({ pathExists, claudeSettingsService: settingsService })
+    result = await service.ensureUsageStatusInstalled({ force: false, intent: 'explicit' })
+    expect(result.success).toBe(true)
+    expect(await pathExists(settingsPath)).toBe(true)
+
+    // D) 用户删掉后静默维护 → 不得复活
+    await fs.rm(settingsPath, { force: true })
+    service = usageModule.createClaudeUsageStatusService({ pathExists, claudeSettingsService: settingsService })
+    result = await service.ensureUsageStatusInstalled({ force: false, intent: 'silent' })
+    expect(result.integrationState).toBe('not_configured')
+    expect(await pathExists(settingsPath)).toBe(false)
+
+    // E) 文件还在、但用户**只删掉了 statusLine 字段** → 同样是撤销接入，静默维护不得写回。
+    // （删掉 mutator 里的 NOT_MANAGED 判断后，本断言必须失败）
+    await fs.writeFile(settingsPath, `${JSON.stringify({ model: 'keep-me' }, null, 2)}\n`, 'utf8')
+    service = usageModule.createClaudeUsageStatusService({ pathExists, claudeSettingsService: settingsService })
+    result = await service.ensureUsageStatusInstalled({ force: false, intent: 'silent' })
+    const after = JSON.parse(await fs.readFile(settingsPath, 'utf8'))
+    expect(after.statusLine).toBeUndefined()
+    expect(after.model).toBe('keep-me')
+
+    // F) 同上的空对象形态
+    await fs.writeFile(settingsPath, `${JSON.stringify({ statusLine: {} }, null, 2)}\n`, 'utf8')
+    service = usageModule.createClaudeUsageStatusService({ pathExists, claudeSettingsService: settingsService })
+    await service.ensureUsageStatusInstalled({ force: false, intent: 'silent' })
+    expect(JSON.parse(await fs.readFile(settingsPath, 'utf8')).statusLine).toEqual({})
+  })
+
+  it('Q-TC-10d: 预读看到托管、事务内看到自定义 → 事务必须拒绝写入', async () => {
+    // 这是"过期决定"的构造：预读（含 getUsageStatusState 的那次）都看到"托管"，
+    // 因此流程一路走到事务；但**盘上内容在事务内读到的是自定义**。
+    // 断言：事务必须拒绝，文件逐字节不变。
+    // 鉴别力：删掉 mutator 里的所有权检查后，写入会成功、文件被改写 → 本用例失败。
+    const { usageModule, settingsModule } = loadModuleWithHome(tempHome)
     const customSettings = {
       statusLine: { type: 'command', command: 'bash "/tmp/changed-between-service-reads.sh"' },
     }
+    const managedSettings = {
+      statusLine: { type: 'command', command: usageModule.MANAGED_STATUS_COMMAND },
+    }
     await fs.writeFile(path.join(tempHome, '.claude', 'codepal-usage-statusline.sh'), '# codepal-script-version: 1\n', { mode: 0o700 })
-    const writeClaudeSettingsFile = vi.fn()
+    // 盘上就是自定义内容——事务内读到的必须是它
+    await fs.writeFile(settingsPath, `${JSON.stringify(customSettings, null, 2)}\n`, 'utf8')
+
+    const realService = settingsModule.createClaudeSettingsService({ pathExists })
+    const mutateSpy = vi.fn(realService.mutateClaudeSettingsFile)
     const claudeSettingsService = {
-      readClaudeSettingsFile: vi.fn()
-        .mockResolvedValueOnce({ success: true, exists: true, content: `${JSON.stringify(managedSettings)}\n`, data: managedSettings })
-        .mockResolvedValueOnce({ success: true, exists: true, content: `${JSON.stringify(customSettings)}\n`, data: customSettings }),
-      writeClaudeSettingsFile,
+      ...realService,
+      // 所有预读一律返回"托管"，好让流程**必须**进入事务才能发现真象
+      readClaudeSettingsFile: vi.fn().mockResolvedValue({
+        success: true,
+        exists: true,
+        content: `${JSON.stringify(managedSettings)}\n`,
+        data: managedSettings,
+      }),
+      mutateClaudeSettingsFile: mutateSpy,
     }
     const service = usageModule.createClaudeUsageStatusService({ pathExists, claudeSettingsService })
 
+    const before = await fs.readFile(settingsPath, 'utf8')
     const result = await service.ensureUsageStatusInstalled({ force: false })
+    const after = await fs.readFile(settingsPath, 'utf8')
 
-    expect(claudeSettingsService.readClaudeSettingsFile).toHaveBeenCalledTimes(2)
+    // 事务**确实被打开过**——这正是本用例要证明的：决定权在事务内，不在预读
+    expect(mutateSpy).toHaveBeenCalledTimes(1)
+    expect(result.success).toBe(true)
     expect(result.integrationState).toBe('conflict')
     expect(result.hasCustomStatusLine).toBe(true)
-    expect(writeClaudeSettingsFile).not.toHaveBeenCalled()
-    expect(await pathExists(service.configPath)).toBe(false)
+    // 自定义配置逐字节未被触碰
+    expect(after).toBe(before)
   })
 })
