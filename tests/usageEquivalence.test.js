@@ -16,6 +16,7 @@ import { createRequire } from 'node:module'
 const require = createRequire(import.meta.url)
 const { scanLogFilesInRange } = require('../electron/logScanner.js')
 const { scanClaudeLogs, scanCodexLogs } = require('../electron/services/usageLogScanService.js')
+import { aggregateUsage } from '../src/store/usageAggregator'
 
 const DAY = new Date(Date.UTC(2026, 7, 9, 0, 0, 0))
 const NEXT = new Date(Date.UTC(2026, 7, 10, 0, 0, 0))
@@ -106,36 +107,83 @@ describe('TC-010：行级失败只跳过该行（第三级见 usageSpanIndex）'
   })
 })
 
-describe('TC-008：三条入口（今日 / 预设区间 / 自定义区间）都不回归', () => {
-  it('allTime / week / custom 三种 period 都走同一条按天汇总路径并产出相同口径', async () => {
-    const { aggregateUsageDateRange } = require('../electron/services/usageDateRangeAggregationService.js')
+describe('TC-008：今日（renderer 自扫）与预设区间入口', () => {
+  it('今日路径：scan-log-files 返回的 Claude 用量行进得了今日口径', async () => {
+    const NOW = new Date('2026-08-13T10:30:00+08:00')
+    vi.useFakeTimers()
+    vi.setSystemTime(NOW)
+    try {
+      const claudeRow = JSON.stringify({
+        timestamp: '2026-08-13T10:00:00.000+08:00',
+        cwd: '/Users/u/proj',
+        message: { id: 'today-1', model: 'claude-opus-5', usage: { input_tokens: 7, output_tokens: 2, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 } }
+      })
+      window.electronAPI = {
+        scanLogFiles: vi.fn(async () => ({ success: true, files: [{ path: '/x/today.jsonl', lines: [claudeRow], mtime: '2026-08-13T10:00:00.000Z' }] }))
+      }
 
+      const result = await aggregateUsage('today')
+
+      expect(result.success).toBe(true)
+      expect(result.data.total).toBe(9)
+      expect(result.data.models).toHaveLength(1)
+      expect(window.electronAPI.scanLogFiles).toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+      delete window.electronAPI
+    }
+  })
+
+  it('今日路径：落在区间之外的行不计入', async () => {
+    const NOW = new Date('2026-08-13T10:30:00+08:00')
+    vi.useFakeTimers()
+    vi.setSystemTime(NOW)
+    try {
+      const yesterday = JSON.stringify({
+        timestamp: '2026-08-12T10:00:00.000+08:00',
+        cwd: '/Users/u/proj',
+        message: { id: 'old-1', model: 'claude-opus-5', usage: { input_tokens: 999, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 } }
+      })
+      window.electronAPI = {
+        scanLogFiles: vi.fn(async () => ({ success: true, files: [{ path: '/x/old.jsonl', lines: [yesterday], mtime: '2026-08-12T10:00:00.000Z' }] }))
+      }
+
+      const result = await aggregateUsage('today')
+
+      expect(result.success).toBe(true)
+      expect(result.data.total).toBe(0)
+    } finally {
+      vi.useRealTimers()
+      delete window.electronAPI
+    }
+  })
+
+  it('预设区间入口：week 经 handler 走 7 天且日期键与 getPresetPeriodDateRange 一致', async () => {
+    const { handleAggregateUsagePeriod } = require('../electron/aggregateUsagePeriodHandler.js')
+    const { getPresetPeriodDateRange } = require('../electron/services/usageDateRangeAggregationService.js')
+    const now = new Date('2026-08-13T10:30:00+08:00')
+    const expected = getPresetPeriodDateRange('week', now)
+
+    const asked = []
     const summary = (dateKey) => ({
       date: dateKey,
       version: 6,
-      models: { 'claude-opus-5': { name: 'claude-opus-5', input: 10, output: 1, cacheRead: 0, cacheCreate: 0, total: 11 } },
-      projects: { demo: { name: 'demo', value: 11 } }
+      models: { 'claude-opus-5': { name: 'claude-opus-5', input: 1, output: 1, cacheRead: 0, cacheCreate: 0, total: 2 } },
+      projects: {}
     })
-    const store = new Map()
     const deps = {
-      readDailySummaryFn: async (dateKey) => store.get(dateKey) || null,
-      writeDailySummaryFn: async (dateKey, value) => { store.set(dateKey, value) },
+      nowFn: () => now,
+      readDailySummaryFn: async (dateKey) => { asked.push(dateKey); return summary(dateKey) },
+      writeDailySummaryFn: async () => {},
       recomputeDailySummaryFn: async (dateKey) => summary(dateKey)
     }
 
-    const custom = await aggregateUsageDateRange({ period: 'custom', startDate: '2026-08-10', endDate: '2026-08-12' }, deps)
-    expect(custom.success).toBe(true)
-    expect(custom.meta.totalDays).toBe(3)
-    expect(custom.data.models).toHaveLength(1)
+    const result = await handleAggregateUsagePeriod({ period: 'week' }, deps)
 
-    // 同一区间用 allTime/week 之外的入口再查一次：全部命中缓存、数值不变
-    const again = await aggregateUsageDateRange({ period: 'custom', startDate: '2026-08-10', endDate: '2026-08-12' }, deps)
-    expect(again.meta.recomputedDays).toBe(0)
-    expect(JSON.stringify(again.data.models)).toEqual(JSON.stringify(custom.data.models))
-
-    // 无日志的短路路径：不进入按天循环，也不报错
-    const empty = await aggregateUsageDateRange({ period: 'allTime', startDate: null, endDate: null }, deps)
-    expect(empty.success).toBe(true)
-    expect(empty.meta.totalDays).toBe(0)
+    expect(result.success).toBe(true)
+    expect(result.meta.totalDays).toBe(7)
+    expect(asked).toHaveLength(7)
+    expect(asked[0]).toBe(expected.startDate)
+    expect(asked[asked.length - 1]).toBe(expected.endDate)
   })
 })
