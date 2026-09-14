@@ -1,157 +1,288 @@
 /**
- * Harness 管理页样式
+ * Harness 管理页样式 · v2（按已确认设计稿 specs/v2-2-Harness管理/_review/design/v2/harness.css 落地）
  *
- * 视觉词汇与 K28 状态灯页一致：
- * - 状态总览条 k28-statusbar 同款（dot + state + where │ metrics + 尾部实体动作）
- * - 卡片 k28-card 同款（head + body，1.5px 边框，radius-2xl，不叠阴影）
- * - 事实行 plugin-details__facts 同款（110px / 1fr）
- * - 未安装引导 k28-install 同款（居中卡）
+ * 结构：PageShell（默认内边距）> .harness > 两张 .harness-panel
+ * - 运行面板：状态点 + 状态做卡头，重启 / 停止跟着卡头；行 = 访问地址 / PID / 运行方式 / 守护偏好
+ * - 安装面板：卡头带当前版本；行 = 位置 / 分支 / 更新通道 / 更新 / Node / 卸载
+ * 两张面板对应快照里两条正交的轴：「此刻谁在跑」与「装在哪、什么版本」。
  *
- * 只用 design-tokens.css 变量，不新增颜色 / 圆角 / 阴影。
+ * 设计稿之外只补一条：备注里的等宽片段按行内排版，不参与收缩。
+ *
+ * 视觉词汇全部沿用：
+ * - 面板 = k28-card 同款材料（1.5px border-default + radius-2xl，不叠阴影）
+ * - 行间用 1.5px border-light 分隔（内部分隔不用阴影）
+ * - 通道切换 = plugin-filters 同款（.is-active 加深）
+ * - 底部说明 = k28-card-hint 同款材料（bg-subtle + xs tertiary）
+ * - 语义色只来自 9px 状态点与 Tag
+ *
+ * 只用 design-tokens.css 变量；不新增颜色、字号、圆角、阴影。
  *
  * @module styles/harness
  */
 
-.harness-page {
+/* ===== 页面内容容器 ===== */
+.harness {
   display: flex;
   flex-direction: column;
-  gap: var(--space-5);
-  min-height: 0;
-  padding: var(--space-6) var(--space-8) var(--space-8);
+  gap: var(--space-4);
 }
 
-/* 这一页的区块是「内容」，超出窗口时应当整页滚动，绝不能被压缩。
-   注意：flex 子项一旦 overflow != visible（卡片为裁圆角设了 hidden），
-   它的自动最小尺寸会解析成 0——不加 flex-shrink: 0 就会被压扁并裁掉文字。 */
-.harness-page > * { flex-shrink: 0; }
-
-/* ===== 状态总览条（k28-statusbar 同款）===== */
-.harness-statusbar {
-  display: flex;
-  align-items: center;
-  gap: var(--space-5);
-  flex-wrap: wrap;
-  background: var(--bg-subtle);
+/* ===== 面板 ===== */
+.harness-panel {
+  background: var(--bg-base);
   border: 1.5px solid var(--border-default);
   border-radius: var(--radius-2xl);
-  padding: var(--space-4) var(--space-5);
+  overflow: hidden;
 }
-.harness-statusbar__lead { display: flex; align-items: center; gap: var(--space-2); min-width: 0; }
-.harness-statusbar__dot { width: 9px; height: 9px; border-radius: var(--radius-full); flex-shrink: 0; }
-.harness-statusbar__dot--success { background: var(--color-success); }
-.harness-statusbar__dot--danger { background: var(--color-danger); }
-.harness-statusbar__dot--warning { background: var(--color-warning); }
-.harness-statusbar__dot--idle { background: var(--text-placeholder); }
-.harness-statusbar__state { font-size: var(--text-base); font-weight: 600; color: var(--text-primary); }
-.harness-statusbar__where {
+
+.harness-panel__head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 52px;
+  padding: var(--space-2) var(--space-5);
+}
+
+.harness-panel__title {
+  margin: 0;
+  font-size: var(--text-md);
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+
+/* 安装面板卡头的当前版本：版本号全页只出现这一次 */
+.harness-panel__meta {
+  margin-left: var(--space-1);
   font-family: var(--font-mono);
-  font-size: var(--text-xs);
-  color: var(--text-tertiary);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+/* 卡头一句话：进度或限制（安装中 / 启动中 / 平台不支持），放不下就省略，不撑破卡头 */
+.harness-panel__hint {
   margin-left: var(--space-2);
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  max-width: 280px;
+  font-size: var(--text-sm);
+  color: var(--text-tertiary);
 }
-.harness-statusbar__divider { width: 1.5px; align-self: stretch; background: var(--border-default); margin: 0 var(--space-1); }
-.harness-statusbar__metrics { display: flex; align-items: center; gap: var(--space-5); flex-wrap: wrap; }
-/* 实体级动作贴条带右端（k28-audio-notice-actions 同款） */
-.harness-statusbar__actions { display: flex; align-items: center; gap: var(--space-2); margin-left: auto; }
 
-.harness-metric { display: flex; align-items: center; gap: var(--space-2); font-size: var(--text-sm); min-width: 0; }
-.harness-metric__label { color: var(--text-tertiary); }
-.harness-metric__value { color: var(--text-primary); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 220px; }
-.harness-metric__value--mono { font-family: var(--font-mono); font-size: var(--text-xs); }
+/* 实体动作跟着卡头走，始终贴右 */
+.harness-panel__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-left: auto;
+  flex-shrink: 0;
+}
 
-/* ===== 卡片（k28-card 同款）===== */
-.harness-card { background: var(--bg-base); border: 1.5px solid var(--border-default); border-radius: var(--radius-2xl); overflow: hidden; }
-.harness-card__head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); padding: var(--space-4) var(--space-5); border-bottom: 1.5px solid var(--border-light); }
-.harness-card__title { font-size: var(--text-md); font-weight: 600; color: var(--text-primary); }
-.harness-card__body { padding: var(--space-4) var(--space-5); }
+.harness-panel__foot {
+  padding: var(--space-3) var(--space-5);
+  border-top: 1.5px solid var(--border-light);
+  background: var(--bg-subtle);
+  font-size: var(--text-xs);
+  line-height: 1.6;
+  color: var(--text-tertiary);
+}
 
-/* ===== 事实行（plugin-details__facts 同款：110px / 1fr）===== */
-.harness-facts { display: grid; gap: var(--space-3); }
-.harness-facts > div { display: grid; grid-template-columns: 110px 1fr; gap: var(--space-3); align-items: center; min-height: 28px; }
-/* 只给行首标签上色，避免盖掉值里的 .harness-code / .harness-note */
-.harness-facts > div > span { color: var(--text-tertiary); font-size: var(--text-sm); }
-.harness-facts strong { color: var(--text-primary); font-size: var(--text-sm); font-weight: 500; overflow-wrap: anywhere; }
-/* 只有带控件的值行需要 flex 对齐；纯文字行保持正常排版（否则会被 flex 拆成碎片） */
-.harness-facts strong:has(button, [role='switch'], .harness-channel) {
+/* ===== 状态点：语义色只从这里来 ===== */
+.harness-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: var(--radius-full);
+  flex-shrink: 0;
+}
+.harness-dot--running { background: var(--color-success); }
+.harness-dot--stopped { background: var(--text-placeholder); }
+/* 未安装是正常的起点，不是故障：空心点，不用红色 */
+.harness-dot--none { border: 1.5px solid var(--text-placeholder); }
+
+/* ===== 行 ===== */
+.harness-rows { border-top: 1.5px solid var(--border-light); }
+
+/* 三列：标签 / 值 / 动作；备注落在第二行，标签只和第一行对齐 */
+.harness-row {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr) auto;
+  align-items: center;
+  align-content: center;
+  column-gap: var(--space-4);
+  row-gap: 2px;
+  /* 42 = 小号按钮 25 + 上下内边距 16 + 分隔线 1.5，纯文字行与带按钮的行等高 */
+  min-height: 42px;
+  padding: var(--space-2) var(--space-5);
+}
+.harness-row + .harness-row { border-top: 1.5px solid var(--border-light); }
+
+.harness-row__label {
+  font-size: var(--text-sm);
+  color: var(--text-tertiary);
+  white-space: nowrap;
+}
+
+.harness-row__value {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  font-size: var(--text-sm);
+  color: var(--text-primary);
+}
+
+.harness-row__action {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  justify-self: end;
+}
+
+.harness-row__note {
+  grid-column: 2 / -1;
+  grid-row: 2;
+  font-size: var(--text-xs);
+  line-height: 1.6;
+  color: var(--text-tertiary);
+}
+
+/* 设置行：名称本身就是内容，占标签 + 值两列，开关贴右 */
+.harness-row--setting .harness-row__label {
+  grid-column: 1 / 3;
+  color: var(--text-primary);
+}
+.harness-row--setting .harness-row__note { grid-column: 1 / 3; }
+
+.harness-row__text {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+.harness-row__text--muted {
+  flex-shrink: 1;
+  min-width: 0;
+  white-space: normal;
+  color: var(--text-secondary);
+}
+
+/* ===== 等宽值：版本、地址、PID、分支、提交号 ===== */
+.harness-mono {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-primary);
+}
+.harness-mono--muted { color: var(--text-tertiary); }
+/* 提交号这类短标识不参与收缩，长分支名先省略 */
+.harness-mono--keep { flex-shrink: 0; }
+
+/* 长路径中间省略：开头先收缩到只剩「~…」，再轮到最后一段；完整路径放在 title */
+.harness-path {
+  display: flex;
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+.harness-path__head {
+  min-width: 2ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* 末段不参与收缩；最宽只到「容器 − 开头保留的 2ch」，再长才在末尾省略 */
+.harness-path__tail {
+  flex-shrink: 0;
+  max-width: calc(100% - 2ch);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ===== 更新通道（plugin-filters 同款）===== */
+.harness-channel {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-width: 0;
+}
+.harness-channel button {
   display: inline-flex;
   align-items: center;
-  flex-wrap: wrap;
-  gap: var(--space-2);
+  gap: 6px;
+  padding: 5px 10px;
+  border: 1.5px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-secondary);
+  font-family: var(--font-family);
+  font-size: var(--text-xs);
+  /* 与 Button 一致取 1，否则中文字体的默认行高会把这一行撑高 */
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background var(--transition-fast), border-color var(--transition-fast), color var(--transition-fast);
 }
-
-.harness-note { color: var(--text-tertiary); font-size: var(--text-xs); font-weight: 400; }
-/* 需要另起一行的补充说明（长参考信息不与主值挤在同一行） */
-.harness-note--block { display: block; flex-basis: 100%; margin-top: 2px; }
-.harness-code { padding: 1px 5px; border-radius: var(--radius-sm); background: var(--bg-muted); font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-secondary); }
-
-/* ===== 更新通道分段（plugin-filters 同款）===== */
-.harness-channel { display: flex; align-items: center; gap: var(--space-1); }
-.harness-channel button { padding: 5px 10px; border: 1.5px solid transparent; border-radius: var(--radius-sm); background: transparent; color: var(--text-secondary); font-size: var(--text-xs); font-family: inherit; cursor: pointer; transition: background var(--transition-fast), border-color var(--transition-fast), color var(--transition-fast); }
 .harness-channel button:hover { color: var(--text-primary); background: var(--bg-muted); }
 .harness-channel button.is-active { color: var(--text-primary); background: var(--bg-muted); border-color: var(--border-strong); }
+.harness-channel button:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
+.harness-channel .harness-mono { color: inherit; }
 
-/* ===== 未安装引导（k28-install 同款）===== */
-.harness-install {
-  max-width: 520px;
-  margin: 0 auto;
-  border: 1.5px solid var(--border-default);
-  border-radius: var(--radius-2xl);
-  background: var(--bg-base);
-  padding: var(--space-6);
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
+/* ===== 确认弹窗内容（转为托管 / 卸载）===== */
+.harness-confirm {
+  display: grid;
   gap: var(--space-3);
 }
-.harness-install__title { font-size: var(--text-lg); font-weight: 700; color: var(--text-primary); }
-.harness-install__text { font-size: var(--text-sm); color: var(--text-secondary); line-height: 1.7; }
-.harness-install__steps { margin: 0; padding-left: var(--space-5); display: flex; flex-direction: column; gap: var(--space-1); font-size: var(--text-sm); color: var(--text-secondary); }
-.harness-install__hint { font-size: var(--text-xs); color: var(--text-tertiary); line-height: 1.7; }
-
-/* ===== 危险操作行：远离主操作，压在页面底部 ===== */
-.harness-danger-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-4);
-  border: 1.5px solid var(--border-default);
-  border-radius: var(--radius-2xl);
-  background: var(--bg-subtle);
-  padding: var(--space-3) var(--space-5);
-}
-.harness-danger-row span { font-size: var(--text-sm); color: var(--text-secondary); }
-
-/* ===== 说明条（中性，非警示色）===== */
-.harness-notice {
-  padding: var(--space-3) var(--space-4);
-  border: 1.5px solid var(--border-default);
-  border-radius: var(--radius-md);
-  background: var(--bg-subtle);
-  color: var(--text-secondary);
+.harness-confirm p {
+  margin: 0;
   font-size: var(--text-sm);
   line-height: 1.7;
+  color: var(--text-secondary);
+}
+.harness-confirm ul {
+  display: grid;
+  gap: var(--space-1);
+  margin: 0;
+  padding-left: var(--space-5);
+  font-size: var(--text-sm);
+  line-height: 1.6;
+  color: var(--text-secondary);
+}
+.harness-confirm .harness-mono { color: var(--text-primary); }
+
+/* 备注、弹窗正文里的等宽片段跟着文字排版 */
+.harness-row__note .harness-mono,
+.harness-confirm .harness-mono {
+  overflow: visible;
+  white-space: normal;
 }
 
-/* ===== 接管 / 卸载确认弹窗内容 ===== */
-.harness-takeover,
-.harness-uninstall { display: grid; gap: var(--space-4); }
-.harness-takeover p,
-.harness-uninstall p { margin: 0; color: var(--text-secondary); font-size: var(--text-sm); line-height: 1.7; }
-.harness-takeover ul { margin: 0; padding-left: var(--space-5); color: var(--text-secondary); font-size: var(--text-sm); line-height: 1.7; }
-.harness-uninstall__purge {
+/* 「同时清除 ~/.dsh」是一次性选项，用 Checkbox 而不是 Toggle；默认不勾 */
+.harness-purge {
   display: flex;
   align-items: flex-start;
-  gap: var(--space-3);
   padding: var(--space-3);
-  border: 1.5px solid var(--color-warning-border);
+  border: 1.5px solid var(--border-default);
   border-radius: var(--radius-md);
-  background: var(--color-warning-bg);
   cursor: pointer;
+  transition: border-color var(--transition-fast);
 }
-.harness-uninstall__purge > span { display: grid; gap: 2px; }
-.harness-uninstall__purge strong { color: var(--color-warning); font-size: var(--text-sm); }
-.harness-uninstall__purge span span { color: var(--text-secondary); font-size: var(--text-xs); line-height: 1.7; }
+.harness-purge:hover { border-color: var(--border-strong); }
+.harness-purge:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
+.harness-purge__text {
+  display: grid;
+  gap: 2px;
+}
+.harness-purge__title {
+  font-size: var(--text-sm);
+  font-weight: 500;
+  color: var(--text-primary);
+}
+.harness-purge__desc {
+  font-size: var(--text-xs);
+  line-height: 1.6;
+  color: var(--text-tertiary);
+}
