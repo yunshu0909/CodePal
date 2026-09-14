@@ -40,7 +40,8 @@ function WorkbenchLayout({ children, activeModule, onModuleChange, hasUpdate, on
         { id: 'permission', label: '启动模式', icon: '🛡️' },
         { id: 'project-init', label: '新建项目', icon: '🚀' },
         { id: 'network', label: '网络诊断', icon: '🌐' },
-        { id: 'k28-status-light', label: '状态灯', icon: '🚦' }
+        { id: 'k28-status-light', label: '状态灯', icon: '🚦' },
+        { id: 'harness', label: 'Harness 管理', icon: '⚡' }
       ]
     },
     {

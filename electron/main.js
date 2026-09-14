@@ -51,6 +51,8 @@ const { createDshWorkerRunner } = require('./services/dshUsageWorkerClient')
 const { registerSkillUsageHandlers } = require('./handlers/registerSkillUsageHandlers')
 const { registerSkillControlHandlers } = require('./handlers/registerSkillControlHandlers')
 const { registerPluginControlHandlers } = require('./handlers/registerPluginControlHandlers')
+const { registerHarnessHandlers } = require('./handlers/registerHarnessHandlers')
+const { configureStateDir: configureHarnessStateDir, shutdownAllHarness } = require('./services/harnessLifecycleService')
 const { registerProjectInitHandlers } = require('./handlers/registerProjectInitHandlers')
 const { registerPermissionModeHandlers } = require('./handlers/permissionModeHandlers')
 const { registerModelConfigHandlers } = require('./handlers/modelConfigHandlers')
@@ -261,6 +263,12 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
     app.quit()
   }
+})
+
+// 退出前停掉 CodePal 拉起的 dsh：dsh 首信号是优雅退出（上游给 5 秒 drain），
+// 不阻塞退出流程——偏好关掉时直接跳过。
+app.on('before-quit', () => {
+  Promise.resolve(shutdownAllHarness(harnessPreferences)).catch(() => {})
 })
 
 app.on('activate', () => {
@@ -738,6 +746,25 @@ registerPluginControlHandlers({
   ipcMain,
   homeDir: os.homedir(),
 })
+
+// V2.2 Harness 管理：运行状态（PID/端口/URL）落在 Electron userData 下，
+// 便于应用重启后接管或清理之前拉起的 dsh 进程。
+configureHarnessStateDir(app.getPath('userData'))
+
+// 「退出 CodePal 时一并停止 dsh」偏好，默认开：CodePal 走了却把 dsh 留在后台，
+// 用户既看不见也停不掉。
+const harnessPreferences = {
+  getStopOnQuit: () => store.get('harnessStopOnQuit') !== false,
+  setStopOnQuit: (value) => store.set('harnessStopOnQuit', value === true),
+}
+
+registerHarnessHandlers({
+  ipcMain,
+  homeDir: os.homedir(),
+  // 源码 checkout 探测只认这个显式路径，不扫盘。
+  // 未设置时页面对源码版显示「未检测」，功能不受影响。
+  sourceDir: process.env.CODEPAL_HARNESS_SOURCE || null,
+}, harnessPreferences)
 
 
 /**

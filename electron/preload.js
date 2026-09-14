@@ -532,6 +532,73 @@ contextBridge.exposeInMainWorld('electronAPI', {
     checkToolsInstalled: () => ipcRenderer.invoke('mcp:checkToolsInstalled')
   },
 
+  // V2.2 DeepSeek Harness 管理 APIs
+
+  /**
+   * DeepSeek Harness（dsh）安装 / 版本 / 运行状态与生命周期管理
+   *
+   * 仅托管安装（CodePal runtimes 目录）可写；源码版与 PATH 版只读展示。
+   */
+  harness: {
+    /**
+     * 读取完整快照：Node 环境、安装形态、运行状态、外部占用
+     * @returns {Promise<{success: boolean, data: Object, error: string|null}>}
+     */
+    getSnapshot: () => ipcRenderer.invoke('harness:get-snapshot'),
+
+    /**
+     * 查询 npm 上可用的版本与通道指向
+     * @returns {Promise<{success: boolean, data: Object, error: string|null}>}
+     */
+    listVersions: () => ipcRenderer.invoke('harness:list-versions'),
+
+    /**
+     * 安装或升级托管版 dsh
+     * @param {{channel?: 'latest'|'next', force?: boolean}} params
+     * @returns {Promise<{success: boolean, data: Object, error: string|null}>}
+     */
+    install: (params) => ipcRenderer.invoke('harness:install', params),
+
+    /**
+     * 卸载托管版 dsh
+     * @param {{purgeData?: boolean}} params purgeData 为 true 时一并删除 ~/.dsh
+     * @returns {Promise<{success: boolean, data: Object, error: string|null}>}
+     */
+    uninstall: (params) => ipcRenderer.invoke('harness:uninstall', params),
+
+    /**
+     * 启动 dsh web 并等待就绪 URL
+     * @returns {Promise<{success: boolean, data: Object, error: string|null}>}
+     */
+    start: () => ipcRenderer.invoke('harness:start'),
+
+    /**
+     * 停止由 CodePal 拉起的 dsh
+     * @returns {Promise<{success: boolean, data: Object, error: string|null}>}
+     */
+    stop: () => ipcRenderer.invoke('harness:stop'),
+
+    /**
+     * 重启 dsh
+     * @returns {Promise<{success: boolean, data: Object, error: string|null}>}
+     */
+    restart: () => ipcRenderer.invoke('harness:restart'),
+
+    /**
+     * 更新：托管安装换 npm 版本，源码目录走 git pull + 构建（失败自动回滚）
+     * @param {{channel?: 'latest'|'next'}} [params]
+     * @returns {Promise<{success: boolean, data: Object, error: string|null}>}
+     */
+    update: (params) => ipcRenderer.invoke('harness:update', params),
+
+    /**
+     * 开/关「崩溃自动重启」（仅当本机由 launchd 托管 dsh 时有效）
+     * @param {{enabled: boolean}} params
+     * @returns {Promise<{success: boolean, data: Object, error: string|null}>}
+     */
+    setKeepAlive: (params) => ipcRenderer.invoke('harness:set-keepalive', params)
+  },
+
   // V1.2.4 网络诊断 APIs
 
   /**
