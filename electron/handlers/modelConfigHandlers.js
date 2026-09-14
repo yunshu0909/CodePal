@@ -4,7 +4,7 @@
  * 负责：
  * - 读取 Claude Code 的模型配置（~/.claude/settings.json）
  * - 写入 model 和 effortLevel 字段
- * - 复用 permissionModeHandlers 的备份和原子写入基础设施
+ * - 统一通过 settings broker 备份并原子提交
  *
  * 支持的字段：
  * - model: 模型别名或完整模型名（如 opus、claude-opus-4-6）
@@ -15,11 +15,10 @@
 
 const fs = require('fs/promises')
 const {
-  backupClaudeSettingsRaw,
   CLAUDE_SETTINGS_FILE_PATH,
 } = require('./permissionModeHandlers')
 // settings.json 写入统一走唯一 broker（V1.9.8 收口）
-const { writeClaudeSettingsFile } = require('../services/claudeSettingsService')
+const { mutateClaudeSettingsFile } = require('../services/claudeSettingsService')
 
 // effortLevel 的基础格式校验：只允许小写字母/数字/短横线/下划线，长度 1-32
 // 不做值白名单 —— 新值（如 Claude 4.7 的 xhigh、未来可能的新档位）由 Claude Code 自己判定有效性
@@ -115,7 +114,7 @@ async function getModelConfig(pathExists) {
  * @param {(filepath: string) => Promise<boolean>} pathExists - 路径存在检查函数
  * @returns {Promise<{success: boolean, backupPath?: string|null, error?: string, errorCode?: string}>}
  */
-async function setModelConfig(field, value, pathExists) {
+async function setModelConfig(field, value, pathExists, options = {}) {
   // 验证字段名
   if (field !== 'model' && field !== 'effortLevel') {
     return {
@@ -159,80 +158,96 @@ async function setModelConfig(field, value, pathExists) {
     }
   }
 
-  try {
-    // 读取现有配置
-    let existingData = {}
-    let existingContent = ''
-    const exists = await pathExists(CLAUDE_SETTINGS_FILE_PATH)
-
-    if (exists) {
-      try {
-        existingContent = await fs.readFile(CLAUDE_SETTINGS_FILE_PATH, 'utf-8')
-        existingData = JSON.parse(existingContent)
-      } catch (error) {
-        if (error.name === 'SyntaxError') {
-          const backupResult = await backupClaudeSettingsRaw(existingContent, 'corrupted')
-          if (!backupResult.success) {
-            return {
-              success: false,
-              error: `原文件 JSON 损坏且备份失败: ${backupResult.error}`,
-              errorCode: backupResult.errorCode || 'BACKUP_FAILED',
-            }
-          }
-          existingData = {}
-        } else if (error.code === 'EACCES' || error.code === 'EPERM') {
-          return {
-            success: false,
-            error: '无法读取 Claude settings.json，请检查权限',
-            errorCode: 'PERMISSION_DENIED',
-          }
-        } else {
-          return {
-            success: false,
-            error: `读取 Claude settings.json 失败: ${error.message}`,
-            errorCode: 'READ_ERROR',
-          }
-        }
-      }
+  // 单次事务：读、判断损坏/权限、改字段、备份、提交都在 broker 的同一队列任务内完成，
+  // 不再依赖调用方预先读取的快照，也不会覆盖并发的 permissions / skillOverrides 改动。
+  // 企业 / 组织级托管设置优先级高于用户配置：被覆盖时必须告知，不能谎报「已生效」
+  let managedOverride = false
+  let managedUnknown = false
+  const writeResult = await mutateClaudeSettingsFile(({ data, kind, isManagedField, managedUnknown: unknown }) => {
+    managedOverride = typeof isManagedField === 'function' && isManagedField(field)
+    managedUnknown = unknown === true
+    if (kind === 'corrupt') {
+      // 历史行为：JSON 损坏时备份原文件后以空对象重建
+      return { ok: true, next: { [field]: value }, allowCorruptRepair: true }
     }
+    // 读取层的 io_error / 权限 / 符号链接由 broker 提前定性返回，不会走到这里
+    return { ok: true, next: { ...data, [field]: value }, create: true }
+  }, { backupSuffix: 'model-config', managedPaths: options.managedPaths || null })
 
-    if (typeof existingData !== 'object' || existingData === null) {
-      existingData = {}
+  if (!writeResult.success) {
+    const errorMap = {
+      PERMISSION_DENIED: '权限被拒绝：无法写入 Claude settings.json',
+      DISK_FULL: '磁盘空间不足，无法保存配置',
+      READ_FAILED: '无法读取 Claude settings.json，请检查权限',
     }
-
-    // 设置字段值
-    existingData[field] = value
-
-    // 备份 + 原子写统一走 settings.json 唯一写入口（V1.9.8 收口，写侧串行防并发互覆）
-    const writeResult = await writeClaudeSettingsFile(existingData, {
-      backupSuffix: 'model-config',
-      previousContent: exists && existingContent ? existingContent : '',
-    })
-
-    if (!writeResult.success) {
-      const errorMap = {
-        PERMISSION_DENIED: '权限被拒绝：无法写入 Claude settings.json',
-        DISK_FULL: '磁盘空间不足，无法保存配置',
-      }
-      return {
-        success: false,
-        error: errorMap[writeResult.errorCode] || `写入失败: ${writeResult.error}`,
-        errorCode: writeResult.errorCode || 'WRITE_ERROR',
-      }
-    }
-
-    return {
-      success: true,
-      backupPath: writeResult.backupPath,
-      error: null,
-      errorCode: null,
-    }
-  } catch (error) {
+    // 保持既有业务契约：读失败仍报 READ_ERROR
+    const errorCode = writeResult.errorCode === 'READ_FAILED' ? 'READ_ERROR' : (writeResult.errorCode || 'WRITE_ERROR')
     return {
       success: false,
-      error: `设置模型配置失败: ${error.message}`,
-      errorCode: 'WRITE_ERROR',
+      error: errorMap[writeResult.errorCode] || writeResult.error || `写入失败: ${writeResult.errorCode}`,
+      errorCode,
+      committed: writeResult.committed === true,
+      durability: writeResult.durability || null,
     }
+  }
+
+  return {
+    success: true,
+    backupPath: writeResult.backupPath,
+    error: null,
+    errorCode: null,
+    committed: writeResult.committed === true,
+    durability: writeResult.durability || null,
+    managedOverride,
+    managedUnknown,
+    managedNotice: managedOverride
+      ? '该设置已被企业 / 组织托管配置覆盖，本次写入不会生效'
+      : (managedUnknown ? '无法确认该设置是否被托管配置覆盖，实际生效未验证' : null),
+  }
+}
+
+/**
+ * 在一个事务内删除 model 与 effortLevel，恢复 Claude 客户端默认。
+ * @returns {Promise<Object>}
+ */
+async function resetModelConfig(_pathExists, options = {}) {
+  let managedOverride = false
+  let managedUnknown = false
+  const writeResult = await mutateClaudeSettingsFile(({ data, kind, isManagedField, managedUnknown: unknown }) => {
+    managedOverride = typeof isManagedField === 'function' && (isManagedField('model') || isManagedField('effortLevel'))
+    managedUnknown = unknown === true
+    if (kind === 'missing' || (!Object.prototype.hasOwnProperty.call(data, 'model') && !Object.prototype.hasOwnProperty.call(data, 'effortLevel'))) {
+      return { ok: true, noop: true }
+    }
+    const next = { ...data }
+    delete next.model
+    delete next.effortLevel
+    return { ok: true, next }
+  }, { backupSuffix: 'model-config', managedPaths: options.managedPaths || null })
+
+  if (!writeResult.success) {
+    return {
+      success: false,
+      error: writeResult.error || '恢复客户端默认失败',
+      errorCode: writeResult.errorCode === 'READ_FAILED' ? 'READ_ERROR' : (writeResult.errorCode || 'WRITE_ERROR'),
+      committed: writeResult.committed === true,
+      durability: writeResult.durability || null,
+    }
+  }
+  return {
+    success: true,
+    model: null,
+    effortLevel: null,
+    isModelConfigured: false,
+    isEffortConfigured: false,
+    backupPath: writeResult.backupPath,
+    committed: writeResult.committed === true,
+    durability: writeResult.durability || null,
+    managedOverride,
+    managedUnknown,
+    managedNotice: managedOverride
+      ? '模型或推理强度已被企业 / 组织托管配置覆盖，本次重置不会改变实际生效值'
+      : (managedUnknown ? '无法确认模型或推理强度是否被托管配置覆盖，实际生效未验证' : null),
   }
 }
 
@@ -266,12 +281,14 @@ function registerModelConfigHandlers({ ipcMain, pathExists }) {
     }
     return setModelConfig(field, value, pathExists)
   })
+  ipcMain.handle('reset-model-config', async () => resetModelConfig(pathExists))
 }
 
 module.exports = {
   registerModelConfigHandlers,
   getModelConfig,
   setModelConfig,
+  resetModelConfig,
   EFFORT_LEVEL_PATTERN,
   EFFORT_DISPLAY_NAMES,
 }

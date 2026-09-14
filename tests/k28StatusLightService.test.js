@@ -156,3 +156,28 @@ describe('k28StatusLightService', () => {
     })
   })
 })
+
+describe('K28 安装入口：不支持的配置根必须提前拒绝', () => {
+  it('设置非等价 CLAUDE_CONFIG_DIR 后，公开入口在产生任何副作用之前拒绝', async () => {
+    const mod = require('../electron/services/k28StatusLightService')
+    const original = process.env.CLAUDE_CONFIG_DIR
+    const home = await mkdtemp(path.join(os.tmpdir(), 'k28-root-'))
+    const originalHome = process.env.HOME
+    try {
+      process.env.CLAUDE_CONFIG_DIR = path.join(home, 'elsewhere')
+      const result = await mod.installK28StatusLight()
+
+      expect(result.success).toBe(false)
+      expect(result.error).toMatch(/CLAUDE_CONFIG_DIR/)
+      // 关键：不得先跑复制模板 / 装依赖 —— 那会留下半完成状态
+      const ids = (result.steps || []).map((s) => s.id)
+      expect(ids).not.toContain('copy-template')
+      expect(ids).not.toContain('python-env')
+    } finally {
+      if (original === undefined) delete process.env.CLAUDE_CONFIG_DIR
+      else process.env.CLAUDE_CONFIG_DIR = original
+      if (originalHome === undefined) delete process.env.HOME
+      else process.env.HOME = originalHome
+    }
+  })
+})

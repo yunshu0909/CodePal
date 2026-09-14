@@ -307,10 +307,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   /**
    * 设置权限模式
-   * @param {string} mode - 权限模式（plan/default/acceptEdits/bypassPermissions）
+   * @param {string} mode - 权限模式（plan/default/acceptEdits/dontAsk/bypassPermissions/auto）
    * @returns {Promise<{success: boolean, backupPath?: string, error?: string, errorCode?: string}>}
    */
   setPermissionMode: (mode) => ipcRenderer.invoke('set-permission-mode', mode),
+
+  /** 删除用户级权限模式，恢复 Claude 客户端默认。 */
+  resetPermissionMode: () => ipcRenderer.invoke('reset-permission-mode'),
+
+  /** 只恢复上一次权限模式修改，不覆盖其他 settings 字段。 */
+  restorePermissionMode: () => ipcRenderer.invoke('restore-permission-mode'),
 
   // V0.16 模型配置与推理等级 APIs
 
@@ -327,6 +333,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
    * @returns {Promise<{success: boolean, backupPath?: string|null, error?: string, errorCode?: string}>}
    */
   setModelConfig: (field, value) => ipcRenderer.invoke('set-model-config', field, value),
+
+  /** 同一事务删除 model 与 effortLevel。 */
+  resetModelConfig: () => ipcRenderer.invoke('reset-model-config'),
 
   /**
    * 获取当前生效的模型注册表（models + effortLevels）

@@ -257,7 +257,7 @@ export default function App() {
       if (!window.electronAPI?.ensureClaudeUsageStatusInstalled) return
 
       try {
-        const result = await window.electronAPI.ensureClaudeUsageStatusInstalled({ force: false })
+        const result = await window.electronAPI.ensureClaudeUsageStatusInstalled({ force: false, intent: 'silent' })
         if (isDisposed) return
 
         // 检测失败只记日志，不弹窗，避免启动噪音过大

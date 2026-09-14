@@ -15,7 +15,7 @@ const os = require('os')
 const { execFile } = require('child_process')
 const { getK28AudioState } = require('./k28AudioGuardService')
 // settings.json 写入统一走唯一 broker（V1.9.8 收口）；本模块局部 atomicWriteText 仅用于 Codex config / K28 conf
-const { writeClaudeSettingsFile } = require('./claudeSettingsService')
+const { mutateClaudeSettingsFile, detectUnsupportedCustomRoot } = require('./claudeSettingsService')
 
 const K28_DIR = path.join(os.homedir(), '.claude', 'k28-status-light')
 const K28_TEMPLATE_DIR = path.resolve(__dirname, '..', '..', 'templates', 'k28-status-light')
@@ -376,55 +376,58 @@ async function ensurePythonEnvironment() {
  * @returns {Promise<void>}
  */
 async function installClaudeHooks() {
-  let settings = {}
-  let rawContent = ''
-  try {
-    rawContent = await fs.readFile(CLAUDE_SETTINGS_PATH, 'utf-8')
-    settings = JSON.parse(rawContent)
-  } catch (error) {
-    if (error.code !== 'ENOENT') throw error
+  // 配置根不支持时必须在任何副作用之前拒绝（前面已有脚本复制 / 依赖安装）
+  const unsupportedRoot = detectUnsupportedCustomRoot()
+  if (unsupportedRoot) {
+    throw Object.assign(new Error(unsupportedRoot.error), { code: unsupportedRoot.errorCode })
   }
-
-  if (!settings || typeof settings !== 'object' || Array.isArray(settings)) {
-    settings = {}
-  }
-  if (!settings.hooks || typeof settings.hooks !== 'object' || Array.isArray(settings.hooks)) {
-    settings.hooks = {}
-  }
-
-  const addHook = (eventName, command, matcher = null) => {
-    const groups = Array.isArray(settings.hooks[eventName]) ? settings.hooks[eventName] : []
-    const filteredGroups = groups
-      .map((group) => ({
-        ...group,
-        hooks: Array.isArray(group.hooks)
-          ? group.hooks.filter((hook) => !String(hook.command || '').includes('k28-status-light/k28_status.sh'))
-          : [],
-      }))
-      .filter((group) => group.hooks.length > 0)
-
-    const nextGroup = {
-      ...(matcher ? { matcher } : {}),
-      hooks: [{ type: 'command', command }],
+  // 单次事务：hooks 的构造必须基于**事务内最新** settings，
+  // 否则会按旧快照重建，覆盖并发的其他 settings 改动。
+  const writeResult = await mutateClaudeSettingsFile(({ data, kind, errorCode, error }) => {
+    if (kind === 'corrupt' || kind === 'io_error') {
+      // 历史行为：非 ENOENT 的读取/解析错误直接抛出，不自动修复
+      return { ok: false, errorCode: errorCode || 'K28_SETTINGS_UNREADABLE', error: error || '无法读取 Claude settings.json' }
     }
-    settings.hooks[eventName] = [...filteredGroups, nextGroup]
-  }
 
-  addHook('SessionStart', `bash ${path.join(K28_DIR, 'k28_status.sh')} idle`)
-  addHook('UserPromptSubmit', `bash ${path.join(K28_DIR, 'k28_status.sh')} busy`)
-  addHook('PreToolUse', `bash ${path.join(K28_DIR, 'k28_status.sh')} attention`, 'AskUserQuestion')
-  addHook('PostToolUse', `bash ${path.join(K28_DIR, 'k28_status.sh')} busy`, 'AskUserQuestion')
-  addHook('Stop', `bash ${path.join(K28_DIR, 'k28_status.sh')} done`)
-  addHook('SessionEnd', `bash ${path.join(K28_DIR, 'k28_status.sh')} clear`)
+    const next = { ...data }
+    if (!next.hooks || typeof next.hooks !== 'object' || Array.isArray(next.hooks)) next.hooks = {}
+    else next.hooks = { ...next.hooks }
 
-  // 备份 + 原子写统一走 settings.json 唯一写入口（V1.9.8 收口）
-  // 有意变化：备份从 ~/.claude/settings-k28-<ts>.json 归位到统一的 ~/.claude/backups/
-  const writeResult = await writeClaudeSettingsFile(settings, {
-    backupSuffix: 'k28-hooks',
-    previousContent: rawContent,
-  })
+    const addHook = (eventName, command, matcher = null) => {
+      const groups = Array.isArray(next.hooks[eventName]) ? next.hooks[eventName] : []
+      const filteredGroups = groups
+        .map((group) => ({
+          ...group,
+          hooks: Array.isArray(group.hooks)
+            ? group.hooks.filter((hook) => !String(hook.command || '').includes('k28-status-light/k28_status.sh'))
+            : [],
+        }))
+        .filter((group) => group.hooks.length > 0)
+
+      const nextGroup = {
+        ...(matcher ? { matcher } : {}),
+        hooks: [{ type: 'command', command }],
+      }
+      next.hooks[eventName] = [...filteredGroups, nextGroup]
+    }
+
+    addHook('SessionStart', `bash ${path.join(K28_DIR, 'k28_status.sh')} idle`)
+    addHook('UserPromptSubmit', `bash ${path.join(K28_DIR, 'k28_status.sh')} busy`)
+    addHook('PreToolUse', `bash ${path.join(K28_DIR, 'k28_status.sh')} attention`, 'AskUserQuestion')
+    addHook('PostToolUse', `bash ${path.join(K28_DIR, 'k28_status.sh')} busy`, 'AskUserQuestion')
+    addHook('Stop', `bash ${path.join(K28_DIR, 'k28_status.sh')} done`)
+    addHook('SessionEnd', `bash ${path.join(K28_DIR, 'k28_status.sh')} clear`)
+
+    return { ok: true, next, create: true }
+  }, { backupSuffix: 'k28-hooks' })
+
   if (!writeResult.success) {
-    throw new Error(writeResult.error || '写入 Claude settings.json 失败')
+    // 结构化提交状态不能只留在 broker：抛错时一并带上，供上层区分"完全没写"与"已写入未验证"
+    const error = new Error(writeResult.error || '写入 Claude settings.json 失败')
+    error.code = writeResult.errorCode || 'WRITE_FAILED'
+    error.committed = writeResult.committed === true
+    error.durability = writeResult.durability || null
+    throw error
   }
 }
 
@@ -949,6 +952,15 @@ async function installK28StatusLight() {
       steps.push({ id, label, status: 'error', error: error.message })
       throw error
     }
+  }
+
+  // 配置根不支持时必须在**任何副作用之前**拒绝：
+  // 这里之后会 mkdir / 复制脚本 / 调子进程装依赖，事后再拒会留下半完成状态。
+  // 守卫必须放在公开入口，不能只放在私有的 installClaudeHooks 里。
+  const unsupportedRoot = detectUnsupportedCustomRoot()
+  if (unsupportedRoot) {
+    steps.push({ id: 'config-root', label: '检查配置根', status: 'error', error: unsupportedRoot.error })
+    return { success: false, steps, state: null, error: unsupportedRoot.error, errorCode: unsupportedRoot.errorCode }
   }
 
   try {

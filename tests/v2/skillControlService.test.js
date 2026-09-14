@@ -174,6 +174,31 @@ enabled = false
     })
   })
 
+  it('SC-002/004 并发：两个 skill override 同时写，互不丢失', async () => {
+    // 顺序保留已由上一节覆盖；这里验证**并发**下两个 override 都落在最终文件里。
+    // 注意：broker 的串行队列是**模块实例级**的（生产里 require 缓存保证只有一个实例）。
+    // 测试里跨 import() 边界会拿到不同实例，因此这里只用 adapter 自己的写路径来验证。
+    const settingsPath = path.join(homeDir, '.claude', 'settings.json')
+    await writeSkill(repoPath, 'concurrent-a')
+    await writeSkill(repoPath, 'concurrent-b')
+    await fs.mkdir(path.join(homeDir, '.claude'), { recursive: true })
+    await fs.writeFile(settingsPath, JSON.stringify({ skillOverrides: { other: 'name-only' }, model: 'keep-me' }))
+
+    await Promise.all([
+      applyClaudeCommand({ repoPath, homeDir, skillName: 'concurrent-a', action: 'disable' }),
+      applyClaudeCommand({ repoPath, homeDir, skillName: 'concurrent-b', action: 'disable' }),
+    ])
+
+    const settings = JSON.parse(await fs.readFile(settingsPath, 'utf8'))
+    expect(settings.skillOverrides).toEqual({
+      other: 'name-only',
+      'concurrent-a': 'off',
+      'concurrent-b': 'off',
+    })
+    // 邻居字段不被整体覆盖
+    expect(settings.model).toBe('keep-me')
+  })
+
   it('SC-003 reads legacy booleans and upgrades explicit writes', async () => {
     await writeSkill(path.join(homeDir, '.claude', 'skills'), 'legacy-on')
     await writeSkill(path.join(homeDir, '.claude', 'skills'), 'legacy-off')
@@ -283,6 +308,46 @@ enabled = false
 
     await applyClaudeCommand({ repoPath, homeDir, skillName: 'override-me', action: 'clear-override' })
     settings = JSON.parse(await fs.readFile(path.join(homeDir, '.claude', 'settings.json'), 'utf8'))
+    expect(settings.skillOverrides).toEqual({ other: true })
+    expect(settings.unknownSetting).toEqual({ keep: true })
+  })
+
+  it('SC-009 skill override 写入走唯一 broker：产生备份且不污染真实家目录', async () => {
+    // 收口前：claudeSkillAdapter 自带原子写，既不排队也不备份。
+    // 收口后：写入与备份都落在调用方传入的 homeDir 下（与 settings.json 同根）。
+    await fs.mkdir(path.join(homeDir, '.claude'), { recursive: true })
+    await fs.writeFile(path.join(homeDir, '.claude', 'settings.json'), JSON.stringify({
+      skillOverrides: { other: true },
+      unknownSetting: { keep: true },
+    }))
+
+    // 污染守卫：真实家目录的备份数量在整个用例中不得增加
+    const realBackupDir = path.join(os.homedir(), '.claude', 'backups')
+    const countRealBackups = async () => (await fs.readdir(realBackupDir).catch(() => [])).length
+    const realBefore = await countRealBackups()
+
+    // 两次调用前各存一份**原始字节**，后面拿它跟备份逐字节对账
+    const rawBeforeFirst = await fs.readFile(path.join(homeDir, '.claude', 'settings.json'))
+    await applyClaudeCommand({ repoPath, homeDir, skillName: 'bk', action: 'set-override', overrideState: 'disabled' })
+    const rawBeforeSecond = await fs.readFile(path.join(homeDir, '.claude', 'settings.json'))
+    await applyClaudeCommand({ repoPath, homeDir, skillName: 'bk', action: 'clear-override' })
+
+    expect(await countRealBackups()).toBe(realBefore)
+
+    const backupDir = path.join(homeDir, '.claude', 'backups')
+    const localBackups = (await fs.readdir(backupDir)).filter((f) => f.startsWith('settings-skill-override-'))
+    expect(localBackups).toHaveLength(2)
+
+    // 只数数量、或只挑字段看，都会漏掉"备份被换了内容"。两份备份必须与
+    // 两次写入前的**原始字节完全相等**（缺字段/多字段/顺序变化都能被抓出）。
+    const backupRaws = await Promise.all(
+      localBackups.map((f) => fs.readFile(path.join(backupDir, f))),
+    )
+    const matches = (target) => backupRaws.some((buf) => buf.equals(target))
+    expect(matches(rawBeforeFirst)).toBe(true)
+    expect(matches(rawBeforeSecond)).toBe(true)
+
+    const settings = JSON.parse(await fs.readFile(path.join(homeDir, '.claude', 'settings.json'), 'utf8'))
     expect(settings.skillOverrides).toEqual({ other: true })
     expect(settings.unknownSetting).toEqual({ keep: true })
   })

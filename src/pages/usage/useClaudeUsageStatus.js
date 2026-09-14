@@ -65,7 +65,7 @@ export default function useClaudeUsageStatus() {
         // 静默升级不使用 force：真正写入前服务会重读 settings，
         // 若期间被用户/其他工具改为自定义 statusLine，必须返回 conflict 而不是绕过保护。
         if (result.usesManagedStatusLine && result.scriptOutdated && window.electronAPI?.ensureClaudeUsageStatusInstalled) {
-          window.electronAPI.ensureClaudeUsageStatusInstalled({ force: false }).catch(() => {})
+          window.electronAPI.ensureClaudeUsageStatusInstalled({ force: false, intent: 'silent' }).catch(() => {})
         }
       } else {
         // IPC 返回但 success=false:清掉 statusState,让 Card 进 read_error 态
