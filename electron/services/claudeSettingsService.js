@@ -503,10 +503,11 @@ async function replaceSettingsFileAtomically(filePath, contentBytes, { expectedB
  * 仍可能在最后一次校验之后、提交之前改动目标并被覆盖；本函数不构成跨进程原子 CAS。
  *
  * @param {Object} options
- * @param {(context: {state: Object, data: Record<string, any>, raw: string, exists: boolean, kind: string}) => {ok: boolean, errorCode?: string, error?: string, next?: Record<string, any>, create?: boolean, backup?: boolean, allowCorruptRepair?: boolean, backupSuffix?: string}} mutator
+ * @param {(context: {state: Object, data: Record<string, any>, raw: string, exists: boolean, kind: string}) => {ok: boolean, errorCode?: string, error?: string, next?: Record<string, any>, noop?: boolean, create?: boolean, backup?: boolean, allowCorruptRepair?: boolean, backupSuffix?: string}} mutator
  *   `state` = `{kind, exists, errorCode, error, raw}`；返回 `ok:false` 即中止且不写入。
  *   - `create: true` 表示"文件当前不存在则创建"；若文件已存在则走更新（除非 `updateExisting: false`）
  *   - `updateExisting: false` 配合 `create: true` 表示"只允许创建，已存在即冲突"
+ *   - `noop: true` 表示基于事务内真实状态无需写入，成功返回且 `committed: false`
  *   - `allowCorruptRepair: true` 表示调用方同意在备份损坏内容后以空对象重建
  * @param {string} [options.filePath] - 目标路径；默认模块级唯一路径
  * @param {string} [options.backupSuffix] - 备份后缀
@@ -564,14 +565,28 @@ async function mutateClaudeSettingsFile(mutator, { filePath = CLAUDE_SETTINGS_FI
       }
     }
 
-    const next = outcome.next
-    if (!isPlainObject(next)) {
-      return { success: false, committed: false, backupPath: null, errorCode: 'INVALID_SETTINGS_DATA', error: 'mutator 返回的 settings 必须是普通对象', exists: state.exists }
-    }
-
     const repairingCorrupt = state.kind === 'corrupt'
     if (repairingCorrupt && outcome.allowCorruptRepair !== true) {
       return { success: false, committed: false, backupPath: null, errorCode: 'CONFIG_CORRUPTED', error: state.error, exists: true }
+    }
+
+    if (outcome.noop === true) {
+      return {
+        success: true,
+        committed: false,
+        durability: null,
+        backupPath: null,
+        errorCode: null,
+        error: null,
+        exists: state.exists,
+        managed,
+        managedUnknown: managedInfo.unknown,
+      }
+    }
+
+    const next = outcome.next
+    if (!isPlainObject(next)) {
+      return { success: false, committed: false, backupPath: null, errorCode: 'INVALID_SETTINGS_DATA', error: 'mutator 返回的 settings 必须是普通对象', exists: state.exists }
     }
 
     // **不存在的目标必须显式声明创建意图**：否则一次"更新"会顺手建出文件，

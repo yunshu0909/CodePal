@@ -28,7 +28,10 @@ let writeClaudeSettingsFile
 let mutateClaudeSettingsFile
 let __testing
 let setPermissionMode
+let resetPermissionMode
+let restorePermissionMode
 let setModelConfig
+let resetModelConfig
 let createClaudeUsageStatusService
 let k28Private
 
@@ -54,8 +57,8 @@ beforeAll(async () => {
 
   // HOME 就位后再加载：模块级路径常量在 require 时求值
   ;({ writeClaudeSettingsFile, mutateClaudeSettingsFile, __testing } = require('../../electron/services/claudeSettingsService'))
-  ;({ setPermissionMode } = require('../../electron/handlers/permissionModeHandlers'))
-  ;({ setModelConfig } = require('../../electron/handlers/modelConfigHandlers'))
+  ;({ setPermissionMode, resetPermissionMode, restorePermissionMode } = require('../../electron/handlers/permissionModeHandlers'))
+  ;({ setModelConfig, resetModelConfig } = require('../../electron/handlers/modelConfigHandlers'))
   ;({ createClaudeUsageStatusService } = require('../../electron/services/claudeUsageStatusService'))
   k28Private = require('../../electron/services/k28StatusLightService')._private
 })
@@ -65,11 +68,151 @@ afterAll(async () => {
 })
 
 beforeEach(async () => {
-  // 每个用例从干净的 settings 状态开始（backups 保留累计无碍，各用例按增量断言）
+  // 每个用例从干净的 settings 与备份状态开始，避免 restore 读到其他用例的历史。
   await fs.rm(settingsPath, { force: true })
+  await fs.rm(backupsDir, { recursive: true, force: true })
 })
 
 describe('V1.9.8 writeClaudeSettingsFile（唯一写入口）', () => {
+  it('SC-002: 权限 handler 接受六种模式、拒绝未知值并保留邻居字段', async () => {
+    const modes = ['plan', 'default', 'acceptEdits', 'dontAsk', 'bypassPermissions', 'auto']
+    await fs.writeFile(settingsPath, `${JSON.stringify({ env: { KEEP: '1' } }, null, 2)}\n`, 'utf-8')
+
+    for (const mode of modes) {
+      const result = await setPermissionMode(mode, pathExists)
+      expect(result.success).toBe(true)
+      const settings = await readSettings()
+      expect(settings.permissions.defaultMode).toBe(mode)
+      expect(settings.env.KEEP).toBe('1')
+    }
+
+    const before = await fs.readFile(settingsPath, 'utf-8')
+    const invalid = await setPermissionMode('unknown-mode', pathExists)
+    expect(invalid.success).toBe(false)
+    expect(invalid.errorCode).toBe('INVALID_MODE')
+    expect(await fs.readFile(settingsPath, 'utf-8')).toBe(before)
+  })
+
+  it('SC-010: 权限 reset 删除字段，restore 只恢复上一权限值并保留其后邻居改动', async () => {
+    await fs.writeFile(settingsPath, `${JSON.stringify({ permissions: { defaultMode: 'default', allow: ['Read'] }, env: { KEEP: '1' } }, null, 2)}\n`, 'utf-8')
+    expect((await setPermissionMode('plan', pathExists)).success).toBe(true)
+
+    const reset = await resetPermissionMode(pathExists)
+    expect(reset.success).toBe(true)
+    let settings = await readSettings()
+    expect(settings.permissions.defaultMode).toBeUndefined()
+    expect(settings.permissions.allow).toEqual(['Read'])
+
+    expect((await setModelConfig('model', 'sonnet', pathExists)).success).toBe(true)
+    const restored = await restorePermissionMode(pathExists)
+    expect(restored.success).toBe(true)
+    settings = await readSettings()
+    expect(settings.permissions.defaultMode).toBe('plan')
+    expect(settings.permissions.allow).toEqual(['Read'])
+    expect(settings.model).toBe('sonnet')
+    expect(settings.env.KEEP).toBe('1')
+  })
+
+  it('SC-010: 同毫秒备份按冲突序号选择最后创建的一份', async () => {
+    await fs.mkdir(backupsDir, { recursive: true })
+    const timestamp = '9999-12-31T23-59-59-999Z'
+    await fs.writeFile(
+      path.join(backupsDir, `settings-permission-mode-${timestamp}.json`),
+      `${JSON.stringify({ permissions: { defaultMode: 'default' } }, null, 2)}\n`,
+      'utf-8',
+    )
+    await fs.writeFile(
+      path.join(backupsDir, `settings-permission-mode-${timestamp}-1.json`),
+      `${JSON.stringify({ permissions: { defaultMode: 'plan' } }, null, 2)}\n`,
+      'utf-8',
+    )
+    await fs.writeFile(settingsPath, `${JSON.stringify({ env: { KEEP: '1' } }, null, 2)}\n`, 'utf-8')
+
+    const restored = await restorePermissionMode(pathExists)
+    expect(restored.success).toBe(true)
+    expect((await readSettings()).permissions.defaultMode).toBe('plan')
+  })
+
+  it('SC-010: 权限 reset 的存在性判断在 broker 内完成', async () => {
+    await fs.writeFile(settingsPath, `${JSON.stringify({ permissions: { defaultMode: 'plan' }, env: { KEEP: '1' } }, null, 2)}\n`, 'utf-8')
+
+    const result = await resetPermissionMode(async () => false)
+    expect(result.success).toBe(true)
+    expect((await readSettings()).permissions).toBeUndefined()
+  })
+
+  it('SC-010: restore 的备份读取与并发 set 共用 broker 队列', async () => {
+    await fs.mkdir(backupsDir, { recursive: true })
+    const backupPath = path.join(backupsDir, 'settings-permission-mode-2026-09-14T00-00-00-000Z.json')
+    await fs.writeFile(backupPath, `${JSON.stringify({ permissions: { defaultMode: 'default' } }, null, 2)}\n`, 'utf-8')
+    await fs.writeFile(settingsPath, `${JSON.stringify({ permissions: { defaultMode: 'plan' } }, null, 2)}\n`, 'utf-8')
+
+    const originalReadFile = fs.readFile
+    let announceBackupRead
+    let releaseBackupRead
+    const backupReadStarted = new Promise((resolve) => { announceBackupRead = resolve })
+    const backupReadGate = new Promise((resolve) => { releaseBackupRead = resolve })
+    fs.readFile = async (...args) => {
+      if (String(args[0]) === backupPath) {
+        announceBackupRead()
+        await backupReadGate
+      }
+      return originalReadFile(...args)
+    }
+
+    try {
+      const restoring = restorePermissionMode(pathExists)
+      await backupReadStarted
+
+      let setFinished = false
+      const setting = setPermissionMode('auto', pathExists).then((result) => {
+        setFinished = true
+        return result
+      })
+      await new Promise((resolve) => setTimeout(resolve, 20))
+      expect(setFinished).toBe(false)
+
+      releaseBackupRead()
+      expect((await restoring).success).toBe(true)
+      expect((await setting).success).toBe(true)
+      expect((await readSettings()).permissions.defaultMode).toBe('auto')
+    } finally {
+      releaseBackupRead?.()
+      fs.readFile = originalReadFile
+    }
+  })
+
+  it('SC-011: 模型恢复客户端默认在一个事务内删除 model 与 effortLevel', async () => {
+    await fs.writeFile(settingsPath, `${JSON.stringify({ model: 'opus', effortLevel: 'high', env: { KEEP: '1' } }, null, 2)}\n`, 'utf-8')
+    const result = await resetModelConfig(pathExists)
+    expect(result.success).toBe(true)
+    const settings = await readSettings()
+    expect(settings.model).toBeUndefined()
+    expect(settings.effortLevel).toBeUndefined()
+    expect(settings.env.KEEP).toBe('1')
+  })
+
+  it('SC-011: 模型 reset 的存在性判断在 broker 内完成', async () => {
+    await fs.writeFile(settingsPath, `${JSON.stringify({ model: 'opus', effortLevel: 'high' }, null, 2)}\n`, 'utf-8')
+
+    const result = await resetModelConfig(async () => false)
+    expect(result.success).toBe(true)
+    expect(await readSettings()).toEqual({})
+  })
+
+  it('SC-010/011: 损坏 JSON 的 reset 必须失败，不能用 noop 假报成功', async () => {
+    await fs.writeFile(settingsPath, '{broken', 'utf-8')
+    const permissionResult = await resetPermissionMode(pathExists)
+    expect(permissionResult.success).toBe(false)
+    expect(permissionResult.errorCode).toBe('CONFIG_CORRUPTED')
+    expect(await fs.readFile(settingsPath, 'utf-8')).toBe('{broken')
+
+    const modelResult = await resetModelConfig(pathExists)
+    expect(modelResult.success).toBe(false)
+    expect(modelResult.errorCode).toBe('CONFIG_CORRUPTED')
+    expect(await fs.readFile(settingsPath, 'utf-8')).toBe('{broken')
+  })
+
   it('SW-1: 事务创建 → 2 空格格式化 JSON + 尾换行 + 私有权限 + 无 tmp 残留；二次 create 返冲突', async () => {
     const result = await mutateClaudeSettingsFile(
       () => ({ ok: true, next: { model: 'opus' }, create: true, updateExisting: false }),

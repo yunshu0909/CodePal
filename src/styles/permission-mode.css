@@ -341,6 +341,10 @@
   margin-bottom: var(--space-4);
 }
 
+.model-config-reset {
+  margin-left: auto;
+}
+
 /* 双列布局 */
 .model-grid {
   display: grid;

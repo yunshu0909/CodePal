@@ -4,7 +4,7 @@
  * 负责：
  * - 读取 Claude Code 的模型配置（~/.claude/settings.json）
  * - 写入 model 和 effortLevel 字段
- * - 复用 permissionModeHandlers 的备份和原子写入基础设施
+ * - 统一通过 settings broker 备份并原子提交
  *
  * 支持的字段：
  * - model: 模型别名或完整模型名（如 opus、claude-opus-4-6）
@@ -15,7 +15,6 @@
 
 const fs = require('fs/promises')
 const {
-  backupClaudeSettingsRaw,
   CLAUDE_SETTINGS_FILE_PATH,
 } = require('./permissionModeHandlers')
 // settings.json 写入统一走唯一 broker（V1.9.8 收口）
@@ -208,6 +207,51 @@ async function setModelConfig(field, value, pathExists, options = {}) {
 }
 
 /**
+ * 在一个事务内删除 model 与 effortLevel，恢复 Claude 客户端默认。
+ * @returns {Promise<Object>}
+ */
+async function resetModelConfig(_pathExists, options = {}) {
+  let managedOverride = false
+  let managedUnknown = false
+  const writeResult = await mutateClaudeSettingsFile(({ data, kind, isManagedField, managedUnknown: unknown }) => {
+    managedOverride = typeof isManagedField === 'function' && (isManagedField('model') || isManagedField('effortLevel'))
+    managedUnknown = unknown === true
+    if (kind === 'missing' || (!Object.prototype.hasOwnProperty.call(data, 'model') && !Object.prototype.hasOwnProperty.call(data, 'effortLevel'))) {
+      return { ok: true, noop: true }
+    }
+    const next = { ...data }
+    delete next.model
+    delete next.effortLevel
+    return { ok: true, next }
+  }, { backupSuffix: 'model-config', managedPaths: options.managedPaths || null })
+
+  if (!writeResult.success) {
+    return {
+      success: false,
+      error: writeResult.error || '恢复客户端默认失败',
+      errorCode: writeResult.errorCode === 'READ_FAILED' ? 'READ_ERROR' : (writeResult.errorCode || 'WRITE_ERROR'),
+      committed: writeResult.committed === true,
+      durability: writeResult.durability || null,
+    }
+  }
+  return {
+    success: true,
+    model: null,
+    effortLevel: null,
+    isModelConfigured: false,
+    isEffortConfigured: false,
+    backupPath: writeResult.backupPath,
+    committed: writeResult.committed === true,
+    durability: writeResult.durability || null,
+    managedOverride,
+    managedUnknown,
+    managedNotice: managedOverride
+      ? '模型或推理强度已被企业 / 组织托管配置覆盖，本次重置不会改变实际生效值'
+      : (managedUnknown ? '无法确认模型或推理强度是否被托管配置覆盖，实际生效未验证' : null),
+  }
+}
+
+/**
  * 注册模型配置 IPC handlers
  * @param {Object} deps - 依赖注入
  * @param {import('electron').IpcMain} deps.ipcMain - Electron ipcMain
@@ -237,12 +281,14 @@ function registerModelConfigHandlers({ ipcMain, pathExists }) {
     }
     return setModelConfig(field, value, pathExists)
   })
+  ipcMain.handle('reset-model-config', async () => resetModelConfig(pathExists))
 }
 
 module.exports = {
   registerModelConfigHandlers,
   getModelConfig,
   setModelConfig,
+  resetModelConfig,
   EFFORT_LEVEL_PATTERN,
   EFFORT_DISPLAY_NAMES,
 }

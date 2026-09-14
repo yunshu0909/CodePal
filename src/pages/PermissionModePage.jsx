@@ -3,7 +3,7 @@
  *
  * 负责：
  * - Tab 切换：权限模式 / 模型配置与推理等级
- * - 权限模式 Tab：展示和切换 4 种启动模式
+ * - 权限模式 Tab：展示、切换、重置和恢复 6 种启动模式
  * - 模型配置 Tab：委托给 ModelConfigTab 组件
  * - 统一管理 Toast 反馈
  *
@@ -42,11 +42,25 @@ const PERMISSION_MODES = [
     icon: FilePenIcon,
   },
   {
+    id: 'dontAsk',
+    name: '仅预先授权',
+    description: '只执行已允许的操作；遇到未授权操作时不再询问',
+    color: '#64748b',
+    icon: ShieldIcon,
+  },
+  {
     id: 'bypassPermissions',
     name: '全自动',
     description: 'Claude 自动执行所有操作，无需确认（谨慎使用）',
     color: '#dc2626',
     icon: ZapIcon,
+  },
+  {
+    id: 'auto',
+    name: '自动审批',
+    description: '由 Claude 审批模型判断操作；可用性取决于客户端和账户',
+    color: '#7c3aed',
+    icon: SparklesIcon,
   },
 ]
 
@@ -100,6 +114,24 @@ function ZapIcon() {
   return (
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
+    </svg>
+  )
+}
+
+function ShieldIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z"/>
+      <path d="m9 12 2 2 4-4"/>
+    </svg>
+  )
+}
+
+function SparklesIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="m12 3-1.9 5.1L5 10l5.1 1.9L12 17l1.9-5.1L19 10l-5.1-1.9L12 3Z"/>
+      <path d="m5 3-.6 1.4L3 5l1.4.6L5 7l.6-1.4L7 5l-1.4-.6L5 3Z"/>
     </svg>
   )
 }
@@ -170,6 +202,8 @@ function PermissionModeTab({ onToast }) {
   const [isConfigured, setIsConfigured] = useState(false)
   // 是否为已知模式（用于未知模式态）
   const [isKnownMode, setIsKnownMode] = useState(true)
+  // 是否存在 CodePal 生成的权限模式备份
+  const [restoreAvailable, setRestoreAvailable] = useState(false)
   // 初始加载中
   const [isLoading, setIsLoading] = useState(true)
   // 切换中状态
@@ -180,8 +214,7 @@ function PermissionModeTab({ onToast }) {
   const [error, setError] = useState(null)
 
   /**
-   * 加载权限模式配置
-   * 如果未配置，自动写入「每次询问」作为默认值
+   * 加载权限模式配置；未配置只展示状态，不产生写入。
    */
   const loadConfig = useCallback(async ({ silent = false } = {}) => {
     try {
@@ -191,22 +224,10 @@ function PermissionModeTab({ onToast }) {
       const result = await window.electronAPI.getPermissionModeConfig()
 
       if (result.success) {
-        if (!result.isConfigured) {
-          const setResult = await window.electronAPI.setPermissionMode('default')
-          if (setResult.success) {
-            setCurrentMode('default')
-            setIsConfigured(true)
-            setIsKnownMode(true)
-          } else {
-            setCurrentMode(null)
-            setIsConfigured(false)
-            setIsKnownMode(true)
-          }
-        } else {
-          setCurrentMode(result.mode)
-          setIsConfigured(result.isConfigured)
-          setIsKnownMode(result.isKnownMode !== false)
-        }
+        setCurrentMode(result.isConfigured ? result.mode : null)
+        setIsConfigured(result.isConfigured === true)
+        setIsKnownMode(result.isKnownMode !== false)
+        setRestoreAvailable(result.restoreAvailable === true)
       } else {
         setError({ type: result.errorCode || 'READ_ERROR', message: result.error || '无法读取当前配置' })
         if (!silent) onToast(result.error || '无法读取当前配置', 'error')
@@ -242,6 +263,7 @@ function PermissionModeTab({ onToast }) {
         setCurrentMode(mode)
         setIsConfigured(true)
         setIsKnownMode(true)
+        setRestoreAvailable(Boolean(result.backupPath) || restoreAvailable)
         const modeName = PERMISSION_MODES.find((m) => m.id === mode)?.name || mode
         if (result.managedNotice) {
           // 托管设置优先级更高（或被托管但读不出）：写入成功也可能不生效，不能宣称「已切换」
@@ -267,8 +289,51 @@ function PermissionModeTab({ onToast }) {
     }
   }
 
+  const handleResetMode = async () => {
+    if (!isConfigured || isSwitching) return
+    try {
+      setIsSwitching(true)
+      const result = await window.electronAPI.resetPermissionMode()
+      if (!result.success) {
+        onToast(result.error || '恢复客户端默认失败', 'error')
+        return
+      }
+      setCurrentMode(null)
+      setIsConfigured(false)
+      setIsKnownMode(true)
+      setRestoreAvailable(result.restoreAvailable !== false)
+      onToast(result.managedNotice || '已恢复 Claude 客户端默认', result.managedNotice ? 'error' : 'success')
+    } catch (err) {
+      onToast(err?.message || '恢复客户端默认失败', 'error')
+    } finally {
+      setIsSwitching(false)
+    }
+  }
+
+  const handleRestoreMode = async () => {
+    if (!restoreAvailable || isSwitching) return
+    try {
+      setIsSwitching(true)
+      const result = await window.electronAPI.restorePermissionMode()
+      if (!result.success) {
+        onToast(result.error || '恢复上次修改失败', 'error')
+        return
+      }
+      setCurrentMode(result.mode)
+      setIsConfigured(result.isConfigured === true)
+      setIsKnownMode(result.isKnownMode !== false)
+      setRestoreAvailable(result.restoreAvailable !== false)
+      onToast(result.managedNotice || '已恢复上次权限修改', result.managedNotice ? 'error' : 'success')
+    } catch (err) {
+      onToast(err?.message || '恢复上次修改失败', 'error')
+    } finally {
+      setIsSwitching(false)
+    }
+  }
+
   const getCurrentModeDisplayName = () => {
-    const effectiveMode = !isConfigured ? 'default' : currentMode
+    if (!isConfigured) return '未配置 · 由 Claude 决定'
+    const effectiveMode = currentMode
     if (!isKnownMode && isConfigured) return currentMode || '未知模式'
     const mode = PERMISSION_MODES.find((m) => m.id === effectiveMode)
     return mode?.name || effectiveMode || '未知'
@@ -276,7 +341,8 @@ function PermissionModeTab({ onToast }) {
 
   const getCurrentModeColor = () => {
     if (!isKnownMode && isConfigured) return '#f59e0b'
-    const effectiveMode = !isConfigured ? 'default' : currentMode
+    if (!isConfigured) return '#6b7280'
+    const effectiveMode = currentMode
     const mode = PERMISSION_MODES.find((m) => m.id === effectiveMode)
     return mode?.color || '#6b7280'
   }
@@ -298,6 +364,18 @@ function PermissionModeTab({ onToast }) {
           {getCurrentModeDisplayName()}
         </div>
       </section>
+
+      <div className="config-header">
+        <div>
+          <Button variant="secondary" size="sm" disabled={!isConfigured || isSwitching} onClick={handleResetMode}>
+            恢复客户端默认
+          </Button>
+          {' '}
+          <Button variant="ghost" size="sm" disabled={!restoreAvailable || isSwitching} onClick={handleRestoreMode}>
+            恢复上次修改
+          </Button>
+        </div>
+      </div>
 
       {/* 警告 Banner */}
       {!isKnownMode && isConfigured && (
