@@ -17,6 +17,7 @@ const {
   mergeDailySummaries,
 } = require('./dailySummaryService')
 const { buildUsageViewData } = require('./usageViewDataService')
+const { createLogScanWindowContext } = require('../logScanner')
 
 const PROGRESS_EMIT_INTERVAL_MS = 250
 const EVENT_LOOP_YIELD_INTERVAL_MS = 32
@@ -252,6 +253,12 @@ async function aggregateUsageDateRange(params, deps = {}) {
   const recomputeDailySummaryFn = deps.recomputeDailySummaryFn || recomputeDailySummary
   const dateRange = buildDateRange(startDate, endDate)
   const totalDays = dateRange.length
+
+  // 整个查询区间只枚举一次目录、每个文件只解析一次（跨天复用），但**按天重建候选集**，
+  // 因此选中文件集合与逐日独立遍历逐条相同 —— 见 logScanner.createLogScanWindowContext。
+  // 单日查询时退化为与旧实现等价的一次遍历，无额外代价。
+  const windowContext = createLogScanWindowContext(getBeijingDayStartByKey(dateRange[0]))
+  const recomputeDeps = { ...deps, windowContext }
   const progressReporter = createProgressReporter(deps.onProgress)
 
   let cachedDays = 0
@@ -288,7 +295,7 @@ async function aggregateUsageDateRange(params, deps = {}) {
       currentSource = 'recomputed'
 
       try {
-        dailySummary = await recomputeDailySummaryFn(dateKey, deps)
+        dailySummary = await recomputeDailySummaryFn(dateKey, recomputeDeps)
 
         if (!dailySummary) {
           currentSource = 'failed'

@@ -22,9 +22,13 @@ export function collectCodexUsageRecords(files, start, end) {
     const id = (stem.match(/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i)?.[1] || stem).toLowerCase()
     const state = sessions.get(id) || { input: 0, output: 0, cache: 0, model: 'codex', project: '未知项目', fork: false, firstTime: null }
     sessions.set(id, state)
-    for (const line of file.lines || []) {
-      let data
-      try { data = JSON.parse(line) } catch { continue }
+    // file.events 由窗口上下文缓存（同一文件在同一次查询里只解析一次 JSON）；
+    // 没有缓存时退回逐行解析，保证单次调用路径语义不变。
+    const events = Array.isArray(file.events)
+      ? file.events
+      : (file.lines || []).map((line) => { try { return JSON.parse(line) } catch { return null } })
+    for (const data of events) {
+      if (!data) continue
       if (data.type === 'turn_context') {
         if (typeof data.payload?.model === 'string' && data.payload.model.trim()) state.model = data.payload.model
         if (typeof data.payload?.cwd === 'string') state.project = data.payload.cwd.split(/[\\/]/).filter(Boolean).pop() || '未知项目'

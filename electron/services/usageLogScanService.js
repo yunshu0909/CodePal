@@ -12,7 +12,7 @@
 
 const path = require('path')
 const os = require('os')
-const { scanLogFilesInRange } = require('../logScanner')
+const { scanLogFilesInRange, readClaudeUsageLines } = require('../logScanner')
 
 const CODEX_SESSION_ID_REGEX = /([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i
 
@@ -295,17 +295,43 @@ async function scanClaudeLogs(start, end, deps = {}) {
     return []
   }
 
-  const scanResult = await scanLogFilesInRangeFn(claudeBasePath, start, end)
+  // 审计开关：置 true 时走"整份读文件"的旧路径，仅用于新旧实现对账（不是生产路径）
+  const scanOptions = deps.claudeLegacyWholeFileRead === true ? undefined : { claudeUsageOnly: true }
+  // 注入窗口上下文时走「每窗口枚举一次 + 每文件解析一次」；按天重建候选集，语义与逐日独立遍历逐条相同
+  const scanResult = deps.windowContext
+    ? await deps.windowContext.scanForDay(claudeBasePath, start, scanOptions || {})
+    : await scanLogFilesInRangeFn(claudeBasePath, start, end, scanOptions)
+  // 同一文件在同一次查询里只解析一次 JSON（跨天复用）；每天只做「窗口裁剪 + messageId 去重」。
+  // 解析结果按「文件顺序 + 行号」保存，因此 streamOrder 的推进顺序与逐日独立解析完全一致。
+  const memo = deps.windowContext?.memo
+  const parsedFiles = []
+
+  for (const file of scanResult.files || []) {
+    const cacheKey = `claude:${file.path}|${file.mtime}`
+    let parsed = memo?.get(cacheKey)
+
+    if (!parsed) {
+      parsed = []
+      const lines = file.lines || []
+      for (let index = 0; index < lines.length; index += 1) {
+        const record = parseClaudeLog(lines[index])
+        if (!record?.timestamp) continue
+        record.project = extractProjectNameFromCwd(record.cwdPath) || extractProjectNameFromClaudePath(file.path) || '未知项目'
+        parsed.push({ record, index })
+      }
+      memo?.set(cacheKey, parsed)
+    }
+
+    parsedFiles.push({ file, parsed })
+  }
+
   const latestByMessage = new Map()
   let streamOrder = 0
 
-  for (const file of scanResult.files || []) {
-    for (let index = 0; index < (file.lines || []).length; index += 1) {
-      const line = file.lines[index]
-      const record = parseClaudeLog(line)
-      if (record?.timestamp && record.timestamp >= start && record.timestamp < end) {
+  for (const { file, parsed } of parsedFiles) {
+    for (const { record, index } of parsed) {
+      if (record.timestamp >= start && record.timestamp < end) {
         streamOrder += 1
-        record.project = extractProjectNameFromCwd(record.cwdPath) || extractProjectNameFromClaudePath(file.path) || '未知项目'
         // Claude 同一 message.id 可能写入中间态与最终态，按"最新快照"保留才能避免重复累计
         const messageId = record.messageId || `${file.path || 'unknown-file'}:${index}`
         const incoming = { record, order: streamOrder }
@@ -334,7 +360,26 @@ async function scanCodexLogs(start, end, deps = {}) {
   const codexBasePath = path.join(deps.homeDir || os.homedir(), '.codex', 'sessions')
   if (!(await pathExistsFn(codexBasePath))) return []
   // 模型上下文和窗口前基线可能在文件开头，不能只读最后 10000 行。
-  const result = await scanLogFilesInRangeFn(codexBasePath, start, end, { codexUsageOnly: true })
+  const codexOptions = { codexUsageOnly: true }
+  const result = deps.windowContext
+    ? await deps.windowContext.scanForDay(codexBasePath, start, codexOptions)
+    : await scanLogFilesInRangeFn(codexBasePath, start, end, codexOptions)
+
+  // 逐行 JSON.parse 的结果按文件缓存（跨天复用）。Codex 的收集本身是有状态的顺序算法
+  // （跨文件累计高水位），不能按文件分解，因此只省解析、不省重放。
+  const memo = deps.windowContext?.memo
+  if (memo) {
+    for (const file of result.files || []) {
+      const cacheKey = `codex:${file.path}|${file.mtime}`
+      if (!memo.has(cacheKey)) {
+        memo.set(cacheKey, (file.lines || []).map((line) => {
+          try { return JSON.parse(line) } catch { return null }
+        }))
+      }
+      file.events = memo.get(cacheKey)
+    }
+  }
+
   const { collectCodexUsageRecords } = await import('./codexUsageRecords.mjs')
   return collectCodexUsageRecords(result.files, start, end)
 }
@@ -1095,6 +1140,7 @@ module.exports = {
   scanDshLogs,
   scanDshLogsInProcess,
   setDshIsolatedRunner,
+  readClaudeUsageLines,
   listDshSessionLogs,
   iterateDshLines,
   findEarliestDshDate,
