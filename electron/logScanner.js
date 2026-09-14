@@ -149,7 +149,7 @@ async function readClaudeUsageLines(filePath, maxLinesPerFile) {
  */
 async function scanLogFilesInRange(basePath, startTime, endTime, options = {}) {
   const maxFiles = typeof options.maxFiles === 'number' ? options.maxFiles : 5000
-  const candidates = await enumerateLogCandidates(basePath, startTime, options)
+  const { candidates } = await enumerateLogCandidates(basePath, startTime, options)
   const selectedCandidates = candidates.slice(0, maxFiles)
 
   const files = await readSelectedCandidates(selectedCandidates, options)
@@ -177,6 +177,9 @@ async function scanLogFilesInRange(basePath, startTime, endTime, options = {}) {
 async function enumerateLogCandidates(basePath, startTime, options = {}) {
   const maxDepth = typeof options.maxDepth === 'number' ? options.maxDepth : 10
   const candidates = []
+  // 统计 stat / 目录读取失败次数：失败的枚举是**不完整**的，调用方不能把它当作稳定结果长期缓存，
+  // 否则文件恢复后后续日期也不会重新发现它（与逐日独立遍历的行为不一致）。
+  let failed = 0
 
   async function collect(currentPath, depth = 0) {
     if (depth > maxDepth) return
@@ -195,17 +198,19 @@ async function enumerateLogCandidates(basePath, startTime, options = {}) {
           candidates.push({ path: fullPath, mtime: stat.mtime })
         } catch {
           // 单文件 stat 失败时静默跳过
+          failed += 1
         }
       }
     } catch {
       // 目录不可读/不存在时静默跳过
+      failed += 1
     }
   }
 
   await collect(basePath, 0)
   // 优先读取最近更新的文件，避免截断时随机漏算
   candidates.sort((a, b) => b.mtime.getTime() - a.mtime.getTime())
-  return candidates
+  return { candidates, failed }
 }
 
 /**
@@ -273,7 +278,7 @@ async function readCandidateLines(candidate, options = {}) {
  * @param {Date} windowStart - 整个查询区间的起点（用于一次性枚举）
  * @returns {{scanForDay: (basePath: string, dayStart: Date, options?: object) => Promise<object>, stats: () => object}}
  */
-function createLogScanWindowContext(windowStart) {
+function createLogScanWindowContext(windowStart, deps = {}) {
   const enumerationCache = new Map()
   const readCache = new Map()
   // 通用 memo：服务层用它按 (文件, mtime) 缓存「解析后的记录/事件」，
@@ -289,12 +294,26 @@ function createLogScanWindowContext(windowStart) {
     ].join('|')
   }
 
+  const enumerateFn = deps.enumerateFn || enumerateLogCandidates
+
   function enumerate(basePath, options) {
     const key = `${basePath}|${optionsKey(options)}`
-    if (!enumerationCache.has(key)) {
-      enumerationCache.set(key, enumerateLogCandidates(basePath, windowStart, options))
-    }
-    return enumerationCache.get(key)
+    const cached = enumerationCache.get(key)
+    if (cached) return cached
+    const pending = Promise.resolve()
+      .then(() => enumerateFn(basePath, windowStart, options))
+      .then((result) => {
+        // 出现 stat/目录失败的枚举不完整：本次照常使用，但**不留在缓存里**，
+        // 让后续日期重新枚举，从而能发现已恢复的文件。
+        if (Number(result?.failed) > 0) enumerationCache.delete(key)
+        return result
+      })
+      .catch((error) => {
+        enumerationCache.delete(key)
+        throw error
+      })
+    enumerationCache.set(key, pending)
+    return pending
   }
 
   function readOnce(candidate, options) {
@@ -317,7 +336,7 @@ function createLogScanWindowContext(windowStart) {
   return {
     async scanForDay(basePath, dayStart, options = {}) {
       const maxFiles = typeof options.maxFiles === 'number' ? options.maxFiles : 5000
-      const all = await enumerate(basePath, options)
+      const { candidates: all } = await enumerate(basePath, options)
       const inDay = all.filter((candidate) => candidate.mtime.getTime() >= dayStart.getTime())
       const selected = inDay.slice(0, maxFiles)
       const files = []

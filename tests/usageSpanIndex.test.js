@@ -111,6 +111,49 @@ describe('跨日候选资格（方案门 Astra SOL-003）', () => {
   })
 })
 
+describe('枚举失败不跨天记忆（CODE-001 回归）', () => {
+  it('首次 stat 失败导致的候选遗漏，不会让后续日期也漏掉恢复后的文件', async () => {
+    const real = path.join(dir, 'recovered.jsonl')
+    fs.writeFileSync(real, '{"t":1}\n', 'utf-8')
+    fs.utimesSync(real, day(9), day(9))
+
+    let calls = 0
+    const enumerateFn = async () => {
+      calls += 1
+      // 第一次：模拟 stat 失败 → 不完整的枚举结果
+      if (calls === 1) return { candidates: [], failed: 1 }
+      return { candidates: [{ path: real, mtime: day(9) }], failed: 0 }
+    }
+
+    const ctx = createLogScanWindowContext(day(1), { enumerateFn })
+
+    // 第 1 天：候选集不完整，读不到文件
+    const d1 = await ctx.scanForDay(dir, day(1), {})
+    expect(d1.files).toEqual([])
+
+    // 第 2 天：因为上次枚举带失败，必须重新枚举 → 发现已恢复的文件
+    const d2 = await ctx.scanForDay(dir, day(2), {})
+    expect(d2.files.map((f) => path.basename(f.path))).toEqual(['recovered.jsonl'])
+    expect(calls).toBe(2)
+  })
+
+  it('枚举失败不影响成功枚举的复用（成绩好的那次仍只枚举一次）', async () => {
+    const real = path.join(dir, 'ok.jsonl')
+    fs.writeFileSync(real, '{"t":1}\n', 'utf-8')
+    fs.utimesSync(real, day(9), day(9))
+
+    let calls = 0
+    const enumerateFn = async () => {
+      calls += 1
+      return { candidates: [{ path: real, mtime: day(9) }], failed: 0 }
+    }
+
+    const ctx = createLogScanWindowContext(day(1), { enumerateFn })
+    for (const d of [day(1), day(2), day(3)]) await ctx.scanForDay(dir, d, {})
+    expect(calls).toBe(1)
+  })
+})
+
 describe('每窗口只枚举一次、每文件只解析一次', () => {
   it('同一文件被多天选中时只读取一次', async () => {
     // mtime 落在第 9 天 → 第 1..9 天的 mtime 下界都放行，因此会被多天共同选中
