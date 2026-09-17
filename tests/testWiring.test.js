@@ -52,7 +52,7 @@ function collectTestFiles() {
 
 describe('测试链自检', () => {
   it('tests/ 下每个测试文件都被某个 npm script 跑到（没有游离文件）', () => {
-    const dirs = configDirs()
+    const dirs = [...configDirs(), ...Array.from(scriptsText.matchAll(/(?:^|\s)(tests\/[^\s]+)/g), m => path.resolve(repoRoot, m[1])).filter(p => fs.existsSync(p) && fs.statSync(p).isDirectory())]
     const orphans = collectTestFiles().filter((file) => {
       if (scriptsText.includes(path.basename(file))) return false
       return !dirs.some((dir) => file === dir || file.startsWith(dir + path.sep))

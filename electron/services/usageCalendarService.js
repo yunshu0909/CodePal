@@ -8,6 +8,7 @@ const {findEarliestLogDate}=require('./usageLogScanService')
 async function strictPathExists(path) {try{await fs.access(path);return true}catch(error){if(error.code==='ENOENT')return false;throw error}}
 /** @param {{month:string,taskId?:string,retryDate?:string}} params @param {object} deps @returns {Promise<object>} */
 async function aggregateUsageCalendar(params={},deps={}) {
+  if(deps.statistics){try{return {success:true,data:await deps.statistics.getCalendar(params,deps.onProgress)}}catch(error){return {success:false,error:['INVALID_MONTH','INVALID_DAY'].includes(error.message)?error.message:'读取日志失败，请重试'}}}
   if (!params || typeof params !== 'object') return {success:false,error:'INVALID_MONTH'}
   const now=deps.nowFn?deps.nowFn():new Date(),today=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Shanghai',year:'numeric',month:'2-digit',day:'2-digit'}).format(now)
   const month=params.month,taskId=params.taskId

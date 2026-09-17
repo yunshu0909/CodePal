@@ -58,6 +58,14 @@ const { registerPermissionModeHandlers } = require('./handlers/permissionModeHan
 const { registerModelConfigHandlers } = require('./handlers/modelConfigHandlers')
 const { registerModelRegistryHandlers } = require('./handlers/registerModelRegistryHandlers')
 const { registerPricingRegistryHandlers } = require('./handlers/registerPricingRegistryHandlers')
+const { registerPlanHandlers, isReservedPlanKey } = require('./ipc/registerPlanHandlers')
+const { createPlanStoreService } = require('./services/plan/planStoreService')
+const { createPlanDailySummaryService } = require('./services/plan/planDailySummaryService')
+const { createSharedUsageStatistics } = require('./services/sharedUsageStatistics')
+const { createUsageStatisticsScheduler } = require('./services/usageStatisticsScheduler')
+const { configureSharedStatistics } = require('./services/dailySummaryService')
+const { createPlanUsageQuery } = require('./services/plan/planUsageService')
+const { readPlanMetadata } = require('./services/plan/planMetadataService')
 const {
   initRemoteConfig,
   refreshRemoteConfigInBackground,
@@ -83,6 +91,21 @@ const PROVIDER_REGISTRY_FILE_PATH = resolveProviderRegistryFilePath()
 const PROVIDER_REGISTRY_MCP_SCRIPT_PATH = path.resolve(__dirname, '..', 'mcp', 'provider_registry_mcp.js')
 
 const store = new Store()
+const planLedger = createPlanStoreService({ store, metadataFn: readPlanMetadata })
+const usageStatistics = createSharedUsageStatistics()
+configureSharedStatistics(usageStatistics)
+const planDaily = createPlanDailySummaryService({ statistics: usageStatistics })
+const planService = { ...planLedger, query: createPlanUsageQuery({ ledger: planLedger, daily: planDaily }) }
+registerPlanHandlers({ ipcMain, service: planService })
+const usageScheduler = createUsageStatisticsScheduler({statistics:usageStatistics,getCycles:async()=>{
+  const cycles=[]
+  for(const id of ['claude','codex']){const result=await planLedger.read(id);const cycle=result.plan.cycles.at(-1);if(cycle)cycles.push(cycle)}
+  return cycles
+},onError:()=>console.warn('[usage-statistics] background update failed')})
+usageStatistics.subscribe(snapshot=>{
+  for(const window of BrowserWindow.getAllWindows()){if(!window.isDestroyed()){try{window.webContents.send('usage-statistics:changed',snapshot)}catch{/* Window may close during a batch. */}}}
+})
+ipcMain.handle('usage-statistics:status',()=>({success:true,data:usageStatistics.snapshot()}))
 
 // 初始化文档查阅服务的 store 引用
 initDocBrowserStore(store)
@@ -213,6 +236,8 @@ app.whenReady().then(async () => {
   registerK28StatusLightHandlers({ ipcMain, shell })
 
   createWindow()
+  // The sampling clock belongs to the app process, including when macOS has no window.
+  void usageScheduler.start()
 
   // 启动后异步后台刷新所有 registry（不阻塞启动；结果下次启动才生效，避免 UI 中途跳变）
   setTimeout(() => {
@@ -268,6 +293,7 @@ app.on('window-all-closed', () => {
 // 退出前停掉 CodePal 拉起的 dsh：dsh 首信号是优雅退出（上游给 5 秒 drain），
 // 不阻塞退出流程——偏好关掉时直接跳过。
 app.on('before-quit', () => {
+  usageScheduler.stop()
   Promise.resolve(shutdownAllHarness(harnessPreferences)).catch(() => {})
 })
 
@@ -325,6 +351,7 @@ ipcMain.handle('get-store', (event, key) => {
  * @returns {boolean} 是否成功
  */
 ipcMain.handle('set-store', (event, key, value) => {
+  if (isReservedPlanKey(key)) return false
   store.set(key, value)
   return true
 })
@@ -336,6 +363,7 @@ ipcMain.handle('set-store', (event, key, value) => {
  * @returns {boolean} 是否成功
  */
 ipcMain.handle('delete-store', (event, key) => {
+  if (isReservedPlanKey(key)) return false
   store.delete(key)
   return true
 })
@@ -728,6 +756,7 @@ registerUsageAggregationHandlers({
   expandHome,
   pathExists,
   homeDir: os.homedir(),
+  statistics: usageStatistics,
   nowFn: () => new Date()
 })
 

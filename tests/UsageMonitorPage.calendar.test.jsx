@@ -28,11 +28,11 @@ describe('usage calendar page',()=>{
   expect(window.electronAPI.setStore).toHaveBeenCalledWith('usageGoal',{value:.4,unit:'B'})
   await screen.findByText('目标已更新为 400M / 天')
  })
- it('TC002/027: returning to the keep-alive page forces today recomputation',async()=>{
+ it('TC002/027: returning to the keep-alive page reads existing data without scanning',async()=>{
   const {rerender}=render(<UsageMonitorPage isActive />)
   await screen.findByRole('button',{name:'2026-09-15'})
   rerender(<UsageMonitorPage isActive={false}/>);rerender(<UsageMonitorPage isActive />)
-  await waitFor(()=>expect(window.electronAPI.aggregateUsageCalendar).toHaveBeenCalledTimes(2))
+  await waitFor(()=>expect(window.electronAPI.aggregateUsageCalendar).toHaveBeenCalledTimes(1))
  })
  it('TC007/014: empty month hides detail/legend; no goal hides rings',async()=>{
   window.electronAPI.getStore=async()=>null

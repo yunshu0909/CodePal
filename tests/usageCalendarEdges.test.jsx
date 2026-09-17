@@ -10,13 +10,13 @@ const result=month=>({success:true,data:{month,today:getBeijingDayKey(),earliest
 beforeEach(()=>{vi.useFakeTimers({toFake:['Date']});vi.setSystemTime(new Date('2026-09-16T04:00:00Z'));window.electronAPI={getStore:async key=>key==='usageGoal'?{value:300,unit:'M'}:false,setStore:vi.fn(async()=>true),deleteStore:async()=>true,aggregateUsageCalendar:vi.fn(async p=>result(p.month)),onUsageCalendarProgress:()=>()=>{}}})
 afterEach(()=>{cleanup();vi.useRealTimers()})
 describe('calendar edge interactions',()=>{
- it('returning from historical month starts a fresh current-month query',async()=>{
+ it('returning from historical month keeps the selected month and cached query',async()=>{
   const {rerender}=render(<UsageMonitorPage isActive />)
   fireEvent.click(await screen.findByRole('button',{name:'上个月'}))
   await screen.findByRole('button',{name:'2026-08-16'})
   rerender(<UsageMonitorPage isActive={false}/>);rerender(<UsageMonitorPage isActive />)
-  await screen.findByRole('button',{name:'2026-09-16'})
-  expect(window.electronAPI.aggregateUsageCalendar.mock.calls.at(-1)[0].month).toBe('2026-09')
+  await screen.findByRole('button',{name:'2026-08-16'})
+  expect(window.electronAPI.aggregateUsageCalendar.mock.calls.at(-1)[0].month).toBe('2026-08')
  })
  it('late month response and progress cannot overwrite the new month',async()=>{
   let finishAugust,sendProgress
@@ -42,12 +42,13 @@ describe('calendar edge interactions',()=>{
   expect(screen.queryByText('目标已更新为 400M / 天')).not.toBeInTheDocument()
   expect(screen.getByRole('button',{name:'编辑日目标'})).toHaveTextContent('9.0B')
  })
- it('Beijing month boundary closes the visible live month without jumping to the new month',async()=>{
+ it('shared Beijing month-boundary event updates today without changing viewed month',async()=>{
   vi.useFakeTimers();vi.setSystemTime(new Date('2026-09-30T15:59:00Z'))
+  let changed;window.electronAPI.onUsageStatisticsChanged=fn=>{changed=fn;return()=>{}}
   const {result:hook}=renderHook(()=>useUsageCalendarData(true))
   await act(async()=>{await Promise.resolve();await Promise.resolve()})
   expect(hook.current.month).toBe('2026-09')
-  await act(async()=>{await vi.advanceTimersByTimeAsync(120000)})
+  await act(async()=>{vi.setSystemTime(new Date('2026-09-30T16:01:00Z'));changed({revision:2,today:'2026-10-01'});await Promise.resolve();await Promise.resolve()})
   expect(hook.current.today).toBe('2026-10-01')
   expect(hook.current.month).toBe('2026-09')
   expect(window.electronAPI.aggregateUsageCalendar.mock.calls.at(-1)[0].month).toBe('2026-09')

@@ -16,6 +16,16 @@ const { contextBridge, ipcRenderer } = require('electron')
  * 通过 contextBridge 暴露给渲染进程使用
  */
 contextBridge.exposeInMainWorld('electronAPI', {
+  // Plan methods accept settings/actions or a server-provided cycle ID only.
+  readPlan: (payload) => ipcRenderer.invoke('plan-read', payload),
+  savePlan: (payload) => ipcRenderer.invoke('plan-save', payload),
+  actPlan: (payload) => ipcRenderer.invoke('plan-action', payload),
+  queryPlan: (payload) => ipcRenderer.invoke('plan-query', payload),
+  onPlanResume: (callback) => {
+    const listener = () => callback()
+    ipcRenderer.on('plan-resume', listener)
+    return () => ipcRenderer.removeListener('plan-resume', listener)
+  },
   // Legacy store APIs (for backward compatibility)
 
   /**
@@ -237,6 +247,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
    */
   aggregateUsagePeriod: (params) => ipcRenderer.invoke('aggregate-usage-period', params),
   aggregateUsageCalendar: (params) => ipcRenderer.invoke('aggregate-usage-calendar', params),
+  getUsageStatisticsStatus: () => ipcRenderer.invoke('usage-statistics:status'),
+  onUsageStatisticsChanged: (callback) => {
+    const listener = (_event, snapshot) => callback(snapshot)
+    ipcRenderer.on('usage-statistics:changed', listener)
+    return () => ipcRenderer.removeListener('usage-statistics:changed', listener)
+  },
   onUsageCalendarProgress: (callback) => {
     const listener = (_event, progress) => callback(progress)
     ipcRenderer.on('usage-calendar:progress', listener)

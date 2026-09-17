@@ -23,6 +23,9 @@ const { toSafeInt, scanClaudeLogs, scanCodexLogs, scanDshLogs, aggregateByModel,
 // - v5：模型切换按用量发生时归属（commit 8cb35da）
 // - v6：新增 DSH 用量来源（~/.dsh 会话事件流）
 const DAILY_SUMMARY_SCHEMA_VERSION = 6
+let sharedStatistics = null
+/** @param {object|null} statistics App-owned shared authority; tests/legacy offline tools retain their isolated adapters. @returns {void} */
+function configureSharedStatistics(statistics) { sharedStatistics = statistics }
 
 /**
  * 校验日期 key 是否为 YYYY-MM-DD 且可解析
@@ -160,6 +163,7 @@ function normalizeDailySummary(raw, expectedDateKey) {
  * @returns {Promise<object|null>}
  */
 async function readDailySummary(dateKey, deps = {}) {
+  if(sharedStatistics)return sharedStatistics.readLegacyDay(dateKey)
   const pathExistsFn = deps.pathExistsFn || (async (fp) => {
     try { await fs.access(fp); return true } catch { return false }
   })
@@ -193,6 +197,7 @@ async function readDailySummary(dateKey, deps = {}) {
  * @returns {Promise<string|null>} YYYY-MM-DD 或 null
  */
 async function findEarliestDailySummaryDate(deps = {}) {
+  if(sharedStatistics)return sharedStatistics.earliestLedgerDay()
   const homeDir = deps.homeDir || os.homedir()
   const readdirFn = deps.readdirFn || fs.readdir
   const readFileFn = deps.readFileFn || fs.readFile
@@ -234,6 +239,7 @@ async function findEarliestDailySummaryDate(deps = {}) {
  * @param {object} deps - 依赖注入
  */
 async function writeDailySummary(dateKey, summary, deps = {}) {
+  if(sharedStatistics)return
   const mkdirFn = deps.mkdirFn || fs.mkdir
   const writeFileFn = deps.writeFileFn || fs.writeFile
 
@@ -298,6 +304,7 @@ function buildDailySummary(dateKey, aggregated, projectAggregated = new Map(), g
  * @returns {Promise<object>}
  */
 async function recomputeDailySummary(dateKey, deps = {}) {
+  if(sharedStatistics)return sharedStatistics.readLegacyDay(dateKey,{ensure:true})
   const start = getBeijingDayStartByKey(dateKey)
   const end = new Date(start)
   end.setUTCDate(end.getUTCDate() + 1)
@@ -364,6 +371,7 @@ function mergeDailySummaries(dailySummaries) {
 }
 
 module.exports = {
+  configureSharedStatistics,
   DAILY_SUMMARY_SCHEMA_VERSION,
   isValidDateKey,
   getBeijingDayStartByKey,

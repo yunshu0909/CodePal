@@ -31,6 +31,7 @@ function registerUsageAggregationHandlers({
   expandHome,
   pathExists,
   homeDir,
+  statistics,
   nowFn = () => new Date()
 }) {
   /**
@@ -52,7 +53,7 @@ function registerUsageAggregationHandlers({
   }
 
   ipcMain.handle('aggregate-usage-calendar', (event, params) => aggregateUsageCalendar(params, {
-    nowFn, homeDir,
+    nowFn, homeDir, statistics,
     onProgress: progress => {
       try {
         if (!event?.sender?.isDestroyed?.()) event.sender.send('usage-calendar:progress', progress)
@@ -100,6 +101,8 @@ function registerUsageAggregationHandlers({
       nowFn,
       homeDir,
       pathExistsFn: pathExists,
+      statistics,
+      findEarliestLogDateFn: statistics ? () => statistics.getEarliestDate() : undefined,
       scanLogFilesInRangeFn: scanLogFilesInRange,
       onProgress: (progress) => sendProgress(event, progress)
     })
@@ -140,10 +143,7 @@ function registerUsageAggregationHandlers({
    */
   ipcMain.handle('get-earliest-log-date', async () => {
     try {
-      const earliestDate = await findEarliestLogDate({
-        homeDir,
-        pathExistsFn: pathExists
-      })
+      const earliestDate = statistics ? await statistics.getEarliestDate() : await findEarliestLogDate({homeDir,pathExistsFn:pathExists})
       return { success: true, earliestDate }
     } catch (error) {
       return { success: false, earliestDate: null, error: error?.message || 'GET_EARLIEST_FAILED' }

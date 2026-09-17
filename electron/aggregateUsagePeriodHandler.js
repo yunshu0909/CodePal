@@ -3,7 +3,7 @@
  *
  * 负责：
  * - 校验 today/week/month/allTime 周期参数
- * - today 走轻量实时扫描
+ * - today 优先读取公共今日快照（离线独立工具保留原扫描适配）
  * - week/month/allTime 走按天汇总与真实进度
  *
  * @module electron/aggregateUsagePeriodHandler
@@ -49,6 +49,10 @@ async function aggregateTodayUsage(params, deps = {}) {
     const start = getBeijingDayStart(todayKey)
     const end = new Date(now)
 
+    if (deps.statistics) {
+      const snapshot = await deps.statistics.getTodayAggregates()
+      return {success:true,data:{...buildUsageViewData(snapshot.models,snapshot.projects),period:params.period,startTime:start.toISOString(),endTime:snapshot.cutoff,recordCount:snapshot.recordCount,dataRevision:snapshot.revision,...(snapshot.legacy?{legacy:true}:{})}}
+    }
     const [claudeRecords, codexRecords, dshRecords] = await Promise.all([
       scanClaudeLogs(start, end, deps),
       scanCodexLogs(start, end, deps),

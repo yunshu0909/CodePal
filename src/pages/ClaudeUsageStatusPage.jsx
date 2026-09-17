@@ -33,9 +33,13 @@ const SETTINGS_DISABLED_STATES = new Set([
 
 /**
  * Claude Code 会员额度状态页面
+ * @param {object} props - 独立设置入口只覆盖页面标题，沿用原有行为
+ * @param {string} [props.title] - 页面标题
  * @returns {JSX.Element}
  */
-export default function ClaudeUsageStatusPage() {
+export default function ClaudeUsageStatusPage({
+  title = '会员额度',
+}) {
   const {
     statusState,
     loading,
@@ -113,7 +117,7 @@ export default function ClaudeUsageStatusPage() {
 
   return (
     <PageShell
-      title="会员额度"
+      title={title}
       subtitle="从 Claude Code statusLine 与 Codex 本地会话日志读取会员额度。"
       actions={headerActions}
     >

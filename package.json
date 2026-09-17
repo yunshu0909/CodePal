@@ -16,7 +16,7 @@
     "dist:mac": "npm run clean:release && npm run build && electron-builder --mac --arm64",
     "dist:win": "npm run clean:release && npm run build && electron-builder --win nsis --x64",
     "preview": "vite preview",
-    "test": "npm run test:root && npm run test:v2 && npm run test:v21 && npm run test:v22 && npm run test:safety && npm run test:statusline && npm run test:usage-model-cost && npm run test:dsh-usage && npm run test:k28 && npm run test:usage-calendar",
+    "test": "npm run test:root && npm run test:v2 && npm run test:v21 && npm run test:v22 && npm run test:safety && npm run test:statusline && npm run test:usage-model-cost && npm run test:dsh-usage && npm run test:k28 && npm run test:usage-calendar && npm run test:plan && npm run test:statusline-settings && npm run test:shared-usage",
     "test:dsh-usage": "vitest run tests/dshZstdFrames.test.js tests/dshUsageRecords.test.js tests/dshUsageScan.test.js tests/dshUsageAggregation.test.js tests/dshUsageRenderer.test.jsx tests/dshPricing.test.js tests/dshIsolation.test.js",
     "test:v2": "vitest run --root . tests/v2/skillControlService.test.js tests/v2/ManagePage.skillControl.test.jsx",
     "test:statusline": "vitest run --config tests/statusLine/vitest.config.js",
@@ -30,7 +30,10 @@
     "test:ui": "vitest --ui",
     "test:report": "npm run test:coverage && node tests/generate-report.js",
     "test:usage-model-cost": "vitest run tests/usageModelCost.test.js tests/modelAlias.test.js",
-    "test:usage-calendar": "vitest run tests/calendarUtils.test.js tests/usageCalendarService.test.js tests/UsageMonitorPage.calendar.test.jsx tests/usageCalendarIsolation.test.jsx tests/usageCalendarStrict.test.js tests/usageCalendarEdges.test.jsx"
+    "test:usage-calendar": "vitest run tests/calendarUtils.test.js tests/usageCalendarService.test.js tests/UsageMonitorPage.calendar.test.jsx tests/usageCalendarIsolation.test.jsx tests/usageCalendarStrict.test.js tests/usageCalendarEdges.test.jsx",
+    "test:plan": "vitest run tests/plan",
+    "test:statusline-settings": "vitest run tests/statusLineSettings",
+    "test:shared-usage": "vitest run tests/sharedUsage"
   },
   "keywords": [
     "electron",
