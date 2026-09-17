@@ -1,0 +1,108 @@
+/** Page-local tokens and approved calendar patterns; shared defaults are unchanged. */
+.uc-page {
+  --uc-blue:#2b7fff; --uc-blue-fg:#0a66e8; --uc-blue-bg:#eaf2ff;
+  --uc-green:#30a14e; --uc-purple:#8e4ee6; --uc-purple-deep:#6a2fc4;
+  --uc-card:#f2f2f7; --uc-track:#e2e2e7; --uc-fg:#1d1d1f; --uc-muted:#6e6e73; --uc-subtle:#8e8e93;
+  --uc-num:ui-rounded,'SF Pro Rounded',system-ui,sans-serif;
+  margin:-32px; width:calc(100% + 64px); min-height:0; padding:0; border-radius:0; box-shadow:none; color:var(--uc-fg); background:#fff;
+}
+.uc-page .page-shell__header {padding:14px 20px;margin:0;background:#f2f2f5;border-bottom:.5px solid #dedee4}
+.uc-page .page-shell__title {font-size:15px;line-height:22px;font-weight:600}
+.uc-page .uc-body {display:flex;flex-direction:column;gap:12px;padding:16px 20px 24px;container-type:inline-size}
+.uc-page .uc-card {background:var(--uc-card);border-radius:12px;border:0;box-shadow:none}
+.uc-page .uc-month-heading {display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;padding:2px}
+.uc-page .uc-month-nav {display:flex;align-items:center;gap:12px;flex-shrink:0}
+.uc-page .uc-month-heading h2 {margin:0;font-size:22px;line-height:26px;letter-spacing:-.02em;font-weight:700}
+.uc-page .uc-nav {min-width:24px;width:24px;height:24px;padding:0;border:0;border-radius:6px;background:rgba(0,0,0,.04);font-size:20px;color:var(--uc-muted)}
+.uc-page .uc-nav:hover:not(:disabled) {background:rgba(0,0,0,.09)}
+.uc-page .uc-month-summary {font-size:13px;color:var(--uc-muted);line-height:23px;flex:1;min-width:180px}
+.uc-page .uc-month-summary b {font-family:var(--uc-num);font-variant-numeric:tabular-nums;color:var(--uc-fg)}
+.uc-page .uc-month-summary small {font-size:11px;color:var(--uc-subtle)}
+.uc-page .uc-goal-anchor {position:relative;display:inline-block}
+.uc-page .uc-goal-button {padding:0;height:auto;min-height:0;border:0;background:none;color:var(--uc-blue-fg);font-size:13px;line-height:18px;border-radius:0;border-bottom:1px dotted var(--uc-blue-fg);vertical-align:baseline}
+.uc-page .uc-goal-button:hover {background:rgba(43,127,255,.08)}
+.uc-page .uc-calendar {padding:12px 14px}
+.uc-page .uc-weekdays,.uc-page .uc-days {display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:6px}
+.uc-page .uc-weekdays {text-align:center;font-size:10.5px;color:var(--uc-subtle);margin-bottom:4px}
+.uc-page .uc-day {appearance:none;font:inherit;text-align:left;position:relative;display:grid;grid-template-columns:minmax(0,1fr) auto;grid-template-rows:auto 1fr auto;height:64px;min-width:0;padding:5px 7px;border:0;border-radius:9px;background:#fff;box-shadow:0 0 0 .5px rgba(0,0,0,.06);color:var(--uc-fg);cursor:pointer}
+.uc-page .uc-day:hover:not(:disabled):not(.uc-selected) {background:#f7f7fa;box-shadow:0 0 0 .5px rgba(0,0,0,.16)}
+.uc-page .uc-day.uc-today {background:var(--uc-blue-bg);box-shadow:0 0 0 .5px rgba(43,127,255,.3)}
+.uc-page .uc-day.uc-today:hover:not(.uc-selected) {background:#ddeaff}
+.uc-page .uc-day.uc-selected {box-shadow:0 0 0 1.5px var(--uc-blue),0 2px 8px rgba(43,127,255,.14)}
+.uc-page .uc-day.uc-day-disabled {background:transparent;box-shadow:inset 0 0 0 .5px rgba(0,0,0,.06);cursor:default}
+.uc-page .uc-day-spacer {background:transparent;box-shadow:none}
+.uc-page .uc-day-number {font-size:10.5px;color:var(--uc-subtle);grid-column:1;grid-row:1}
+.uc-page .uc-today .uc-day-number {font-weight:700;color:var(--uc-blue-fg)}
+.uc-page .uc-day-value {grid-column:1;grid-row:2/4;align-self:end;font-family:var(--uc-num);font-variant-numeric:tabular-nums;font-size:11.5px;font-weight:700;white-space:nowrap}
+.uc-page .uc-zero .uc-day-value {grid-column:1/3;color:var(--uc-subtle);font-weight:500}
+.uc-page .uc-day-percent {grid-column:2;grid-row:3;font-size:9.5px;text-align:right;font-variant-numeric:tabular-nums;font-weight:600}
+.uc-page .uc-day .uc-ring,.uc-page .uc-day-ring-placeholder {grid-column:2;grid-row:1/3;align-self:center}
+.uc-page .uc-ring {position:relative;display:inline-block;flex-shrink:0}
+.uc-page .uc-ring svg {transform:rotate(-90deg);display:block}
+.uc-page .uc-ring circle {fill:none;stroke-width:4.5;stroke-linecap:round}
+.uc-page .uc-detail .uc-ring circle {stroke-width:7}
+.uc-page .uc-ring-percent {position:absolute;inset:0;display:grid;place-items:center;font-family:var(--uc-num);font-size:14px;font-weight:700;font-variant-numeric:tabular-nums}
+.uc-page .uc-under {color:var(--uc-blue);--uc-state-color:var(--uc-blue)}
+.uc-page .uc-done {color:var(--uc-green);--uc-state-color:var(--uc-green)}
+.uc-page .uc-over {color:var(--uc-purple-deep);--uc-state-color:var(--uc-purple)}
+.uc-page .uc-legend {display:flex;justify-content:flex-end;gap:14px;font-size:10px;color:var(--uc-subtle);margin-top:10px}
+.uc-page .uc-legend span {display:flex;align-items:center;gap:4px}
+.uc-page .uc-legend i {width:7px;height:7px;border-radius:50%;background:var(--uc-state-color)}
+.uc-page .uc-detail {padding:10px 14px;display:flex;align-items:center;gap:14px}
+.uc-page .uc-detail-content {flex:1;min-width:0}
+.uc-page .uc-detail-heading {display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;margin-bottom:4px;font-size:12.5px}
+.uc-page .uc-detail-heading strong {color:var(--uc-blue-fg);font-family:var(--uc-num);font-size:14px}
+.uc-page .uc-detail-heading>span {font-size:11px;color:var(--uc-subtle)}
+.uc-page .uc-detail-heading .uc-status {padding:1px 5px;border-radius:3px;font-size:10px;background:#eaf2ff;color:var(--uc-blue-fg)}
+.uc-page .uc-detail-heading .uc-status.uc-done {background:#e8f6eb;color:var(--uc-green)}
+.uc-page .uc-detail-heading .uc-status.uc-over {background:#f1e8fd;color:var(--uc-purple-deep)}
+.uc-page .uc-model-row {display:grid;grid-template-columns:minmax(70px,150px) minmax(20px,1fr) 60px 42px;align-items:center;gap:10px;height:24px;font-size:12px}
+.uc-page .uc-model-name {white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.uc-page .uc-model-row b {text-align:right;font-family:var(--uc-num);font-variant-numeric:tabular-nums}
+.uc-page .uc-model-row>span:last-child {font-size:11px;text-align:right;color:var(--uc-subtle)}
+.uc-page .uc-model-bar {display:block;height:6px;background:var(--uc-track);border-radius:3px;overflow:hidden}
+.uc-page .uc-model-bar i {display:block;height:100%;background:var(--uc-blue);border-radius:3px}
+.uc-page .uc-other {color:var(--uc-subtle)}
+.uc-page .uc-six .uc-day {height:50px}
+.uc-page .uc-six .uc-day-percent {text-align:right}
+.uc-page .uc-six .uc-day .uc-ring {width:32px!important;height:32px!important}
+.uc-page .uc-six .uc-day .uc-ring svg {width:32px;height:32px}
+.uc-page .uc-six-detail .uc-model-row {height:22px}
+.uc-page .uc-error {display:flex;align-items:center;gap:10px;color:#bd3434;font-size:12px}
+.uc-page .uc-failure-note {color:#bd3434!important}
+.uc-page .uc-skeleton .uc-day-value,.uc-page .uc-skeleton .uc-day-ring-placeholder {background:var(--uc-track);border-radius:6px;animation:uc-pulse 1.4s ease-in-out infinite}
+.uc-page .uc-day-ring-placeholder {width:36px;height:28px;display:grid;place-items:center;color:#bd3434}
+.uc-page .uc-skeleton .uc-day-value {width:26px;height:10px}
+.uc-page .uc-popover {position:absolute;right:0;top:26px;z-index:30;width:278px;padding:14px;box-sizing:border-box;border-radius:10px;background:#fff;box-shadow:0 0 0 .5px rgba(0,0,0,.14),0 8px 28px rgba(0,0,0,.16);color:var(--uc-fg);font-size:12px;font-weight:400;cursor:default}
+.uc-page .uc-popover label {display:flex;align-items:center;gap:14px;margin:12px 0;white-space:nowrap}
+.uc-page .uc-popover input {width:100%;min-width:0;font:inherit;padding:5px 8px;border:.5px solid #aaa;border-radius:6px;background:#fff;color:var(--uc-fg)}
+.uc-page .uc-popover input:focus {outline:2px solid rgba(43,127,255,.25);border-color:var(--uc-blue)}
+.uc-page .uc-popover input[aria-invalid=true] {border-color:#bd3434;outline-color:rgba(189,52,52,.2)}
+.uc-page .uc-popover [role=alert] {display:block;color:#bd3434;font-size:11px;margin-bottom:8px}
+.uc-page .uc-popover small {display:block;line-height:1.6;font-size:11px;color:var(--uc-subtle)}
+@keyframes uc-pulse {50%{opacity:.35}}
+/* Small native windows need separate text rows, rather than progressively smaller type. */
+@container (max-width:640px) {
+ .uc-page .uc-month-heading {gap:8px;align-items:center}
+ .uc-page .uc-month-summary {flex-basis:100%;min-width:0;line-height:21px}
+ .uc-page .uc-month-summary small {display:block;margin-top:2px;line-height:17px}
+ .uc-page .uc-calendar {padding:10px}
+ .uc-page .uc-weekdays,.uc-page .uc-days {gap:5px}
+ .uc-page .uc-weekdays {font-size:11px;margin-bottom:6px}
+ .uc-page .uc-calendar .uc-day {padding:4px;column-gap:2px;grid-template-columns:minmax(0,1fr) 28px;grid-template-rows:12px minmax(0,1fr) 15px}
+ .uc-page .uc-day-number {font-size:11px;line-height:12px}
+ .uc-page .uc-day-value {grid-column:1/3;grid-row:3;font-size:12px;line-height:15px}
+ .uc-page .uc-calendar .uc-day-percent {grid-column:1;grid-row:2;align-self:center;text-align:left;font-size:10px;line-height:12px}
+ .uc-page .uc-calendar .uc-day .uc-ring {width:28px!important;height:28px!important;align-self:start;justify-self:end}
+ .uc-page .uc-calendar .uc-day .uc-ring svg {width:28px;height:28px}
+ .uc-page .uc-day-ring-placeholder {width:28px;height:25px}
+ .uc-page .uc-detail {gap:10px;padding:12px}
+ .uc-page .uc-detail>.uc-ring {align-self:flex-start}
+ .uc-page .uc-model-row {grid-template-columns:minmax(95px,1.6fr) minmax(24px,1fr) 45px 32px;gap:8px;font-size:12px}
+ .uc-page .uc-popover {right:auto;left:-40px;width:260px}
+}
+@container (max-width:560px) {
+ .uc-page .uc-calendar .uc-day {grid-template-columns:minmax(0,1fr) 26px}
+ .uc-page .uc-calendar .uc-day .uc-ring {width:26px!important;height:26px!important}
+ .uc-page .uc-calendar .uc-day .uc-ring svg {width:26px;height:26px}
+}

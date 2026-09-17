@@ -23,6 +23,11 @@ async function handleDshScanRequest(message) {
   try {
     const records = await scanDshLogsInProcess(new Date(message.start), new Date(message.end), {
       homeDir: message.homeDir,
+      ...(message.strictScan ? {strictScan:true} : {}),
+      ...(message.strictScan ? {pathExistsFn:async path=>{
+        try {await require('fs/promises').access(path);return true}
+        catch(error){if(error.code==='ENOENT')return false;throw error}
+      }} : {}),
     })
 
     return {

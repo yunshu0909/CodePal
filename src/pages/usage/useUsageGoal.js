@@ -37,7 +37,7 @@ function toTokenCount(value, unit) {
  *
  * @returns {object}
  */
-export default function useUsageGoal() {
+export default function useUsageGoal(monthDays = 30) {
   // 目标原始值（用户输入的数字 + 单位）
   const [goal, setGoal] = useState(null);
 
@@ -84,20 +84,21 @@ export default function useUsageGoal() {
   const weeklyTarget = dailyTarget * 7;
 
   // 月目标 = 日 × 30
-  const monthlyTarget = dailyTarget * 30;
+  const monthlyTarget = dailyTarget * monthDays;
 
   /**
    * 保存目标
    * @param {number} value - 数值
    * @param {string} unit - 单位 K/M/B
    */
-  const saveGoal = useCallback((value, unit) => {
+  const saveGoal = useCallback(async (value, unit) => {
     const newGoal = { value, unit };
+    const result = await window.electronAPI.setStore(STORE_KEY, newGoal);
+    if (result === false || result?.success === false) throw new Error('GOAL_SAVE_FAILED');
     setGoal(newGoal);
     setDismissed(false);
     // 异步写入 electron-store，不阻塞 UI
-    window.electronAPI.setStore(STORE_KEY, newGoal);
-    window.electronAPI.deleteStore(DISMISSED_STORE_KEY);
+    Promise.resolve(window.electronAPI.deleteStore(DISMISSED_STORE_KEY)).catch(() => {});
   }, []);
 
   /**

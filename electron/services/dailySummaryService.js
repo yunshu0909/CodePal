@@ -141,6 +141,7 @@ function normalizeDailySummary(raw, expectedDateKey) {
     version: DAILY_SUMMARY_SCHEMA_VERSION,
     date,
     generatedAt: typeof raw.generatedAt === 'string' ? raw.generatedAt : new Date().toISOString(),
+    ...(raw.calendarSourceChecked === true ? {calendarSourceChecked:true} : {}),
     models,
     projects,
     summary: {
@@ -300,6 +301,8 @@ async function recomputeDailySummary(dateKey, deps = {}) {
   const start = getBeijingDayStartByKey(dateKey)
   const end = new Date(start)
   end.setUTCDate(end.getUTCDate() + 1)
+  // The calendar's live day stops at the request's frozen cutoff; legacy callers keep their window.
+  if (deps.strictScan && deps.nowFn && end > deps.nowFn()) end.setTime(deps.nowFn().getTime())
 
   const [claudeRecords, codexRecords, dshRecords] = await Promise.all([
     scanClaudeLogs(start, end, deps),

@@ -17,6 +17,9 @@ import Toast from '../components/Toast'
 import Toggle from '../components/Toggle'
 import Checkbox from '../components/Checkbox'
 import './ComponentPreviewPage.css'
+import DayRing from './usage/components/DayRing'
+import UsageCalendar from './usage/components/UsageCalendar'
+import './usage/calendar.css'
 
 const COLOR_TOKEN_PREVIEW = [
   { name: 'Primary', token: '--color-primary', value: '#2563eb' },
@@ -273,6 +276,14 @@ export default function ComponentPreviewPage() {
         </p>
       </Modal>
 
+      <Section title="用量月历（本页样式）">
+        <div className="uc-page" style={{margin:0,width:'100%',minHeight:0,padding:16}}>
+          <div className="uc-body">
+            <Row label="目标三档"><DayRing total={150e6} target={300e6}/><DayRing total={300e6} target={300e6}/><DayRing total={600e6} target={300e6}/></Row>
+            <UsageCalendar month="2026-09" today="2026-09-16" data={{earliestDate:'2026-09-01',total:150e6,days:{'2026-09-16':{status:'ready',total:150e6,models:{a:{total:150e6}}}}}} selected="2026-09-16" target={300e6} goal={{value:300,unit:'M'}} progress={{processedDays:1,totalDays:1}} onSelect={()=>{}} onMonthChange={()=>{}} onRetry={()=>{}} onSaveGoal={async()=>{}}/>
+          </div>
+        </div>
+      </Section>
       {/* Toast 实例 */}
       {toast && (
         <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />

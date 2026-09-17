@@ -15,6 +15,7 @@ const { handleScanLogFiles } = require('../scanLogFilesHandler')
 const { handleAggregateUsageRange } = require('../aggregateUsageRangeHandler')
 const { handleAggregateUsagePeriod } = require('../aggregateUsagePeriodHandler')
 const { findEarliestLogDate, scanDshLogs } = require('../services/usageLogScanService')
+const { aggregateUsageCalendar } = require('../services/usageCalendarService')
 
 /**
  * 注册用量聚合相关 IPC handlers
@@ -49,6 +50,15 @@ function registerUsageAggregationHandlers({
       // 页面销毁或切换时静默忽略，避免影响聚合主流程
     }
   }
+
+  ipcMain.handle('aggregate-usage-calendar', (event, params) => aggregateUsageCalendar(params, {
+    nowFn, homeDir,
+    onProgress: progress => {
+      try {
+        if (!event?.sender?.isDestroyed?.()) event.sender.send('usage-calendar:progress', progress)
+      } catch { /* A closed renderer cannot turn a valid day's result into a scan failure. */ }
+    }
+  }))
 
   /**
    * 扫描日志文件

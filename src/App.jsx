@@ -314,7 +314,7 @@ export default function App() {
         )}
         {(activeModule === 'usage' || hasVisitedUsage) && (
           <div className="keep-alive-wrapper" hidden={activeModule !== 'usage'}>
-            <UsageMonitorModule />
+            <UsageMonitorModule isActive={activeModule === 'usage'} />
           </div>
         )}
         {activeModule === 'claude-usage' && <ClaudeUsageStatusPage />}

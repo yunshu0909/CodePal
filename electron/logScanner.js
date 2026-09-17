@@ -325,8 +325,9 @@ function createLogScanWindowContext(windowStart, deps = {}) {
       // （A-011 保留的是已算过那天的缓存，不是把一次失败传播给别的天。）
       readCache.set(key, Promise.resolve()
         .then(() => readCandidateLines(candidate, options))
-        .catch(() => {
+        .catch((error) => {
           readCache.delete(key)
+          if (options.strictScan) throw error
           return null
         }))
     }
@@ -336,9 +337,11 @@ function createLogScanWindowContext(windowStart, deps = {}) {
   return {
     async scanForDay(basePath, dayStart, options = {}) {
       const maxFiles = typeof options.maxFiles === 'number' ? options.maxFiles : 5000
-      const { candidates: all } = await enumerate(basePath, options)
+      const { candidates: all, failed } = await enumerate(basePath, options)
+      if (options.strictScan && failed > 0) throw new Error('LOG_ENUMERATION_FAILED')
       const inDay = all.filter((candidate) => candidate.mtime.getTime() >= dayStart.getTime())
       const selected = inDay.slice(0, maxFiles)
+      if (options.strictScan && selected.length < inDay.length) throw new Error('LOG_SCAN_TRUNCATED')
       const files = []
 
       for (const candidate of selected) {

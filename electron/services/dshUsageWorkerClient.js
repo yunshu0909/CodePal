@@ -46,7 +46,8 @@ function createDshWorkerRunner(options = {}) {
   function failAllPending(reason) {
     for (const [, entry] of pending) {
       clearTimeout(entry.timer)
-      entry.resolve([])
+      if (entry.strictScan) entry.reject(new Error('DSH_WORKER_UNAVAILABLE'))
+      else entry.resolve([])
     }
     pending.clear()
 
@@ -73,7 +74,8 @@ function createDshWorkerRunner(options = {}) {
 
       if (!message.ok) {
         logger.warn(`DSH usage worker returned error: ${message.error}`)
-        entry.resolve([])
+        if (entry.strictScan) entry.reject(new Error('DSH_WORKER_FAILED'))
+        else entry.resolve([])
         return
       }
 
@@ -100,14 +102,15 @@ function createDshWorkerRunner(options = {}) {
    * @param {Date} end - 窗口结束（不含）
    * @returns {Promise<Array<object>>} 用量记录；隔离进程不可用时为空数组
    */
-  return function runDshScanInWorker(start, end) {
-    return new Promise((resolve) => {
+  return function runDshScanInWorker(start, end, {strictScan = false} = {}) {
+    return new Promise((resolve, reject) => {
+      const fail = () => strictScan ? reject(new Error('DSH_WORKER_UNAVAILABLE')) : resolve([])
       let requestChild
       try {
         requestChild = ensureChild()
       } catch (error) {
         logger.warn(`DSH usage worker failed to start: ${error?.message || error}`)
-        resolve([])
+        fail()
         return
       }
 
@@ -123,10 +126,10 @@ function createDshWorkerRunner(options = {}) {
           // 已被回收
         }
         if (child === requestChild) child = null
-        resolve([])
+        fail()
       }, timeoutMs)
 
-      pending.set(id, { resolve, timer })
+      pending.set(id, { resolve, reject, timer, strictScan })
 
       try {
         requestChild.postMessage({
@@ -134,12 +137,13 @@ function createDshWorkerRunner(options = {}) {
           start: start.toISOString(),
           end: end.toISOString(),
           homeDir,
+          ...(strictScan ? {strictScan:true} : {}),
         })
       } catch (error) {
         pending.delete(id)
         clearTimeout(timer)
         logger.warn(`DSH usage worker postMessage failed: ${error?.message || error}`)
-        resolve([])
+        fail()
       }
     })
   }

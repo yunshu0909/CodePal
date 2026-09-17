@@ -14,6 +14,6 @@ import UsageMonitorPage from '../pages/UsageMonitorPage';
  * 用量监测模块根组件
  * @returns {JSX.Element}
  */
-export default function UsageMonitorModule() {
-  return <UsageMonitorPage />;
+export default function UsageMonitorModule({isActive = true}) {
+  return <UsageMonitorPage isActive={isActive} />;
 }

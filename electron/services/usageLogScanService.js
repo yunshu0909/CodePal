@@ -296,7 +296,7 @@ async function scanClaudeLogs(start, end, deps = {}) {
   }
 
   // 审计开关：置 true 时走"整份读文件"的旧路径，仅用于新旧实现对账（不是生产路径）
-  const scanOptions = deps.claudeLegacyWholeFileRead === true ? undefined : { claudeUsageOnly: true }
+  const scanOptions = deps.claudeLegacyWholeFileRead === true ? undefined : { claudeUsageOnly: true, ...(deps.strictScan ? {strictScan:true} : {}) }
   // 注入窗口上下文时走「每窗口枚举一次 + 每文件解析一次」；按天重建候选集，语义与逐日独立遍历逐条相同
   const scanResult = deps.windowContext
     ? await deps.windowContext.scanForDay(claudeBasePath, start, scanOptions || {})
@@ -360,7 +360,7 @@ async function scanCodexLogs(start, end, deps = {}) {
   const codexBasePath = path.join(deps.homeDir || os.homedir(), '.codex', 'sessions')
   if (!(await pathExistsFn(codexBasePath))) return []
   // 模型上下文和窗口前基线可能在文件开头，不能只读最后 10000 行。
-  const codexOptions = { codexUsageOnly: true }
+  const codexOptions = { codexUsageOnly: true, ...(deps.strictScan ? {strictScan:true} : {}) }
   const result = deps.windowContext
     ? await deps.windowContext.scanForDay(codexBasePath, start, codexOptions)
     : await scanLogFilesInRangeFn(codexBasePath, start, end, codexOptions)
@@ -643,8 +643,9 @@ function setDshIsolatedRunner(runner) {
 async function scanDshLogs(start, end, deps = {}) {
   if (dshIsolatedRunner && deps.useDshIsolation !== false) {
     try {
-      return await dshIsolatedRunner(start, end)
-    } catch {
+      return await (deps.strictScan ? dshIsolatedRunner(start, end, {strictScan:true}) : dshIsolatedRunner(start, end))
+    } catch (error) {
+      if (deps.strictScan) throw error
       return []
     }
   }
@@ -707,11 +708,13 @@ async function scanDshLogsInProcess(start, end, deps = {}) {
     // 与 Claude 截断同款：降级留痕但不阻断。
     // 否则「日志全读失败」与「确实没有 DSH 用量」对用户完全无法区分。
     if (failedFiles > 0) {
+      if (deps.strictScan) throw new Error('DSH_LOG_FILES_UNREADABLE')
       console.warn(`DSH usage scan degraded: ${failedFiles}/${selected.length} log files unreadable`)
     }
 
     return records
-  } catch {
+  } catch (error) {
+    if (deps.strictScan) throw error
     return []
   }
 }

@@ -236,6 +236,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
    * @returns {Promise<{success: boolean, data?: object, meta?: object, error?: string}>}
    */
   aggregateUsagePeriod: (params) => ipcRenderer.invoke('aggregate-usage-period', params),
+  aggregateUsageCalendar: (params) => ipcRenderer.invoke('aggregate-usage-calendar', params),
+  onUsageCalendarProgress: (callback) => {
+    const listener = (_event, progress) => callback(progress)
+    ipcRenderer.on('usage-calendar:progress', listener)
+    return () => ipcRenderer.removeListener('usage-calendar:progress', listener)
+  },
 
   // Skill 使用次数（近 N 天 Claude+Codex 调用统计，主数字为清洗后的可用样本数）
   aggregateSkillUsage: (params) => ipcRenderer.invoke('aggregate-skill-usage', params),
