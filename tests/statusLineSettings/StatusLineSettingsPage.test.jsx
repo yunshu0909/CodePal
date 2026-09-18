@@ -27,7 +27,7 @@ it('tool settings navigation is separate from the existing Plan entry',()=>{
   const change=vi.fn();render(<WorkbenchLayout activeModule="claude-usage" onModuleChange={change}/>);
   fireEvent.click(screen.getByRole('button',{name:/状态栏设置/}));
   expect(change).toHaveBeenCalledWith('statusline-settings');
-  expect(screen.getByRole('button',{name:/Plan 管理/})).toHaveClass('active');
+  expect(screen.getByRole('button',{name:/订阅管理/})).toHaveClass('active');
 })
 
 it('reads existing settings; cancelling a modified draft does not write and reopening restores saved fields',async()=>{

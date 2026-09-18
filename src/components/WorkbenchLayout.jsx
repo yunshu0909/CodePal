@@ -49,7 +49,7 @@ function WorkbenchLayout({ children, activeModule, onModuleChange, hasUpdate, on
       label: '账户与用量',
       items: [
         { id: 'usage', label: '用量监测', icon: '📊' },
-        { id: 'claude-usage', label: 'Plan 管理', icon: '🪄' }
+        { id: 'claude-usage', label: '订阅管理', icon: '🪄' }
       ]
     },
     {

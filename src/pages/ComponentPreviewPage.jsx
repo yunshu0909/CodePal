@@ -83,7 +83,7 @@ export default function ComponentPreviewPage() {
   return (
     <PageShell title="组件库预览" subtitle="所有基础组件的变体与状态一览">
 
-      <Section title="Plan 管理 · 定稿卡片"><div className="plan-page plan-preview"><PlanCard planId="claude" plan={{version:1,price:20,billingDay:20,autoRenew:false,stopped:false,cycles:[{id:'preview',start:'2026-08-20',end:'2026-09-20',price:20}]}} cycle={{id:'preview',start:'2026-08-20',end:'2026-09-20',price:20}} metadata={{type:'Pro'}} today="2026-09-16" usage={{total:751,models:[{name:'Claude Opus 5',cost:562},{name:'Claude Fable 5.1',cost:183},{name:'Claude Sonnet 5',cost:6}]}} onSave={async()=>({success:false})} onAction={()=>{}} onNavigate={()=>{}}/></div></Section>
+      <Section title="订阅管理 · 定稿卡片"><div className="plan-page plan-preview"><PlanCard planId="claude" plan={{version:1,price:20,billingDay:20,autoRenew:false,stopped:false,cycles:[{id:'preview',start:'2026-08-20',end:'2026-09-20',price:20}]}} cycle={{id:'preview',start:'2026-08-20',end:'2026-09-20',price:20}} metadata={{type:'Pro'}} today="2026-09-16" usage={{total:751,models:[{name:'Claude Opus 5',cost:562},{name:'Claude Fable 5.1',cost:183},{name:'Claude Sonnet 5',cost:6}]}} onSave={async()=>({success:false})} onAction={()=>{}} onNavigate={()=>{}}/></div></Section>
       {/* ── Tokens ─────────────────────────────────────── */}
       <Section title="Design Tokens">
         <Row label="颜色">
