@@ -448,12 +448,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
    */
   saveClaudeUsageStatusConfig: (config) => ipcRenderer.invoke('claude-usage-status:save-config', config),
 
-  /**
-   * 获取 Codex 会员额度状态（最新 rate_limits，只读 ~/.codex/sessions 日志，零配置）
-   * @returns {Promise<{success: boolean, integrationState: string, snapshot: object|null}>}
-   */
-  getCodexUsageStatusState: () => ipcRenderer.invoke('codex-usage-status:get-state'),
-
   // V0.14 双向自动同步 APIs
 
   /**

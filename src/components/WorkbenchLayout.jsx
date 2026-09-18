@@ -20,7 +20,7 @@ import brandLogo from '../assets/codepal-logo.png'
  * 工作台布局组件
  * @param {Object} props
  * @param {React.ReactNode} props.children - 内容区域要渲染的子元素
- * @param {'skills'|'mcp'|'usage'|'claude-usage'|'statusline-settings'|'api'|'project-init'|'permission'|'network'|'k28-status-light'|'sessions'|'doc-browser'} props.activeModule - 当前激活的模块
+ * @param {'skills'|'mcp'|'usage'|'claude-usage'|'api'|'project-init'|'permission'|'network'|'k28-status-light'|'sessions'|'doc-browser'} props.activeModule - 当前激活的模块
  * @param {function} props.onModuleChange - 模块切换回调函数
  * @param {boolean} props.hasUpdate - 是否有新版本可用
  * @param {function} props.onUpdateClick - 点击更新按钮的回调
@@ -37,8 +37,7 @@ function WorkbenchLayout({ children, activeModule, onModuleChange, hasUpdate, on
       label: '工具设置',
       items: [
         // 'api' 供应商切换模块已断接线隔离（v1.9.8），代码在 _disabled/api-config/，恢复步骤见其 README
-        { id: 'permission', label: '启动模式', icon: '🛡️' },
-        { id: 'statusline-settings', label: '状态栏设置', icon: '⚙️' },
+        { id: 'permission', label: 'Claude Code 设置', icon: '⌨️' },
         { id: 'project-init', label: '新建项目', icon: '🚀' },
         { id: 'network', label: '网络诊断', icon: '🌐' },
         { id: 'k28-status-light', label: '状态灯', icon: '🚦' },

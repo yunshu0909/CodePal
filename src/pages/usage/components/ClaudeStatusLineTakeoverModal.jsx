@@ -11,6 +11,7 @@
 
 import Modal from '../../../components/Modal/Modal'
 import Button from '../../../components/Button/Button'
+import './ClaudeStatusLineTakeoverModal.css'
 
 /**
  * @param {object} props

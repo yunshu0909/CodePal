@@ -73,7 +73,6 @@ const {
 const { modelRegistrySpec } = require('./services/registries/modelRegistry')
 const { pricingRegistrySpec } = require('./services/registries/pricingRegistry')
 const { registerClaudeUsageStatusHandlers } = require('./handlers/registerClaudeUsageStatusHandlers')
-const { registerCodexUsageStatusHandlers } = require('./handlers/registerCodexUsageStatusHandlers')
 const { registerMcpHandlers } = require('./handlers/registerMcpHandlers')
 const { registerNetworkDiagnosticsHandlers } = require('./handlers/registerNetworkDiagnosticsHandlers')
 const { registerSessionBrowserHandlers } = require('./handlers/registerSessionBrowserHandlers')
@@ -823,14 +822,6 @@ registerModelConfigHandlers({
  * 注册 Claude Code 会员额度状态相关 IPC handlers
  */
 registerClaudeUsageStatusHandlers({
-  ipcMain,
-  pathExists,
-})
-
-/**
- * 注册 Codex 会员额度状态相关 IPC handlers（只读 ~/.codex/sessions 日志，零配置）
- */
-registerCodexUsageStatusHandlers({
   ipcMain,
   pathExists,
 })
