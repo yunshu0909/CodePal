@@ -51,6 +51,8 @@
 }
 
 .page-shell--native > .page-shell__header .page-shell__title {
+  /* 工具栏里的页名也能拖窗口（macOS 工具栏的做法）；旧 PageShell 默认把标题设成了不能拖，且标题占满整行 */
+  -webkit-app-region: drag;
   font-size: 15px;
   font-weight: 600;
   line-height: 20px;

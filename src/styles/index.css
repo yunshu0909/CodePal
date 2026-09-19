@@ -8,7 +8,8 @@
 
 body {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', sans-serif;
-  background: var(--bg-subtle);
+  /* 透明：macOS 侧栏要透出主进程开的系统毛玻璃；内容区自己铺底色 */
+  background: transparent;
   color: var(--text-primary);
   min-height: 100vh;
   overflow: hidden;
@@ -27,7 +28,7 @@ body {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  background: var(--bg-base);
+  background: transparent; /* 同 body：让侧栏透出系统毛玻璃 */
 }
 
 .header {

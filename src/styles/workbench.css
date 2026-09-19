@@ -1,9 +1,9 @@
 /**
- * WorkbenchLayout 样式
+ * WorkbenchLayout 样式（Native+ 窗口外壳）
  *
  * 包含：
- * - 全高侧边栏（品牌区 + 分组导航 + 底部署名）
- * - 内容区域布局（标题栏占位 + 主内容）
+ * - 全高侧边栏（红绿灯行 + 分组导航 + 底部品牌版本）
+ * - 内容区域布局（主内容）
  */
 
 /* ==================== 基础布局 ==================== */
@@ -21,279 +21,201 @@
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 }
 
-/* ==================== 侧边栏 ==================== */
+/* ==================== 侧边栏（Native+ 外壳，见设计总纲 3.10）==================== */
 
 /**
  * 左侧导航侧边栏
- * 全高布局，从标题栏到底部
+ * - 宽 180，全高；右侧一条 0.5px 线，和新样式页面工具栏底线接成 T 形
+ * - 默认纯灰底；macOS（.is-mac）透明，透出主进程开的系统毛玻璃（vibrancy: under-window）
  */
 .sidebar {
   width: 180px;
-  background-color: #f8f9fb;
-  border-right: 1px solid #e2e5ea;
+  flex-shrink: 0;
   display: flex;
   flex-direction: column;
-  flex-shrink: 0;
+  padding: 0 8px 8px;
+  background: var(--chrome);
+  box-shadow: inset -0.5px 0 0 rgba(0, 0, 0, 0.12);
+  font-family: var(--font-np);
+  color: var(--fg);
+  -webkit-font-smoothing: antialiased;
 }
 
-/* ==================== 侧边栏标题栏 ==================== */
+.is-mac .sidebar {
+  background: transparent;
+}
 
 /**
- * 侧边栏标题栏区域
- * 与 macOS 红绿灯同层，38px 高度对齐原生标题栏
- * 可拖拽窗口
+ * 红绿灯那一行：52 高，和工具栏同高；可拖拽窗口
  */
 .sidebar-titlebar {
-  height: 38px;
-  border-bottom: 1px solid var(--border-default);
+  height: 52px;
+  margin: 0 -8px; /* 抵掉侧栏左右内边距，拖动区铺满整行 */
   flex-shrink: 0;
   -webkit-app-region: drag;
   user-select: none;
 }
 
-/* ==================== 品牌区 ==================== */
-
-/**
- * 品牌区：Logo + 名称 + 副标题
- * 位于标题栏下方，导航上方
- */
-.sidebar-brand {
-  padding: 14px 16px 12px;
-  border-bottom: 1px solid var(--border-default);
-  flex-shrink: 0;
-}
-
-.brand-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.brand-logo {
-  width: 32px;
-  height: 32px;
-  object-fit: contain;
-  flex-shrink: 0;
-  filter: var(--shadow-brand-logo);
-}
-
-.brand-text {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-}
-
-.brand-name {
-  font-size: 13px;
-  font-weight: 700;
-  color: var(--text-primary);
-  letter-spacing: -0.2px;
-}
-
-.brand-subtitle {
-  font-size: 11px;
-  color: var(--text-tertiary);
-}
-
 /* ==================== 导航区 ==================== */
 
-/**
- * 导航容器
- * 支持分组，flex: 1 撑满中间区域
- */
 .sidebar-nav {
   flex: 1;
+  min-height: 0;
   display: flex;
   flex-direction: column;
-  padding: 6px 8px;
   overflow-y: auto;
 }
 
-/**
- * 导航分组
- */
-.nav-group {
-  margin-bottom: 4px;
-}
-
-/**
- * 分组标题
- * 小号灰色文字，视觉上区分层级
- */
+/* 分组名：11.5 / 600、次级灰（毛玻璃上弱灰不够清楚），上面留 14 和上一组分开 */
 .nav-group-label {
-  font-size: 11px;
-  color: var(--text-placeholder);
+  padding: 14px 8px 4px;
+  font-size: 11.5px;
   font-weight: 600;
-  letter-spacing: 0.5px;
-  padding: 10px 12px 4px;
+  color: var(--fg-2);
 }
 
-.nav-group-items {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
+.nav-group:first-child .nav-group-label {
+  padding-top: 0;
 }
 
 /**
- * 导航项
- * 支持 hover / active 状态
+ * 导航项：高 28、圆角 6、字 13（参照系统设置侧栏）；选中灰底，和系统侧栏一样没有悬停色
  */
 .nav-item {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 7px 12px;
-  border: none;
+  gap: 8px;
+  width: 100%;
+  height: 28px;
+  padding: 0 6px;
+  border: 0;
   border-radius: 6px;
   background: transparent;
-  color: #5a6070;
+  color: var(--fg);
+  font: inherit;
   font-size: 13px;
-  cursor: pointer;
-  transition: all 150ms ease;
   text-align: left;
-}
-
-.nav-item:hover {
-  background-color: #eef0f4;
-  color: #1a1d23;
+  cursor: default;
 }
 
 .nav-item.active {
-  background-color: #eef0f4;
-  color: #1a1d23;
-  font-weight: 600;
+  background: rgba(0, 0, 0, 0.09);
+  font-weight: 500;
 }
 
-/**
- * 导航图标
- * 固定宽度保持文字对齐
- */
+.nav-item:focus {
+  outline: none;
+}
+
+.nav-item:focus-visible {
+  box-shadow: 0 0 0 3px rgba(43, 127, 255, 0.25);
+}
+
+/* 图标：20px 彩色圆角方块 + 白色线形图 */
 .nav-icon {
-  font-size: 12px;
-  width: 16px;
-  text-align: center;
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 6px;
+  background: var(--c, var(--ic-gray));
+  box-shadow: inset 0 -0.5px 0 rgba(0, 0, 0, 0.18);
 }
 
-/**
- * 导航文字
- * flex: 1 撑满剩余空间，Beta 标记靠右
- */
+.nav-icon svg {
+  width: 12px;
+  height: 12px;
+  fill: none;
+  stroke: #fff;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
 .nav-label {
   flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-/**
- * Beta 标记 — 极淡灰底药丸
- */
+/* Beta 标记：小灰胶囊 */
 .nav-badge-beta {
-  display: inline-flex;
-  align-items: center;
-  padding: 1px 6px;
-  border-radius: 9999px;
+  flex: none;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.07);
+  color: var(--fg-2);
   font-size: 10px;
-  font-weight: 500;
-  letter-spacing: 0.2px;
-  line-height: 16px;
-  flex-shrink: 0;
-  background: rgba(0, 0, 0, 0.04);
-  color: #8b919a;
+  font-weight: 400;
+  line-height: 14px;
 }
 
-/* ==================== 底部署名区 ==================== */
+/* ==================== 底部：品牌 + 版本 + 新版提示 ==================== */
 
-/**
- * 底部署名容器
- * margin-top: auto 将其推至侧边栏底部
- * 竖排居中：更新按钮 + 署名 + 版本号
- */
 .sidebar-footer {
-  margin-top: auto;
-  border-top: 1px solid var(--border-default);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
   flex-shrink: 0;
-}
-
-/**
- * Footer 内容容器
- * 居中排列：Pill 按钮 + 品牌行 + 版本行
- */
-.footer-content {
-  padding: 10px 12px 12px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-}
-
-/**
- * 更新提醒 Pill 胶囊按钮（有新版本时显示）
- */
-.sidebar-update-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 4px 12px;
-  margin-bottom: 6px;
-  border-radius: 9999px;
-  border: none;
-  background: #fef3c7;
-  color: #92400e;
+  padding: 6px 6px 0;
   font-size: 11px;
-  font-weight: 600;
-  font-family: inherit;
-  cursor: pointer;
-  transition: background-color 150ms ease;
-}
-
-.sidebar-update-pill:hover {
-  background: #fde68a;
-}
-
-/**
- * 品牌行：CodePal by 云舒
- */
-.footer-line1 {
-  display: flex;
-  align-items: baseline;
-  gap: 4px;
+  color: var(--fg-3);
 }
 
 .footer-brand {
-  font-size: 11px;
-  color: var(--text-secondary);
-  font-weight: 600;
-}
-
-.footer-by {
-  font-size: 11px;
-  color: var(--text-tertiary);
-}
-
-.footer-author {
-  font-size: 11px;
-  color: var(--color-primary);
-  font-weight: 600;
-}
-
-/**
- * 版本号行
- */
-.footer-line2 {
-  display: flex;
+  display: inline-flex;
   align-items: center;
+  gap: 5px;
+  min-width: 0;
+  font-weight: 600;
+  color: var(--fg-2);
+  white-space: nowrap;
+}
+
+.footer-logo {
+  width: 14px;
+  height: 14px;
+  border-radius: 4px;
+  object-fit: contain;
 }
 
 .footer-version {
-  font-size: 11px;
-  color: var(--color-primary);
+  font-weight: 400;
+  color: var(--fg-3);
+}
+
+/* 新版提示：橙色胶囊，需要处理但没坏 */
+.sidebar-update-pill {
+  flex: none;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--orange-bg);
+  color: var(--orange-fg);
+  font: inherit;
+  font-size: 10.5px;
+  font-weight: 500;
+  line-height: 16px;
+  cursor: default;
+}
+
+.sidebar-update-pill:hover {
+  filter: brightness(0.96);
 }
 
 /* ==================== 右侧内容区 ==================== */
 
 /**
  * 右侧内容列
- * 垂直排列：标题栏占位 + 主内容区
+ * 顶部不留标题栏占位：新样式页面的 52 高工具栏直接顶到窗口上沿、和红绿灯同一行；
+ * 旧样式页面的白卡标题区本身可拖拽窗口
  */
 .content-column {
+  position: relative;
   flex: 1;
   display: flex;
   flex-direction: column;
@@ -301,16 +223,17 @@
 }
 
 /**
- * 标题栏占位条
- * 为 macOS 原生标题栏预留拖拽区域
+ * 内容区顶上一条 32 高的拖动条：旧样式页面白卡上方的空白能拖窗口；
+ * 新样式页面这里本来就是工具栏（整条可拖），叠在上面不影响
  */
-.title-spacer {
-  height: 38px;
-  border-bottom: 1px solid #e2e5ea;
-  background-color: #eef0f4;
-  flex-shrink: 0;
+.content-drag {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 32px;
+  z-index: 10;
   -webkit-app-region: drag;
-  user-select: none;
 }
 
 /**

@@ -185,6 +185,9 @@ function createWindow() {
       nodeIntegration: false,
     },
     titleBarStyle: 'hiddenInset',
+    // 红绿灯放进侧栏顶部 52 高那一行的正中，和新样式页面的工具栏同一行
+    trafficLightPosition: { x: 14, y: 20 },
+    // 侧栏透出系统毛玻璃；渲染层 body / .app / 侧栏背景都是透明的
     vibrancy: 'under-window',
   })
 
