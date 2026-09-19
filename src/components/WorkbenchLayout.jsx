@@ -32,31 +32,26 @@ const IS_MAC = typeof navigator !== 'undefined' && /Macintosh|Mac OS X/.test(nav
 function WorkbenchLayout({ children, activeModule, onModuleChange, hasUpdate, onUpdateClick }) {
   /**
    * 分组导航配置
-   * 按功能性质分为三组：工具设置 → 用量看板 → 技能中心
+   * 按用途分四组（2026-09-19 用户定顺序），新功能按每组的定义归组：
+   * - 用量账单：花了多少、值不值（token 用量、订阅费和回本）
+   * - 项目开发：写代码这件事本身（开项目、回看过程、查资料）
+   * - 技能中心：给 AI 工具装的能力（Skills、Plugins，以后的 MCP）
+   * - 环境配置：让工具跑得起来、跑得顺的环境（Claude Code 设置、网络、以后的消息同步）
    * 图标见 sidebarIcons.js（按模块 ID 取）
    * @type {Array<{label: string, items: Array<{id: string, label: string, beta?: boolean}>}>}
    */
   const navGroups = [
     {
-      label: '工具设置',
-      items: [
-        // 'api' 供应商切换模块已断接线隔离（v1.9.8），代码在 _disabled/api-config/，恢复步骤见其 README
-        { id: 'permission', label: 'Claude Code 设置' },
-        { id: 'project-init', label: '新建项目' },
-        { id: 'network', label: '网络诊断' },
-        { id: 'k28-status-light', label: '状态灯' }
-      ]
-    },
-    {
-      label: '账户与用量',
+      label: '用量账单',
       items: [
         { id: 'usage', label: '用量监测' },
         { id: 'claude-usage', label: '订阅管理' }
       ]
     },
     {
-      label: '文档',
+      label: '项目开发',
       items: [
+        { id: 'project-init', label: '新建项目' },
         { id: 'sessions', label: '对话回顾' },
         { id: 'doc-browser', label: '文档查阅' }
       ]
@@ -68,6 +63,15 @@ function WorkbenchLayout({ children, activeModule, onModuleChange, hasUpdate, on
         { id: 'plugins', label: 'Plugins 管理', beta: true }
         // 'mcp' 模块从侧栏隐藏：短期内不使用，代码和路由保留，未来需要时恢复此条即可
         // { id: 'mcp', label: 'MCP 管理', beta: true }
+      ]
+    },
+    {
+      label: '环境配置',
+      items: [
+        // 'api' 供应商切换模块已断接线隔离（v1.9.8），代码在 _disabled/api-config/，恢复步骤见其 README
+        { id: 'permission', label: 'Claude Code 设置' },
+        { id: 'network', label: '网络诊断' },
+        { id: 'k28-status-light', label: '状态灯' }
       ]
     }
   ]

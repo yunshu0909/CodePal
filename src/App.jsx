@@ -31,7 +31,8 @@ import { setPricingOverride } from './store/costCalculator'
 import useMainNavigation from './hooks/useMainNavigation'
 
 const AUTO_INCREMENTAL_REFRESH_INTERVAL_MS = 5 * 60 * 1000
-const DEFAULT_ACTIVE_MODULE = 'permission'
+// 首次打开、或记住的页面已下线时进侧栏第一项（2026-09-19 用户定）
+const DEFAULT_ACTIVE_MODULE = 'usage'
 const VALID_ACTIVE_MODULES = new Set(['skills', 'plugins', 'mcp', 'usage', 'claude-usage', 'project-init', 'permission', 'network', 'k28-status-light', 'sessions', 'doc-browser'])
 const INITIAL_APP_UPDATE_STATE = Object.freeze({
   checked: false,

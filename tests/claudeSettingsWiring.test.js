@@ -19,18 +19,18 @@ const read = (rel) => fs.readFileSync(path.join(root, rel), 'utf8')
 const exists = (rel) => fs.existsSync(path.join(root, rel))
 
 describe('入口', () => {
-  it('TC-001 侧栏「工具设置」首项为 Claude Code 设置，没有状态栏设置', () => {
+  it('TC-001 侧栏「环境配置」首项为 Claude Code 设置，没有状态栏设置', () => {
     const nav = read('src/components/WorkbenchLayout.jsx')
     expect(nav).toMatch(/id:\s*'permission',\s*label:\s*'Claude Code 设置'/)
     expect(nav).not.toContain('statusline-settings')
     expect(nav).not.toContain('状态栏设置')
   })
 
-  it('TC-002 statusline-settings 模块下线，旧值回落到 permission', () => {
+  it('TC-002 statusline-settings 模块下线，旧值回落到默认页（侧栏第一项用量监测）', () => {
     const app = read('src/App.jsx')
     expect(app).not.toContain('statusline-settings')
     expect(app).not.toContain('StatusLineSettingsPage')
-    expect(app).toContain("DEFAULT_ACTIVE_MODULE = 'permission'")
+    expect(app).toContain("DEFAULT_ACTIVE_MODULE = 'usage'")
     expect(app).toContain("activeModule === 'permission' && <PermissionModePage />")
   })
 })
