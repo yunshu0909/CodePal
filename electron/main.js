@@ -82,7 +82,7 @@ const { registerDocBrowserHandlers } = require('./handlers/registerDocBrowserHan
 const { registerSessionStatusHandlers } = require('./handlers/registerSessionStatusHandlers')
 const { initDocBrowserStore } = require('./services/docBrowserService')
 const { initializeIpMonitor, setIpMonitorFastMode } = require('./services/networkDiagnosticsService')
-const { createEgressNotifier } = require('./services/egressNotifier')
+const { createEgressNotifier, withNetworkStyle } = require('./services/egressNotifier')
 const { createNavigationBridge } = require('./services/appNavigation')
 const { registerRepoWatcherHandlers } = require('./handlers/registerRepoWatcherHandlers')
 const { attachNavigationGuard, registerNavigationGuardHandlers } = require('./services/navigationGuardService')
@@ -297,7 +297,9 @@ app.whenReady().then(async () => {
     NotificationClass: Notification,
     onClick: () => navigationBridge.requestNavigate('network'),
   })
-  initializeIpMonitor({ store, getWindow: () => mainWindow, notify: egressNotifier.notify })
+  // 通知补上右边小图和提示音，和会话状态通知一个样子
+  const notifyIconDir = path.join(__dirname, 'assets', 'notify')
+  initializeIpMonitor({ store, getWindow: () => mainWindow, notify: (n) => egressNotifier.notify(withNetworkStyle(n, notifyIconDir)) })
 
   // 会话状态（#41）：默认开着，启动时静默装好钩子并监听状态；完成 / 等你确认时发系统通知，点通知切到会话状态页
   const sessionNotifier = createEgressNotifier({

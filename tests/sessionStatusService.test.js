@@ -192,6 +192,15 @@ describe('列表规则 selectVisibleSessions', () => {
     expect(sessions.map((s) => s.key).sort()).toEqual(['claude-90', 'codex-29', 'codex-busy-90'])
   })
 
+  it('已停止排在最后；Codex 已停止 30 分钟后消失', () => {
+    const { sessions } = selectVisibleSessions([
+      { key: 'stop-5', state: 'stopped', epoch: at(5), source: 'Codex' },
+      { key: 'stop-40', state: 'stopped', epoch: at(40), source: 'Codex' },
+      { key: 'done', state: 'done', epoch: at(20), source: 'Claude' },
+    ], NOW)
+    expect(sessions.map((s) => s.key)).toEqual(['done', 'stop-5'])
+  })
+
   it('任何状态 24 小时没变就不显示', () => {
     const { sessions } = selectVisibleSessions([
       { key: 'old', state: 'busy', epoch: at(24 * 60 + 1), source: 'Claude' },
@@ -335,11 +344,12 @@ describe('打开 / 关掉：临时 HOME 下的往返', () => {
     const svc = loadFresh(home)
     await svc.installSessionStatus()
     const cfg = await readFile(path.join(home, '.codex', 'config.toml'), 'utf-8')
-    for (const e of ['SessionStart', 'UserPromptSubmit', 'PermissionRequest', 'PostToolUse', 'Stop', 'SessionEnd']) {
+    for (const e of ['SessionStart', 'UserPromptSubmit', 'PermissionRequest', 'PostToolUse', 'Stop', 'SessionEnd', 'Interrupt']) {
       expect(cfg.match(new RegExp(`^\\[\\[hooks\\.${e}\\]\\]$`, 'gm'))).toHaveLength(1)
     }
     expect(cfg).toContain('codex-hook.sh busy')
     expect(cfg).toContain('codex-hook.sh clear')
+    expect(cfg).toContain('codex-hook.sh stopped')
     // 旧的 4 个钩子内容与旧安装逐字一致，Codex 已信任的 trusted_hash 才不会失效
     expect(cfg).toContain(`command = "bash ${home}/.claude/k28-status-light/codex-hook.sh busy"\ntimeout = 10\nstatusMessage = "K28 busy"`)
     expect(cfg).not.toContain('K28 status light')

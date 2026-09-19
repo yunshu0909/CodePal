@@ -118,9 +118,9 @@ for ORPHAN_MARK in "$DIR"/codex-clear-*.mark; do
   fi
 done
 
-# Codex 没有可靠的窗口关闭事件：完成后 30 分钟没有新动静就清掉，CodePal 列表里这条随之消失。
+# Codex 没有可靠的窗口关闭事件：完成 / 被你中断后 30 分钟没有新动静就清掉，CodePal 列表里这条随之消失。
 case "$STATE" in
-  done)
+  done|stopped)
     cancel_timer
     TS=$(date +%s)
     printf '%s\n' "$TS" > "$MARK"

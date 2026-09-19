@@ -5,9 +5,12 @@
  * - 用 Electron 自带 Notification 发出口 IP 相关的系统通知
  * - 通知对象保留到点击或关闭为止：被垃圾回收后 macOS 上的点击事件会丢失（09-19 实测）
  * - 点击时回调（由 main 负责恢复 / 新建窗口并切到网络诊断）
+ * - 网络诊断通知的右边小图与提示音（和会话状态通知同一个样子，见 withNetworkStyle）
  *
  * @module electron/services/egressNotifier
  */
+
+const path = require('path')
 
 /**
  * 创建通知发送器
@@ -35,4 +38,23 @@ function createEgressNotifier({ NotificationClass, onClick }) {
   return { notify, pendingCount: () => pending.size }
 }
 
-module.exports = { createEgressNotifier }
+// 网络诊断通知与会话状态通知同一个样子：右边一张实心圆小图 + 各自的提示音
+// IP 变了 = 橙（发现变化，要留意但没坏）；测不到 = 红（出问题了）
+const NETWORK_NOTIFY_STYLE = {
+  changed: { icon: 'net-changed.png', sound: 'Pop' },
+  unreachable: { icon: 'net-fail.png', sound: 'Basso' },
+}
+
+/**
+ * 给网络诊断的通知补上小图和提示音
+ * @param {{kind: string, title: string, body: string}} notification
+ * @param {string} iconDir - electron/assets/notify
+ * @returns {{kind: string, title: string, body: string, icon?: string, sound?: string}}
+ */
+function withNetworkStyle(notification, iconDir) {
+  const style = NETWORK_NOTIFY_STYLE[notification?.kind]
+  if (!style) return notification
+  return { ...notification, icon: path.join(iconDir, style.icon), sound: style.sound }
+}
+
+module.exports = { createEgressNotifier, withNetworkStyle, NETWORK_NOTIFY_STYLE }

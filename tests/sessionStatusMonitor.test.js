@@ -60,6 +60,15 @@ describe('sessionStatusMonitor', () => {
     expect(t.onChange).toHaveBeenLastCalledWith({ sessions: [S('done')], total: 1, error: null })
   })
 
+  it('已停止不发通知', async () => {
+    const t = setup()
+    t.set([S('busy')])
+    await t.monitor.refresh()
+    t.set([S('stopped')])
+    await t.monitor.refresh()
+    expect(t.notify).not.toHaveBeenCalled()
+  })
+
   it('本页在前台时只更新列表不发通知', async () => {
     const t = setup({ front: true })
     t.set([])

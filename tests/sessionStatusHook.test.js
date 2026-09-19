@@ -72,6 +72,23 @@ describe('k28_status.sh 按触发表写状态', () => {
     expect([read('txt'), read('task'), read('ask')]).toEqual([null, null, null])
   })
 
+  it('你中断这一轮 → 已停止，「在干嘛」保留、问话删掉', () => {
+    run('busy', { prompt: '整理 ISSUES' })
+    run('attention', { tool_input: { questions: [{ question: '删吗？' }] } })
+    run('stopped', {})
+    expect(read('txt').split('\t')[0]).toBe('stopped')
+    expect(read('task')).toBe('整理 ISSUES')
+    expect(read('ask')).toBeNull()
+  })
+
+  it('Codex 带文件时跳过前面的文件清单，只取你写的那句话', () => {
+    const prompt = '# Files mentioned by the user:\n\n## a.png: /tmp/a.png\n\n## My request for Codex:\n这个页面的toast 你触发一下给我看看'
+    run('busy', { prompt })
+    expect(read('task')).toBe('这个页面的toast 你触发一下给我看看')
+    run('busy', { prompt: '# 标题行\n真正的请求' })
+    expect(read('task')).toBe('真正的请求')
+  })
+
   it('总闸为 0 时不记录，但 clear 照常清理', () => {
     fs.writeFileSync(path.join(home, '.claude', 'k28-status-light', 'tts.conf'), 'STATUS_LIGHT_ENABLED=0\n')
     run('busy', { prompt: '你好' })

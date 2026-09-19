@@ -60,6 +60,14 @@ describe('会话状态页', () => {
     expect(window.electronAPI.setSessionStatusPageVisible).toHaveBeenLastCalledWith(false)
   })
 
+  it('已停止：灰标「已停止」，时间写多久以前', async () => {
+    mockApi({ getSessionStatus: vi.fn(async () => ({ success: true, data: { ...DATA, sessions: [{ key: 's', state: 'stopped', epoch: now - 300, name: 'skills', source: 'Codex', task: '整理 ISSUES' }], total: 1 } })) })
+    render(<SessionStatusPage />)
+    const tag = await screen.findByText('已停止')
+    expect(tag).toHaveClass('np-tag--gray')
+    expect(screen.getByText('5 分钟前')).toBeInTheDocument()
+  })
+
   it('状态文件一变，列表实时更新', async () => {
     render(<SessionStatusPage />)
     await screen.findByTestId('ss-list')

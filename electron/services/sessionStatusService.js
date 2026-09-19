@@ -40,7 +40,8 @@ const CLAUDE_WORKFLOW_LIVE_MS = 5 * 60 * 1000
 const CLAUDE_WORKFLOW_MAX_RUNS = 60
 
 // 列表规则（设计：specs/状态提醒重做/状态清单-会话状态-草案.md 触发表、A6、A13）
-const STATE_ORDER = Object.freeze({ attention: 0, busy: 1, done: 2 })
+// stopped = 你中途中断（只有 Codex 有这个时机），灰标「已停止」、不通知
+const STATE_ORDER = Object.freeze({ attention: 0, busy: 1, done: 2, stopped: 3 })
 const CODEX_DONE_TTL_MS = 30 * 60 * 1000
 const STALE_TTL_MS = 24 * 60 * 60 * 1000
 const MAX_VISIBLE_SESSIONS = 20
@@ -218,6 +219,8 @@ statusMessage = "K28 ${state}"
     hook('PostToolUse', 'busy'),
     hook('Stop', 'done'),
     hook('SessionEnd', 'clear'),
+    // Interrupt：你中途停止这一轮 → 已停止（不通知）；新钩子同样要用户在 Codex 里确认信任
+    hook('Interrupt', 'stopped'),
   ].join('')}`
 
   if (`${nextContent.trimEnd()}\n` === content) return
@@ -508,10 +511,10 @@ async function readActiveStates() {
 
 /**
  * 按列表规则挑出要显示的会话
- * - 只留进行中 / 等你确认 / 完成了
- * - Codex 完成后 30 分钟没新动静就消失（Codex 没有关窗口信号）；Claude 靠会话结束钩子消失
+ * - 只留进行中 / 等你确认 / 完成了 / 已停止
+ * - Codex 完成 / 已停止后 30 分钟没新动静就消失；Claude 靠会话结束钩子消失
  * - 任何状态 24 小时没变就不显示（强行关终端时结束钩子来不及触发的兜底）
- * - 排序：等你确认 → 进行中 → 完成了，同类新的在前；最多 20 个，total 是真实总数
+ * - 排序：等你确认 → 进行中 → 完成了 → 已停止，同类新的在前；最多 20 个，total 是真实总数
  * @param {Array<{state: string, epoch: number, source: string}>} states
  * @param {number} [nowMs=Date.now()]
  * @returns {{sessions: Array<object>, total: number}}
@@ -522,7 +525,7 @@ function selectVisibleSessions(states, nowMs = Date.now()) {
     if (!Object.hasOwn(STATE_ORDER, item?.state)) return false
     const ageMs = nowMs - (Number(item.epoch) || 0) * 1000
     if (ageMs > STALE_TTL_MS) return false
-    if (item.source === 'Codex' && item.state === 'done' && ageMs > CODEX_DONE_TTL_MS) return false
+    if (item.source === 'Codex' && (item.state === 'done' || item.state === 'stopped') && ageMs > CODEX_DONE_TTL_MS) return false
     return true
   })
   alive.sort((a, b) => STATE_ORDER[a.state] - STATE_ORDER[b.state] || b.epoch - a.epoch)

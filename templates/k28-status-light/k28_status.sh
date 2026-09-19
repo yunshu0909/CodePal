@@ -1,6 +1,7 @@
 #!/bin/bash
 # CodePal「会话状态」钩子：把本会话的状态写进 states/，CodePal 读它显示列表、发系统通知。
-# 全局工具，对所有项目生效。用法: k28_status.sh <busy|done|attention|idle|clear>
+# 全局工具，对所有项目生效。用法: k28_status.sh <busy|done|attention|stopped|idle|clear>
+# stopped = 你中途中断了这一轮（Codex 的 Interrupt 时机；Claude 没有这个时机）
 # （目录名 k28-status-light 是旧状态灯留下的，为兼容已装的钩子不改名；K28 亮灯和语音播报已停用、代码已删）
 #
 # 来源标记：环境变量 K28_SRC（默认 Claude）。Codex 路径在 codex-hook.sh / codex-notify.sh 里设 K28_SRC=Codex。
@@ -40,7 +41,13 @@ except Exception:
     d = {}
 sid = d.get('session_id') or ''
 cwd = d.get('cwd') or ''
-prompt = ' '.join((d.get('prompt') or '').split())[:1200]
+raw = d.get('prompt') or ''
+# Codex 带文件时会在你的话前面拼一段文件清单：只取「My request for Codex」之后的部分，并去掉 Markdown 标题行
+marker = '## My request for Codex:'
+if marker in raw:
+    raw = raw.split(marker, 1)[1]
+raw = '\n'.join(l for l in raw.splitlines() if not l.lstrip().startswith('#'))
+prompt = ' '.join(raw.split())[:1200]
 q = ''
 ti = d.get('tool_input') or {}
 qs = ti.get('questions') if isinstance(ti, dict) else None
@@ -74,7 +81,7 @@ if [ "$STATE" = "busy" ] && [ "$SRC" = "Codex" ]; then
     OLD_STATE=$(awk -F '\t' '{print $1}' "$OLD" 2>/dev/null)
     OLD_NAME=$(awk -F '\t' '{print $3}' "$OLD" 2>/dev/null)
     OLD_SRC=$(awk -F '\t' '{print $4}' "$OLD" 2>/dev/null)
-    if [ "$OLD_STATE" = "done" ] && [ "$OLD_NAME" = "$NAME" ] && [ "$OLD_SRC" = "$SRC" ]; then
+    if { [ "$OLD_STATE" = "done" ] || [ "$OLD_STATE" = "stopped" ]; } && [ "$OLD_NAME" = "$NAME" ] && [ "$OLD_SRC" = "$SRC" ]; then
       rm -f "$OLD" "${OLD%.txt}.task"
     fi
   done

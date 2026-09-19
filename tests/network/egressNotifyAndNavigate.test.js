@@ -13,7 +13,9 @@ import { describe, it, expect, vi } from 'vitest'
 import { createRequire } from 'node:module'
 
 const require = createRequire(import.meta.url)
-const { createEgressNotifier } = require('../../electron/services/egressNotifier.js')
+const { createEgressNotifier, withNetworkStyle } = require('../../electron/services/egressNotifier.js')
+const fs = require('node:fs')
+const path = require('node:path')
 const { createNavigationBridge } = require('../../electron/services/appNavigation.js')
 const { registerNetworkDiagnosticsHandlers } = require('../../electron/handlers/registerNetworkDiagnosticsHandlers.js')
 
@@ -117,3 +119,38 @@ describe('IPC 注册', () => {
     expect(channels).not.toContain('network:probeEndpoints')
   })
 })
+
+describe('网络诊断通知的小图与提示音（与会话状态通知同一个样子）', () => {
+  const iconDir = path.join(__dirname, '..', '..', 'electron', 'assets', 'notify')
+
+  it('IP 变了：橙色小图 + Pop；测不到：红色小图 + Basso', () => {
+    expect(withNetworkStyle({ kind: 'changed', title: '出口 IP 变了', body: 'a → b' }, iconDir)).toEqual({
+      kind: 'changed', title: '出口 IP 变了', body: 'a → b', icon: path.join(iconDir, 'net-changed.png'), sound: 'Pop',
+    })
+    expect(withNetworkStyle({ kind: 'unreachable', title: '测不到出口 IP', body: 'x' }, iconDir)).toMatchObject({
+      icon: path.join(iconDir, 'net-fail.png'), sound: 'Basso',
+    })
+    expect(withNetworkStyle({ kind: 'other', title: 't', body: 'b' }, iconDir)).toEqual({ kind: 'other', title: 't', body: 'b' })
+  })
+
+  it('两张小图真实存在', () => {
+    for (const name of ['net-changed.png', 'net-fail.png']) {
+      expect(fs.readFileSync(path.join(iconDir, name)).subarray(1, 4).toString()).toBe('PNG')
+    }
+  })
+
+  it('发通知时把 icon / sound 带给系统通知', () => {
+    const created = []
+    class FakeNotification {
+      constructor(opts) { this.opts = opts; created.push(this) }
+      static isSupported() { return true }
+      on() {}
+      show() {}
+    }
+    const n = createEgressNotifier({ NotificationClass: FakeNotification, onClick: () => {} })
+    n.notify(withNetworkStyle({ kind: 'changed', title: '出口 IP 变了', body: 'a → b' }, iconDir))
+    expect(created[0].opts).toMatchObject({ title: '出口 IP 变了', sound: 'Pop' })
+    expect(created[0].opts.icon).toMatch(/net-changed\.png$/)
+  })
+})
+
