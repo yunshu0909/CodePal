@@ -172,6 +172,16 @@ describe('列表规则 selectVisibleSessions', () => {
     expect(total).toBe(4)
   })
 
+  it('状态文件写坏（未知状态、原型链键）直接跳过', () => {
+    const { sessions } = selectVisibleSessions([
+      { key: 'x', state: 'toString', epoch: at(1), source: 'Claude' },
+      { key: 'y', state: 'constructor', epoch: at(1), source: 'Codex' },
+      { key: 'z', state: '', epoch: at(1), source: 'Claude' },
+      { key: 'ok', state: 'busy', epoch: at(1), source: 'Claude' },
+    ], NOW)
+    expect(sessions.map((s) => s.key)).toEqual(['ok'])
+  })
+
   it('Codex 完成后 30 分钟消失；Claude 完成不按 30 分钟消失', () => {
     const { sessions } = selectVisibleSessions([
       { key: 'codex-29', state: 'done', epoch: at(29), source: 'Codex' },

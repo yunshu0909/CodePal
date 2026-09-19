@@ -516,7 +516,8 @@ async function readActiveStates() {
  */
 function selectVisibleSessions(states, nowMs = Date.now()) {
   const alive = (Array.isArray(states) ? states : []).filter((item) => {
-    if (!(item?.state in STATE_ORDER)) return false
+    // hasOwn 而不是 in：状态文件写坏成 toString 这类原型链键时也要跳过
+    if (!Object.hasOwn(STATE_ORDER, item?.state)) return false
     const ageMs = nowMs - (Number(item.epoch) || 0) * 1000
     if (ageMs > STALE_TTL_MS) return false
     if (item.source === 'Codex' && item.state === 'done' && ageMs > CODEX_DONE_TTL_MS) return false

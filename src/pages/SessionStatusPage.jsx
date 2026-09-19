@@ -170,11 +170,15 @@ function Skeleton() {
     <div data-testid="ss-skeleton">
       <div className="np-card np-card--form">
         <div className="np-row"><span className="np-sk np-sk--pulse" style={{ width: 84 }} /><span className="np-sk" style={{ width: 36, height: 20 }} /></div>
+        <div className="np-row"><span className="np-sk" style={{ width: 70 }} /><span className="np-sk" style={{ width: 120 }} /></div>
       </div>
       <div className="np-glabel">会话</div>
       <div className="np-card np-card--form">
         {[90, 120, 70].map((w) => (
-          <div className="np-row" key={w}><span className="np-sk np-sk--pulse" style={{ width: w }} /><span className="np-sk" style={{ width: 56, height: 16 }} /></div>
+          <div className="np-row" key={w}>
+            <div className="lf"><span className="np-sk np-sk--pulse" style={{ width: w }} /><div><span className="np-sk" style={{ width: w + 80, height: 10 }} /></div></div>
+            <span className="np-sk" style={{ width: 56, height: 16 }} />
+          </div>
         ))}
       </div>
     </div>
