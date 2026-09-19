@@ -1,7 +1,7 @@
 /** History cycle card states, single-cycle price and model price popovers. @module tests/planHistoryUi */
 import React from 'react'
 import {it,expect,vi,afterEach} from 'vitest'
-import {render,screen,fireEvent,cleanup,waitFor,within} from '@testing-library/react'
+import {render,screen,fireEvent,cleanup,waitFor,within,act} from '@testing-library/react'
 import PlanCard from '../../src/pages/plan/components/PlanCard'
 import {describePlan} from '../../src/pages/plan/planPresentation'
 afterEach(cleanup)
@@ -14,10 +14,10 @@ const base=(extra={})=>({planId:'codex',name:'Codex',plan:{price:100,billingDay:
 const card=extra=>{const p=base(extra);render(<div className="plan-page"><PlanCard {...p}/></div>);return p}
 const missing=(extra={})=>({usage:{total:38,missingCount:1,recordsFrom:null,models:[{name:'GPT-5.6 Sol',key:'gpt-5-6-sol',cost:38,own:false},{name:'gpt-5.6-nova',key:'gpt-5-6-nova',cost:null,own:false}]},...extra})
 
-it('TC-013 ended estimated cycle shows 已结束, 推算 and end-of-range hints',()=>{
+it('TC-013 ended estimated cycle shows 已结束 and 推算; disabled arrows never navigate',()=>{
  const p=card();const h=screen.getByTestId('plan-card-header');expect(within(h).getByText('已结束')).toBeVisible();expect(screen.getByText('推算')).toBeVisible()
- cleanup();const q=card({cycle:cycles[0]});expect(screen.getByTitle('已是最早一期')).toBeInTheDocument();fireEvent.click(screen.getByRole('button',{name:'上一周期'}));expect(q.onNavigate).not.toHaveBeenCalled()
- cleanup();card({cycle:now,usage:{...base().usage}});expect(screen.getByTitle('已是本期')).toBeInTheDocument();expect(screen.queryByText('推算')).toBeNull();expect(screen.queryByText('已结束')).toBeNull()
+ cleanup();const q=card({cycle:cycles[0]});fireEvent.click(screen.getByRole('button',{name:'上一周期'}));expect(q.onNavigate).not.toHaveBeenCalled()
+ cleanup();card({cycle:now,usage:{...base().usage}});expect(screen.queryByText('推算')).toBeNull();expect(screen.queryByText('已结束')).toBeNull()
  expect(p.onNavigate).not.toHaveBeenCalled()
 })
 it('TC-014 subtitle priority and incomplete numbers are never red',()=>{
@@ -63,4 +63,18 @@ it('TC-016c many missing prices still keep the top priced model visible',async()
 it('TC-014b ended cycle shortfall subtitle is red like the multiplier; lifecycle phrases never are',()=>{
  card({usage:{total:38,missingCount:0,recordsFrom:null,models:[]}});expect(screen.getByText('还差 $62 回本')).toHaveClass('plan-bad');expect(screen.getByText('0.4×')).toHaveClass('plan-bad')
  cleanup();card({plan:{...base().plan,stopped:true},cycle:now,today:'2026-10-20',usage:{total:38,missingCount:0,recordsFrom:null,models:[]}});expect(screen.getByText('已停 · 最后一期结果')).not.toHaveClass('plan-bad')
+})
+it('TC-013b end-of-range hint: page-drawn, 0.3s hover or instant click, fades after click, only on disabled arrows',()=>{
+ vi.useFakeTimers()
+ try{
+  card({cycle:now,usage:{...base().usage}});const next=screen.getByRole('button',{name:'下一周期'}).parentElement
+  expect(next).not.toHaveAttribute('title')
+  fireEvent.mouseEnter(next);act(()=>vi.advanceTimersByTime(250));expect(screen.queryByRole('tooltip')).toBeNull()
+  act(()=>vi.advanceTimersByTime(60));expect(screen.getByRole('tooltip')).toHaveTextContent('已是本期')
+  fireEvent.mouseLeave(next);expect(screen.queryByRole('tooltip')).toBeNull()
+  fireEvent.click(next);expect(screen.getByRole('tooltip')).toHaveTextContent('已是本期')
+  act(()=>vi.advanceTimersByTime(1600));expect(screen.queryByRole('tooltip')).toBeNull()
+  const prev=screen.getByRole('button',{name:'上一周期'}).parentElement;fireEvent.mouseEnter(prev);act(()=>vi.advanceTimersByTime(400));expect(screen.queryByRole('tooltip')).toBeNull()
+  cleanup();card({cycle:cycles[0]});const first=screen.getByRole('button',{name:'上一周期'}).parentElement;fireEvent.click(first);expect(screen.getByRole('tooltip')).toHaveTextContent('已是最早一期')
+ }finally{vi.useRealTimers()}
 })

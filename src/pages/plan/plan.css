@@ -132,7 +132,11 @@
 .plan-page.plan-preview {margin:0;width:100%;overflow:visible}
 
 /* Plan 历史周期：到头箭头的提示挂在外层 span；推算 / 自填标记；两种新弹层 */
-.plan-page .plan-nv-wrap {display:inline-flex}
+/* 感应区扩到约 24×24（外扩 4px 再用负边距抵消，不挤动周期行）；提示同本页弹层：白底、圆角、淡阴影 */
+.plan-page .plan-nv-wrap {position:relative;display:inline-flex;padding:4px;margin:-4px}
+.plan-page .plan-nv-tip {position:absolute;top:calc(100% + 2px);left:50%;transform:translateX(-50%);z-index:6;white-space:nowrap;padding:3px 8px;border-radius:6px;background:#fff;box-shadow:0 0 0 .5px rgba(0,0,0,.14),0 4px 12px rgba(0,0,0,.12);font-family:inherit;font-size:12px;font-weight:400;line-height:16px;color:var(--plan-fg);pointer-events:none;animation:plan-nv-tip-in .12s ease-out;transition:opacity .15s ease-out}
+.plan-page .plan-nv-tip.plan-leaving {opacity:0}
+@keyframes plan-nv-tip-in {from {opacity:0} to {opacity:1}}
 .plan-page .plan-kv .plan-est {margin-left:4px;font-family:inherit;font-size:10.5px;font-weight:500;color:var(--plan-fg-3)}
 .plan-page .plan-mrow .plan-own {margin-left:5px;font-size:10.5px;font-weight:500;color:var(--plan-fg-3)}
 .plan-page .plan-mrow .plan-v {position:relative}
