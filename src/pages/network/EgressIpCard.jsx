@@ -41,7 +41,6 @@ export default function EgressIpCard({ view, onCheck }) {
           <Button
             variant={button.primary ? 'primary' : 'secondary'}
             size="sm"
-            className="np-btn"
             disabled={button.disabled}
             onClick={onCheck}
             data-testid="nd-check"

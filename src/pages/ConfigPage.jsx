@@ -14,7 +14,7 @@
 import React, { useState, useEffect, useCallback } from 'react'
 import { dataStore, toolDefinitions } from '../store/data'
 import AddPathModal from '../components/AddPathModal'
-import Toast from '../components/Toast'
+import { toast } from '../components/Toast'
 import { styles } from './config/configPageStyles'
 
 // 勾选图标
@@ -52,8 +52,6 @@ export default function ConfigPage({ onBack }) {
   const [error, setError] = useState(null)
   // 是否正在加载
   const [isLoading, setIsLoading] = useState(true)
-  // Toast 提示消息
-  const [toast, setToast] = useState(null)
 
   /**
    * 规范化路径用于比较（去除末尾斜杠）
@@ -246,7 +244,7 @@ export default function ConfigPage({ onBack }) {
       }
 
       // 显示成功提示并返回管理页
-      setToast({ message: '配置已保存', type: 'success' })
+      toast.success('配置已保存')
 
       // 延迟返回，让用户看到提示
       setTimeout(() => {
@@ -471,8 +469,6 @@ export default function ConfigPage({ onBack }) {
         existingPaths={customPaths}
       />
 
-      {/* Toast */}
-      {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
     </div>
   )
 }

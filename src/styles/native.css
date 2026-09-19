@@ -4,7 +4,7 @@
  * 负责：
  * - PageShell native 变体：工具栏 52 高、页名在工具栏里、内容区白底贴边撑满
  * - 新样式页面的字体基线与滚动区（.np-scroll）
- * - 新样式页面共用的小组件：按钮、状态标签、状态点、弹层、灰底卡、条形行、骨架
+ * - 新样式页面共用的小组件：按钮（新样式页面与对话框里的 <Button> 自动套用）、状态标签、状态点、弹层、灰底卡、条形行、骨架
  * - 规则与数值来源：docs/design-operating-system.md 第 3 章、docs/design-stylepack.html
  *
  * 只作用于新样式页面（.page-shell--native）和 .np-scope 区块，不改旧样式页面的外观。
@@ -14,7 +14,7 @@
 
 /* ── 页面外壳 ─────────────────────────────────────────── */
 
-/* 负边距抵掉内容区给旧白卡留的 32px 内边距，让新页面贴边撑满；窗口外壳落地后这里改掉 */
+/* 贴边撑满：内容区给旧白卡留的 32px 内边距，在新样式页面显示时由 workbench.css 去掉 */
 .page-shell--native {
   font-family: var(--font-np);
   font-size: 13px;
@@ -22,8 +22,6 @@
   color: var(--fg);
   font-variant-numeric: tabular-nums;
   -webkit-font-smoothing: antialiased;
-  margin: -32px;
-  width: calc(100% + 64px);
   min-height: 0;
   padding: 0;
   border-radius: 0;
@@ -82,11 +80,6 @@
   min-height: 0;
   overflow: auto;
   padding: 14px 20px 20px;
-}
-
-/* 开关：沿用 Toggle 组件，新样式页面里开启色用规范绿（旧页面仍是旧绿） */
-:is(.page-shell--native, .np-scope) .toggle.on {
-  background: var(--green);
 }
 
 /* ── 共用小组件（前缀 np-，都限定在新样式页面里，权重压过旧 Button 等默认样式）── */
@@ -164,12 +157,16 @@
   margin-top: 0;
 }
 
-/* 小号按钮：套在 Button 组件上用；高 24、圆角 6、白底 0.5px 描边一层投影 */
-:is(.page-shell--native, .np-scope) .np-btn {
+/* 按钮：新样式页面和对话框里的 <Button> 自动是这个样子（ghost 除外，留给页面自己画）；
+   高 24、圆角 6、白底 0.5px 描边一层投影；primary 蓝底白字；danger 白底红字。
+   选择器写 .btn.btn 是为了压过 Button.css 的旧样式，不依赖样式表加载顺序 */
+:is(.page-shell--native, .np-scope, .modal-panel) .btn.btn:not(.btn--ghost) {
   appearance: none;
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   flex: none;
+  gap: 6px;
   height: 24px;
   min-height: 0;
   padding: 0 10px;
@@ -179,19 +176,22 @@
   color: var(--fg);
   box-shadow: 0 0 0 .5px rgba(0, 0, 0, .14), 0 1px 1px rgba(0, 0, 0, .06);
   font: inherit;
+  font-family: var(--font-np);
   font-size: 11.5px;
   font-weight: 500;
+  line-height: 16px;
   white-space: nowrap;
   cursor: default;
   transform: none;
 }
 
-:is(.page-shell--native, .np-scope) .np-btn:hover { background: var(--card); transform: none; }
-:is(.page-shell--native, .np-scope) .np-btn.btn--primary { background: var(--blue); color: #fff; box-shadow: 0 0 0 .5px rgba(0, 0, 0, .1), 0 1px 1px rgba(0, 0, 0, .08); }
-:is(.page-shell--native, .np-scope) .np-btn.btn--primary:hover { background: var(--blue-fg); }
-:is(.page-shell--native, .np-scope) .np-btn.np-btn--danger { color: var(--red-fg); }
-:is(.page-shell--native, .np-scope) .np-btn:focus { outline: none; }
-:is(.page-shell--native, .np-scope) .np-btn:focus-visible { box-shadow: 0 0 0 3px rgba(43, 127, 255, .25), 0 0 0 .5px var(--blue); }
+:is(.page-shell--native, .np-scope, .modal-panel) .btn.btn:not(.btn--ghost):hover:not(:disabled) { background: var(--card); transform: none; }
+:is(.page-shell--native, .np-scope, .modal-panel) .btn.btn--primary.btn--primary { background: var(--blue); color: #fff; box-shadow: 0 0 0 .5px rgba(0, 0, 0, .1), 0 1px 1px rgba(0, 0, 0, .08); }
+:is(.page-shell--native, .np-scope, .modal-panel) .btn.btn--primary.btn--primary:hover:not(:disabled) { background: var(--blue-fg); }
+:is(.page-shell--native, .np-scope, .modal-panel) .btn.btn--danger.btn--danger { background: #fff; color: var(--red-fg); }
+:is(.page-shell--native, .np-scope, .modal-panel) .btn.btn:disabled { opacity: .5; }
+:is(.page-shell--native, .np-scope, .modal-panel) .btn.btn:focus { outline: none; }
+:is(.page-shell--native, .np-scope, .modal-panel) .btn.btn:not(.btn--ghost):focus-visible { box-shadow: 0 0 0 3px rgba(43, 127, 255, .25), 0 0 0 .5px var(--blue); }
 
 /* 状态标签：胶囊，文字色配同色浅底 */
 :is(.page-shell--native, .np-scope) .np-tag {
@@ -372,6 +372,3 @@
   background: rgba(0, 0, 0, .07);
   color: transparent;
 }
-
-/* 禁用的小号按钮一律 .5 */
-:is(.page-shell--native, .np-scope) .np-btn:disabled { opacity: .5; }

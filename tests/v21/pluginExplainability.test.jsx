@@ -33,7 +33,6 @@ async function writeSkill(root, name, description) {
 }
 
 function installPageSnapshot(value) {
-  window.confirm = vi.fn(() => true)
   window.electronAPI = {
     getPluginControlSnapshot: vi.fn(async () => ({ success: true, data: value })),
     executePluginCommand: vi.fn(async () => ({ success: true, snapshot: value })),

@@ -63,7 +63,7 @@ export default function SkillUsageColumnHeader({
             长时间未打开 CodePal，或原日志已被工具清理，期间调用可能未被记录。0 次不等于一定没用过。
           </div>
           {scanMeta?.migrationFailed && (
-            <div className="usage-help-note">⚠️ 调用账本升级失败，本次继续显示旧口径。</div>
+            <div className="usage-help-note">调用账本升级失败，本次继续显示旧口径。</div>
           )}
         </div>
       )}

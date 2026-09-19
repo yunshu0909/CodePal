@@ -175,7 +175,7 @@ export default function AddPathModal({ isOpen, onClose, onConfirm, existingPaths
 
       {error && (
         <div className="scan-result error">
-          <div className="scan-result-title">❌ {error}</div>
+          <div className="scan-result-title">{error}</div>
         </div>
       )}
 
@@ -184,7 +184,7 @@ export default function AddPathModal({ isOpen, onClose, onConfirm, existingPaths
           {Object.keys(scanResult).length > 0 ? (
             <>
               <div className="scan-result-title">
-                ✅ 发现 {getTotalSkills()} 个 skill
+                发现 {getTotalSkills()} 个 skill
               </div>
               {Object.entries(scanResult).map(([tool, count]) => (
                 <div key={tool} className="scan-item">
@@ -194,7 +194,7 @@ export default function AddPathModal({ isOpen, onClose, onConfirm, existingPaths
             </>
           ) : (
             <>
-              <div className="scan-result-title">❌ 未找到 skills 目录</div>
+              <div className="scan-result-title">未找到 skills 目录</div>
               <div className="scan-item">
                 该目录下未发现 .claude/skills/、.codex/skills/ 等
               </div>

@@ -59,8 +59,8 @@ export default function PlanCard({
                   }} /></span><span className={`plan-left ${progressClass}`}>{view.remaining}</span></>}</td></tr>}
    </tbody></table>
   </div>
-  {view.state === 'expired' && <><div className="plan-actions"><Button variant="primary" size="sm" className="plan-action np-btn" disabled={acting} onClick={() => onAction('renew')}>续了一期</Button><Button size="sm" className="plan-action np-btn" disabled={acting} onClick={() => onAction('stop')}>不续了</Button></div><div className="plan-note">没勾自动续费，到期后停下来确认一次。续了一期：新周期从 {monthDay(cycle.end)} 起算，不从今天。</div></>}
-  {view.state === 'paused' && <div className="plan-actions"><Button size="sm" className="plan-action np-btn" disabled={acting} onClick={() => onAction('restart')}>重新开始，从今天起算</Button></div>}
+  {view.state === 'expired' && <><div className="plan-actions"><Button variant="primary" size="sm" className="plan-action" disabled={acting} onClick={() => onAction('renew')}>续了一期</Button><Button size="sm" className="plan-action" disabled={acting} onClick={() => onAction('stop')}>不续了</Button></div><div className="plan-note">没勾自动续费，到期后停下来确认一次。续了一期：新周期从 {monthDay(cycle.end)} 起算，不从今天。</div></>}
+  {view.state === 'paused' && <div className="plan-actions"><Button size="sm" className="plan-action" disabled={acting} onClick={() => onAction('restart')}>重新开始，从今天起算</Button></div>}
   {!unset && (loading ? <div className="plan-models" data-testid="plan-model-list">{[.7, .4, .1].map((f, i) => <div className="plan-mrow np-meter" key={i}><span className="plan-nm">模型名</span><span className="plan-model-bar np-meter-bar"><i style={{
             width: `${f * 100}%`
           }} /></span><span className="plan-v">$000</span></div>)}</div> : rows.length ? <div className="plan-models" data-testid="plan-model-list">{rows.map((row, i) => <div className={`plan-mrow np-meter plan-model-${row.other ? 'other' : i}`} data-testid="plan-model-row" key={row.name}><span className="plan-nm" title={row.name}>{row.name}{row.own && <span className="plan-own">自填</span>}</span><span className="plan-model-bar np-meter-bar"><i style={{

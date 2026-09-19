@@ -1,81 +1,139 @@
 /**
- * 提示消息组件
+ * Toast 全局提示（全局元素，设计总纲 3.18）
  *
  * 负责：
- * - 显示临时提示消息（支持 info/success/error/warning 四种类型）
- * - 自动消失动画
- * - 根据类型显示对应图标和颜色
+ * - 全局唯一入口 toast.success / error / warning / info：页面只说弹什么，不存状态、不摆组件
+ * - 同时只显示一条，新的顶掉旧的；同一句话连弹两次也会重新出现
+ * - 第一次弹时自动在 body 下挂宿主，不依赖页面结构（单独渲染页面的测试里也能看到）
  *
- * @module Toast
+ * 样子：浅色胶囊，颜色只在左边小圆点上（成功绿、失败红、提醒橙、普通灰）
+ *
+ * @module components/Toast
  */
 
-import React, { useEffect, useState } from 'react'
+import { useEffect, useState, useSyncExternalStore } from 'react'
+import { createRoot } from 'react-dom/client'
+import './Toast.css'
 
-// 各类型对应的图标
-const icons = {
-  info: (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="12" cy="12" r="10"/>
-      <line x1="12" y1="16" x2="12" y2="12"/>
-      <line x1="12" y1="8" x2="12.01" y2="8"/>
-    </svg>
-  ),
-  success: (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <polyline points="20 6 9 17 4 12"/>
-    </svg>
-  ),
-  error: (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="12" cy="12" r="10"/>
-      <line x1="15" y1="9" x2="9" y2="15"/>
-      <line x1="9" y1="9" x2="15" y2="15"/>
-    </svg>
-  ),
-  warning: (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
-      <line x1="12" y1="9" x2="12" y2="13"/>
-      <line x1="12" y1="17" x2="12.01" y2="17"/>
-    </svg>
-  ),
+// 成功短、提醒 / 失败长，给人读完原因的时间
+const DURATION_BY_TYPE = { success: 2000, info: 3000, warning: 4000, error: 4000 }
+// 淡出动画时长，结束后才真正移除
+const LEAVE_MS = 200
+
+const ICONS = {
+  success: <path d="M2.2 5.2 4.2 7.2 7.8 3" />,
+  error: <path d="M5 2.5v3M5 7.6v.01" />,
+  warning: <path d="M5 2.5v3M5 7.6v.01" />,
+  info: <path d="M5 4.6v3M5 2.4v.01" />,
 }
 
-// 按类型区分自动消失时长：成功短、警告/错误长
-const DURATION_BY_TYPE = {
-  info: 3000,
-  success: 2000,
-  warning: 4000,
-  error: 4000,
+let current = null // 正在显示的一条 { id, message, type }
+let seq = 0 // 每次弹都换新 id，同文案也会重新出现
+const listeners = new Set()
+let host = null
+
+function emit() {
+  listeners.forEach((listener) => listener())
+}
+
+function subscribe(listener) {
+  listeners.add(listener)
+  return () => listeners.delete(listener)
+}
+
+function getSnapshot() {
+  return current
+}
+
+// 宿主只挂一次；放在 body 下，所以页面切换、keep-alive 隐藏都不影响
+function ensureHost() {
+  if (host || typeof document === 'undefined') return
+  const el = document.createElement('div')
+  el.className = 'toast-host'
+  document.body.appendChild(el)
+  const root = createRoot(el)
+  root.render(<ToastHost />)
+  host = { el, root }
 }
 
 /**
- * Toast 提示组件
- * @param {Object} props - 组件属性
- * @param {string} props.message - 提示消息内容
- * @param {Function} props.onClose - 关闭回调
- * @param {'info'|'success'|'error'|'warning'} [props.type='info'] - 提示类型
- * @returns {JSX.Element} Toast 提示
+ * 弹一条提示，顶掉正在显示的那条
+ * @param {string} message - 提示文案
+ * @param {'success'|'error'|'warning'|'info'} [type='info']
  */
-export default function Toast({ message, onClose, type = 'info' }) {
-  // 控制显示/隐藏动画状态
-  const [show, setShow] = useState(false)
+function show(message, type = 'info') {
+  if (!message) return
+  current = { id: ++seq, message: String(message), type: DURATION_BY_TYPE[type] ? type : 'info' }
+  ensureHost()
+  emit()
+}
+
+/**
+ * 收起提示；传 id 时只收起那一条（避免旧计时器收掉新提示）
+ * @param {number} [id]
+ */
+function dismiss(id) {
+  if (!current || (id !== undefined && current.id !== id)) return
+  current = null
+  emit()
+}
+
+export const toast = {
+  show,
+  success: (message) => show(message, 'success'),
+  error: (message) => show(message, 'error'),
+  warning: (message) => show(message, 'warning'),
+  info: (message) => show(message, 'info'),
+  dismiss,
+}
+
+/**
+ * 给「回调传对象」的旧接口用：notifyToast({ message, type })，传 null 不做事
+ * @param {{message: string, type?: string}|null} item
+ */
+export function notifyToast(item) {
+  if (item) show(item.message, item.type)
+}
+
+/**
+ * 测试用：清掉提示并卸载宿主，避免上一个用例的提示留到下一个
+ */
+export function resetToastForTests() {
+  current = null
+  if (host) {
+    host.root.unmount()
+    host.el.remove()
+    host = null
+  }
+}
+
+function ToastHost() {
+  const item = useSyncExternalStore(subscribe, getSnapshot)
+  if (!item) return null
+  return <ToastItem key={item.id} {...item} />
+}
+
+function ToastItem({ id, message, type }) {
+  // 挂载后下一帧再加 show，才有淡入
+  const [visible, setVisible] = useState(false)
 
   useEffect(() => {
-    requestAnimationFrame(() => setShow(true))
-    const duration = DURATION_BY_TYPE[type] || 3000
-    const timer = setTimeout(() => {
-      setShow(false)
-      setTimeout(onClose, 300)
-    }, duration)
-    return () => clearTimeout(timer)
-  }, [onClose, type])
-
-  const icon = icons[type] || icons.info
+    const duration = DURATION_BY_TYPE[type]
+    const frame = requestAnimationFrame(() => setVisible(true))
+    const leave = setTimeout(() => setVisible(false), duration)
+    const remove = setTimeout(() => dismiss(id), duration + LEAVE_MS)
+    return () => {
+      cancelAnimationFrame(frame)
+      clearTimeout(leave)
+      clearTimeout(remove)
+    }
+  }, [id, type])
 
   return (
-    <div className={`toast toast--${type} ${show ? 'show' : ''}`}>
-      <span className="toast__icon">{icon}</span>
+    <div className={`toast toast--${type}${visible ? ' show' : ''}`} role={type === 'error' ? 'alert' : 'status'}>
+      <span className="toast__icon" aria-hidden="true">
+        <svg viewBox="0 0 10 10">{ICONS[type]}</svg>
+      </span>
       <span className="toast__message">{message}</span>
     </div>
   )

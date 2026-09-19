@@ -13,7 +13,7 @@
 
 import { useState, useCallback, useEffect } from 'react'
 import PageShell from '../components/PageShell'
-import Toast from '../components/Toast'
+import { toast } from '../components/Toast'
 import Toggle from '../components/Toggle'
 import useIpMonitor from '../hooks/useIpMonitor'
 import EgressIpCard from './network/EgressIpCard'
@@ -25,11 +25,10 @@ import './network/network.css'
 const CLOCK_TICK_MS = 30 * 1000
 
 export default function NetworkDiagnosticsPage() {
-  const [toast, setToast] = useState(null)
   const [now, setNow] = useState(() => Date.now())
 
   const handleToast = useCallback((message, type) => {
-    setToast({ message, type })
+    toast.show(message, type)
   }, [])
 
   const { state, probing, saving, probeOnce, toggle } = useIpMonitor(handleToast)
@@ -67,9 +66,6 @@ export default function NetworkDiagnosticsPage() {
         )}
       </div>
 
-      {toast && (
-        <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />
-      )}
     </PageShell>
   )
 }

@@ -10,6 +10,8 @@
  */
 
 import React from 'react'
+import Button from './Button/Button'
+import './StateView/StateView.css'
 
 /**
  * React Error Boundary（必须用 class 组件实现）
@@ -44,14 +46,12 @@ export default class ErrorBoundary extends React.Component {
     if (this.state.hasError) {
       return (
         <div className="state-view state-view--error">
-          <div className="state-view__icon">⚠️</div>
-          <p className="state-view__message">应用遇到了意外错误</p>
-          <p className="state-view__hint" style={{ marginBottom: 16 }}>
-            {this.state.error?.message || '未知错误'}
-          </p>
-          <button className="state-view__retry" onClick={this.handleRetry}>
-            重试
-          </button>
+          <span className="state-view__icon" style={{ '--c': 'var(--ic-red)' }} aria-hidden="true">
+            <svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="6" /><path d="M8 4.8v3.6M8 11.2v.01" /></svg>
+          </span>
+          <p className="state-view__title">应用遇到了意外错误</p>
+          <p className="state-view__hint">{this.state.error?.message || '未知错误'}</p>
+          <Button size="sm" className="state-view__action" onClick={this.handleRetry}>重试</Button>
         </div>
       )
     }

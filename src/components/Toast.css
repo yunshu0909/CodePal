@@ -1,0 +1,60 @@
+/**
+ * Toast 样式（全局元素，设计总纲 3.18，样式包 @export:global）
+ *
+ * 浅色胶囊：白底、0.5px 描边 + 弹层投影；颜色只在左边小圆点上
+ */
+
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: 40px;
+  z-index: 1100;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 32px;
+  padding: 0 16px 0 12px;
+  border-radius: 999px;
+  background: #fff;
+  box-shadow: 0 0 0 .5px rgba(0, 0, 0, .14), 0 10px 30px rgba(0, 0, 0, .16);
+  font-family: var(--font-np);
+  font-size: 12.5px;
+  font-weight: 500;
+  line-height: 16px;
+  color: var(--fg);
+  white-space: nowrap;
+  -webkit-font-smoothing: antialiased;
+  pointer-events: none;
+  opacity: 0;
+  transform: translateX(-50%) translateY(8px);
+  transition: opacity .2s ease, transform .2s ease;
+}
+
+.toast.show {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+
+.toast__icon {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--fg-3);
+}
+
+.toast__icon svg {
+  width: 10px;
+  height: 10px;
+  fill: none;
+  stroke: #fff;
+  stroke-width: 2.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.toast--success .toast__icon { background: var(--green); }
+.toast--error .toast__icon { background: var(--red-fg); }
+.toast--warning .toast__icon { background: var(--orange-fg); }

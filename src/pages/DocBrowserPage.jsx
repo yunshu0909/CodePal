@@ -11,7 +11,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import PageShell from '../components/PageShell'
 import MarkdownRenderer from '../components/MarkdownRenderer/MarkdownRenderer'
-import Toast from '../components/Toast'
+import { toast } from '../components/Toast'
 import useResizableSidebar from '../hooks/useResizableSidebar'
 import '../styles/doc-browser.css'
 
@@ -152,8 +152,6 @@ export default function DocBrowserPage() {
   const [searchQuery, setSearchQuery] = useState('')
   // 所有文件夹的文件缓存（搜索用）
   const [allFilesCache, setAllFilesCache] = useState({})
-  // Toast
-  const [toast, setToast] = useState(null)
   // 竞态防护
   const loadFileSeqRef = useRef(0)
   const loadFolderSeqRef = useRef(0)
@@ -163,7 +161,7 @@ export default function DocBrowserPage() {
   const { sidebarWidth, resizerProps } = useResizableSidebar(280, 200, 500)
 
   const showToast = useCallback((message, type = 'info') => {
-    setToast({ message, type })
+    toast.show(message, type)
   }, [])
 
   // 加载文件夹列表
@@ -544,13 +542,6 @@ export default function DocBrowserPage() {
         </div>
       </div>
 
-      {toast && (
-        <Toast
-          message={toast.message}
-          type={toast.type}
-          onClose={() => setToast(null)}
-        />
-      )}
     </PageShell>
   )
 }

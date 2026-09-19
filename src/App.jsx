@@ -25,7 +25,7 @@ import NetworkDiagnosticsPage from './pages/NetworkDiagnosticsPage'
 import SessionBrowserPage from './pages/SessionBrowserPage'
 import DocBrowserPage from './pages/DocBrowserPage'
 import K28StatusLightPage from './pages/K28StatusLightPage'
-import Toast from './components/Toast'
+import { toast } from './components/Toast'
 import { dataStore } from './store/data'
 import { setPricingOverride } from './store/costCalculator'
 import useMainNavigation from './hooks/useMainNavigation'
@@ -56,8 +56,6 @@ function getInitialActiveModule() {
 export default function App() {
   // SkillManager 初始子页面：null=加载中, 'manage'=管理页, 'import'=导入页
   const [initialSkillManagerPage, setInitialSkillManagerPage] = useState(null)
-  // Toast 提示消息 { message, type }
-  const [toast, setToast] = useState(null)
   // 活跃模块：从 localStorage 恢复上次页面；已下线模块统一回落到启动模式
   const [activeModule, setActiveModule] = useState(getInitialActiveModule)
   // MCP 页面是否已访问（已访问后保持挂载，支持切回时静默刷新）
@@ -182,7 +180,7 @@ export default function App() {
       await dataStore.setFirstEntryAfterImport(false)
 
       // 5. 显示成功提示
-      setToast({ message: '已根据导入选择初始化推送目标', type: 'success' })
+      toast.success('已根据导入选择初始化推送目标')
     } catch (error) {
       console.error('Error initializing push targets:', error)
     }
@@ -328,8 +326,6 @@ export default function App() {
         {activeModule === 'doc-browser' && <DocBrowserPage />}
       </WorkbenchLayout>
 
-      {/* Toast */}
-      {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
     </div>
   )
 }

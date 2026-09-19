@@ -13,7 +13,8 @@ import SearchInput from '../components/SearchInput/SearchInput'
 import StateView from '../components/StateView/StateView'
 import Modal from '../components/Modal/Modal'
 import Tag from '../components/Tag/Tag'
-import Toast from '../components/Toast'
+import { toast, notifyToast } from '../components/Toast'
+import { confirmDialog } from '../components/Modal/confirmDialog'
 import usePluginControl from '../hooks/usePluginControl'
 import '../styles/plugin-control.css'
 
@@ -58,7 +59,6 @@ export default function PluginControlPage() {
   const [details, setDetails] = useState(null)
   const [installOpen, setInstallOpen] = useState(false)
   const [installForm, setInstallForm] = useState({ toolId: 'codex', pluginId: '', scope: 'user' })
-  const [toast, setToast] = useState(null)
 
   const plugins = useMemo(() => (snapshot?.plugins || []).filter((plugin) => {
     if (filter === 'installed' && !plugin.installed) return false
@@ -78,20 +78,28 @@ export default function PluginControlPage() {
   }), [snapshot, filter, query])
 
   const runAction = async (plugin, action) => {
-    if (action === 'uninstall' && !window.confirm(`卸载 ${plugin.name}？Plugin 的运行能力将从 ${toolLabel(plugin.toolId)} 移除。`)) return
+    if (action === 'uninstall') {
+      const confirmed = await confirmDialog({
+        title: `卸载 ${plugin.name}？`,
+        description: `Plugin 的运行能力将从 ${toolLabel(plugin.toolId)} 移除。`,
+        confirmText: '卸载',
+        danger: true,
+      })
+      if (!confirmed) return
+    }
     const result = await execute({ pluginId: plugin.id, toolId: plugin.toolId, action, scope: plugin.scope || 'user' })
     if (result.success) {
       setDetails(null)
-      setToast(result.verified === false
+      notifyToast(result.verified === false
         ? { type: 'warning', message: '命令已完成，但目标工具状态重读失败，请稍后刷新确认' }
         : { type: 'success', message: action === 'update' ? '更新完成，重启工具后应用新版本' : '操作完成，已按工具原生状态刷新' })
     } else if (result.error === 'PLUGIN_MANAGED_OR_PROTECTED') {
-      setToast({ type: 'warning', message: '该 Plugin 由工具或管理员管理，不能在 CodePal 中修改' })
+      toast.warning('该 Plugin 由工具或管理员管理，不能在 CodePal 中修改')
     } else if (result.error === 'AUTH_REQUIRED') {
-      setToast({ type: 'warning', message: '请先在对应工具中完成认证，再重试此操作' })
+      toast.warning('请先在对应工具中完成认证，再重试此操作')
     } else if (result.error === 'PLUGIN_NOT_FOUND') {
-      setToast({ type: 'warning', message: '工具已找不到该 Plugin，正在等待下一次状态刷新' })
-    } else setToast({ type: 'error', message: '操作失败，原状态已保留' })
+      toast.warning('工具已找不到该 Plugin，正在等待下一次状态刷新')
+    } else toast.error('操作失败，原状态已保留')
   }
 
   const install = async () => {
@@ -99,13 +107,11 @@ export default function PluginControlPage() {
     if (result.success) {
       setInstallOpen(false)
       setInstallForm((previous) => ({ ...previous, pluginId: '' }))
-      setToast({ type: 'success', message: 'Plugin 已安装，状态已重新读取' })
-    } else setToast({ type: 'error', message: '安装失败，请检查 marketplace 与 Plugin 名称' })
+      toast.success('Plugin 已安装，状态已重新读取')
+    } else toast.error('安装失败，请检查 marketplace 与 Plugin 名称')
   }
 
-  const fatalError = status === 'error'
-    ? <><strong>Plugin 状态读取失败</strong><br /><span>没有修改任何 Plugin</span></>
-    : null
+  const fatalError = status === 'error' ? '没有修改任何 Plugin' : null
   const unavailableTools = Object.values(snapshot?.tools || {}).filter((tool) => !tool.available)
 
   return (
@@ -119,6 +125,7 @@ export default function PluginControlPage() {
         loading={status === 'loading'}
         loadingMessage="正在读取真实 Plugin 状态"
         error={fatalError}
+        errorTitle="Plugin 状态读取失败"
         onRetry={refresh}
         empty={status === 'ready' && (snapshot?.plugins || []).length === 0}
         emptyMessage="还没有可管理的 Plugin"
@@ -231,7 +238,6 @@ export default function PluginControlPage() {
         </div>
       </Modal>
 
-      {toast && <Toast {...toast} onClose={() => setToast(null)} />}
     </PageShell>
   )
 }

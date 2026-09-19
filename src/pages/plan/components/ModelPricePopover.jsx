@@ -69,7 +69,7 @@ export default function ModelPricePopover({
     }
   }}>
   <div className="plan-pop-title">{own ? `${model.name} 的价格` : `${model.name} 还没有价格`}</div>
-  {!own && <><div className="plan-pop-act"><Button size="sm" className="plan-action np-btn" disabled={Boolean(busy)} onClick={refreshNow}>{busy === 'refresh' ? '刷新中…' : '从云端刷新'}</Button></div>
+  {!own && <><div className="plan-pop-act"><Button size="sm" className="plan-action" disabled={Boolean(busy)} onClick={refreshNow}>{busy === 'refresh' ? '刷新中…' : '从云端刷新'}</Button></div>
    {refreshHint && <div className={`plan-hint ${refresh === 'fail' ? 'plan-bad' : ''}`}>{refreshHint}</div>}
    <div className="plan-pop-sep" /></>}
   <div className="plan-pop-lab">{own ? '自己填的（美元 / 百万 token）' : '或者自己填（美元 / 百万 token）'}</div>

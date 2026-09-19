@@ -19,7 +19,7 @@ import Button from '../components/Button/Button'
 import Toggle from '../components/Toggle'
 import Tag from '../components/Tag/Tag'
 import StateView from '../components/StateView/StateView'
-import Toast from '../components/Toast'
+import { toast } from '../components/Toast'
 import ApiKeyField from '../components/ApiKeyField/ApiKeyField'
 import '../styles/k28-status-light.css'
 
@@ -98,8 +98,6 @@ export default function K28StatusLightPage() {
   const [isFixingAudio, setIsFixingAudio] = useState(false)
   // 正在保存的 Key 字段名
   const [savingKey, setSavingKey] = useState(null)
-  // Toast 提示消息
-  const [toast, setToast] = useState(null)
 
   const config = state?.config || {}
   const audio = state?.audio || null
@@ -177,7 +175,7 @@ export default function K28StatusLightPage() {
     } catch (err) {
       // 写入失败时回滚开关视觉状态，避免与本机配置不一致
       setSwitches((current) => ({ ...current, [key]: prev }))
-      setToast({ message: err?.message || '保存失败', type: 'error' })
+      toast.error(err?.message || '保存失败')
     }
   }
 
@@ -194,13 +192,13 @@ export default function K28StatusLightPage() {
       if (!result?.success) {
         throw new Error(result?.error || 'API Key 更新失败')
       }
-      setToast({ message: 'API Key 已更新', type: 'success' })
+      toast.success('API Key 已更新')
       // 只局部更新 config（含 hasVolcApiKey 等），不走整页 loadState，
       // 避免 setSwitches 覆盖同期拨动开关的乐观值
       setState((prev) => (prev ? { ...prev, config: result.data } : prev))
       return true
     } catch (err) {
-      setToast({ message: err?.message || 'API Key 更新失败', type: 'error' })
+      toast.error(err?.message || 'API Key 更新失败')
       return false
     } finally {
       setSavingKey(null)
@@ -220,10 +218,10 @@ export default function K28StatusLightPage() {
       if (!result?.success) {
         throw new Error(result?.error || '安装失败')
       }
-      setToast({ message: '安装 / 修复完成', type: 'success' })
+      toast.success('安装 / 修复完成')
       await loadState({ silent: true })
     } catch (err) {
-      setToast({ message: err?.message || '安装失败', type: 'error' })
+      toast.error(err?.message || '安装失败')
     } finally {
       setIsInstalling(false)
     }
@@ -240,9 +238,9 @@ export default function K28StatusLightPage() {
       if (!result?.success) {
         throw new Error(result?.error || '灯色测试失败')
       }
-      setToast({ message: '灯色测试已发送', type: 'success' })
+      toast.success('灯色测试已发送')
     } catch (err) {
-      setToast({ message: err?.message || '灯色测试失败', type: 'error' })
+      toast.error(err?.message || '灯色测试失败')
     } finally {
       setTestingLight(null)
     }
@@ -258,9 +256,9 @@ export default function K28StatusLightPage() {
       if (!result?.success) {
         throw new Error(result?.error || '语音测试失败')
       }
-      setToast({ message: '语音测试已完成', type: 'success' })
+      toast.success('语音测试已完成')
     } catch (err) {
-      setToast({ message: err?.message || '语音测试失败', type: 'error' })
+      toast.error(err?.message || '语音测试失败')
     } finally {
       setIsTestingVoice(false)
     }
@@ -276,10 +274,10 @@ export default function K28StatusLightPage() {
       if (!result?.success) {
         throw new Error(result?.error || '清理失败')
       }
-      setToast({ message: '状态已清理', type: 'success' })
+      toast.success('状态已清理')
       await loadState({ silent: true })
     } catch (err) {
-      setToast({ message: err?.message || '清理失败', type: 'error' })
+      toast.error(err?.message || '清理失败')
     } finally {
       setIsClearing(false)
     }
@@ -295,10 +293,10 @@ export default function K28StatusLightPage() {
       if (!result?.success) {
         throw new Error(result?.error || '音频修复失败')
       }
-      setToast({ message: '音频输出已修复', type: 'success' })
+      toast.success('音频输出已修复')
       await loadState({ silent: true, syncSwitches: false })
     } catch (err) {
-      setToast({ message: err?.message || '音频修复失败', type: 'error' })
+      toast.error(err?.message || '音频修复失败')
     } finally {
       setIsFixingAudio(false)
     }
@@ -493,9 +491,6 @@ export default function K28StatusLightPage() {
         </div>
       </StateView>
 
-      {toast && (
-        <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />
-      )}
     </PageShell>
   )
 }

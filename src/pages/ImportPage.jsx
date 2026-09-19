@@ -13,7 +13,7 @@
 import React, { useState, useEffect } from 'react'
 import { toolDefinitions, dataStore } from '../store/data'
 import Checkbox from '../components/Checkbox'
-import Toast from '../components/Toast'
+import { toast } from '../components/Toast'
 import AddPathModal from '../components/AddPathModal'
 import PageShell from '../components/PageShell'
 
@@ -27,8 +27,6 @@ import PageShell from '../components/PageShell'
 export default function ImportPage({ onImportComplete, isReimport = false }) {
   // 已选中的来源 ID 集合（工具 ID 或自定义路径 ID）
   const [selectedSources, setSelectedSources] = useState(new Set())
-  // Toast 提示消息
-  const [toast, setToast] = useState(null)
   // 工具列表（包含扫描结果）
   const [toolList, setToolList] = useState([])
   // 是否正在扫描工具目录
@@ -96,7 +94,7 @@ export default function ImportPage({ onImportComplete, isReimport = false }) {
         }
       } catch (error) {
         console.error('Error initializing import page:', error)
-        setToast({ message: '初始化失败', type: 'error' })
+        toast.error('初始化失败')
       } finally {
         setIsLoading(false)
       }
@@ -164,7 +162,7 @@ export default function ImportPage({ onImportComplete, isReimport = false }) {
     // 保存到配置
     saveCustomPaths(newPaths)
 
-    setToast({ message: '已删除自定义路径', type: 'success' })
+    toast.success('已删除自定义路径')
   }
 
   /**
@@ -195,7 +193,7 @@ export default function ImportPage({ onImportComplete, isReimport = false }) {
       normalizePathForCompare(pathItem.path) === normalizedPath
     )
     if (duplicate) {
-      setToast({ message: '该路径已存在', type: 'warning' })
+      toast.warning('该路径已存在')
       setIsModalOpen(false)
       return
     }
@@ -211,7 +209,7 @@ export default function ImportPage({ onImportComplete, isReimport = false }) {
     await saveCustomPaths(newPaths)
 
     setIsModalOpen(false)
-    setToast({ message: '已添加自定义路径', type: 'success' })
+    toast.success('已添加自定义路径')
   }
 
   /**
@@ -224,15 +222,15 @@ export default function ImportPage({ onImportComplete, isReimport = false }) {
         return // 用户取消选择
       }
       if (!result.success) {
-        setToast({ message: '更改位置失败', type: 'error' })
+        toast.error('更改位置失败')
         return
       }
 
       setRepoPath(result.path)
-      setToast({ message: '中央仓库位置已更改', type: 'success' })
+      toast.success('中央仓库位置已更改')
     } catch (error) {
       console.error('Error changing repo path:', error)
-      setToast({ message: '更改位置失败', type: 'error' })
+      toast.error('更改位置失败')
     }
   }
 
@@ -265,7 +263,7 @@ export default function ImportPage({ onImportComplete, isReimport = false }) {
       }
 
       if (result.success) {
-        setToast({ message: `已导入 ${result.copiedCount} 个 skill`, type: 'success' })
+        toast.success(`已导入 ${result.copiedCount} 个 skill`)
 
         // Auto switch to manage page after a short delay
         setTimeout(() => {
@@ -273,11 +271,11 @@ export default function ImportPage({ onImportComplete, isReimport = false }) {
         }, 500)
       } else {
         const errorMsg = result.errors?.[0] || '导入失败'
-        setToast({ message: `导入失败：${errorMsg}`, type: 'error' })
+        toast.error(`导入失败：${errorMsg}`)
       }
     } catch (error) {
       console.error('Import error:', error)
-      setToast({ message: `导入失败：${error.message}`, type: 'error' })
+      toast.error(`导入失败：${error.message}`)
     } finally {
       setIsImporting(false)
     }
@@ -423,7 +421,6 @@ export default function ImportPage({ onImportComplete, isReimport = false }) {
           </button>
         </div>
 
-      {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
 
       <AddPathModal
         isOpen={isModalOpen}

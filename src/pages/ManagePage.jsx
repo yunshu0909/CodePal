@@ -12,7 +12,8 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { dataStore, toolDefinitions } from '../store/data'
-import Toast from '../components/Toast'
+import { toast, notifyToast } from '../components/Toast'
+import { confirmDialog } from '../components/Modal/confirmDialog'
 import PageShell from '../components/PageShell'
 import SearchInput from '../components/SearchInput/SearchInput'
 import Button from '../components/Button/Button'
@@ -56,7 +57,6 @@ function SkillControlPage({ onNavigateToConfig, refreshSignal = 0 }) {
   const [centralError, setCentralError] = useState(null)
   const [searchQuery, setSearchQuery] = useState('')
   const [activeView, setActiveView] = useState('all')
-  const [toast, setToast] = useState(null)
   const [usageSampleSkill, setUsageSampleSkill] = useState(null)
   const [isBatchAdoptOpen, setIsBatchAdoptOpen] = useState(false)
   const [detailsSkill, setDetailsSkill] = useState(null)
@@ -67,7 +67,7 @@ function SkillControlPage({ onNavigateToConfig, refreshSignal = 0 }) {
     loadTagData,
     handleAssignTag, handleRemoveTag,
     handleCreateTag, handleRenameTag, handleDeleteTag,
-  } = useTagManagement(setToast)
+  } = useTagManagement(notifyToast)
   const loadTagDataRef = useRef(loadTagData)
   loadTagDataRef.current = loadTagData
 
@@ -136,12 +136,12 @@ function SkillControlPage({ onNavigateToConfig, refreshSignal = 0 }) {
     const source = skill.origins?.find((item) => item.toolId === toolId && item.mutable)
     const result = await setActivation({ skillName: skill.name, toolId, enabled, source })
     if (!result.success) {
-      setToast({ message: result.error === 'PERMISSION_DENIED' ? '操作失败，请检查工具目录权限' : '操作失败，已保留原状态', type: 'error' })
+      toast.error(result.error === 'PERMISSION_DENIED' ? '操作失败，请检查工具目录权限' : '操作失败，已保留原状态')
       return
     }
 
     const action = isSync ? '同步' : enabled ? '启用' : '停用'
-    setToast({ message: `已在 ${tool.fullName} ${action} ${skill.displayName || skill.name}`, type: 'success' })
+    toast.success(`已在 ${tool.fullName} ${action} ${skill.displayName || skill.name}`)
   }, [setActivation])
 
   const handleAdopt = useCallback(async (skill, toolId) => {
@@ -149,27 +149,33 @@ function SkillControlPage({ onNavigateToConfig, refreshSignal = 0 }) {
     const result = await adoptExternalSkill({ skillName: skill.name, toolId })
     if (result.adopted?.length > 0) {
       await loadCentralMetadata()
-      setToast({ message: `已从 ${tool.fullName} 收进资产库：${skill.displayName || skill.name}`, type: 'success' })
+      toast.success(`已从 ${tool.fullName} 收进资产库：${skill.displayName || skill.name}`)
       return
     }
-    setToast({ message: '收进资产库失败，原外部 Skill 已保留', type: 'error' })
+    toast.error('收进资产库失败，原外部 Skill 已保留')
   }, [adoptExternalSkill, loadCentralMetadata])
 
   const handleStateAction = useCallback(async (skill, command) => {
     if (command.action === 'delete-central') {
-      if (!window.confirm(`只从 CodePal 中央仓库删除 ${skill.name}？工具侧副本会保留。`)) return
+      const confirmed = await confirmDialog({
+        title: `只从 CodePal 中央仓库删除 ${skill.name}？`,
+        description: '工具侧副本会保留。',
+        confirmText: '删除',
+        danger: true,
+      })
+      if (!confirmed) return
       const result = await dataStore.removeCentralSkill(skill.name)
       if (!result?.success) {
-        setToast({ message: '中央资产删除失败，工具副本未修改', type: 'error' })
+        toast.error('中央资产删除失败，工具副本未修改')
         return
       }
       await Promise.all([loadCentralMetadata(), refreshControl({ silent: true })])
-      setToast({ message: `已从中央仓库删除 ${skill.name}，工具副本已保留`, type: 'success' })
+      toast.success(`已从中央仓库删除 ${skill.name}，工具副本已保留`)
       return
     }
     const source = skill.origins?.find((item) => item.toolId === command.toolId && item.mutable)
     const result = await executeControl({ skillName: skill.name, toolId: command.toolId, action: command.action, source })
-    setToast(result.success
+    notifyToast(result.success
       ? { message: command.action === 'remove-tool' ? '已从工具移除，中央资产已保留' : '启用状态已更新', type: 'success' }
       : { message: result.error === 'ORIGIN_READ_ONLY' ? '该来源由项目或 Plugin 管理，CodePal 只读展示' : '操作失败，原状态已保留', type: 'error' })
   }, [executeControl, loadCentralMetadata, refreshControl])
@@ -183,10 +189,10 @@ function SkillControlPage({ onNavigateToConfig, refreshSignal = 0 }) {
     const failedCount = result.failed?.length || 0
     const conflictCount = batchAdoption.conflicts.length
     if (failedCount === 0 && conflictCount === 0) {
-      setToast({ message: `已将 ${adoptedCount} 个外部 Skill 收进资产库`, type: 'success' })
+      toast.success(`已将 ${adoptedCount} 个外部 Skill 收进资产库`)
       return
     }
-    setToast({
+    notifyToast({
       message: `已收进 ${adoptedCount} 个，${conflictCount} 个来源冲突、${failedCount} 个失败`,
       type: failedCount > 0 ? 'error' : 'warning',
     })
@@ -401,7 +407,6 @@ function SkillControlPage({ onNavigateToConfig, refreshSignal = 0 }) {
         </div>
       </Modal>
 
-      {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
     </PageShell>
   )
 }
@@ -464,8 +469,6 @@ function LegacyManagePage({ onReimport, onNavigateToConfig, refreshSignal = 0 })
   const [isLoading, setIsLoading] = useState(true)
   // 是否正在处理推送/停用操作
   const [isProcessing, setIsProcessing] = useState(false)
-  // Toast 提示消息
-  const [toast, setToast] = useState(null)
 
   // 操作锁引用，防止并发操作
   const operationLock = React.useRef(false)
@@ -479,7 +482,7 @@ function LegacyManagePage({ onReimport, onNavigateToConfig, refreshSignal = 0 })
     loadTagData,
     handleAssignTag, handleRemoveTag,
     handleCreateTag, handleRenameTag, handleDeleteTag,
-  } = useTagManagement(setToast)
+  } = useTagManagement(notifyToast)
 
   // 调用次数（近30天，Claude+Codex 合计）—— 逻辑在 useSkillUsage hook，列表不被扫描阻塞
   const skillNames = useMemo(() => skills.map((s) => s.name), [skills])
@@ -541,7 +544,7 @@ function LegacyManagePage({ onReimport, onNavigateToConfig, refreshSignal = 0 })
       await loadTagData()
     } catch (error) {
       console.error('Error loading data:', error)
-      setToast({ message: '加载数据失败', type: 'error' })
+      toast.error('加载数据失败')
     } finally {
       setIsLoading(false)
     }
@@ -674,7 +677,7 @@ function LegacyManagePage({ onReimport, onNavigateToConfig, refreshSignal = 0 })
       return
     }
     if (pushTargets.length === 0) {
-      setToast({ message: '未配置推送目标，请先点击右上角"配置"', type: 'warning' })
+      toast.warning('未配置推送目标，请先点击右上角"配置"')
       return
     }
 
@@ -699,7 +702,7 @@ function LegacyManagePage({ onReimport, onNavigateToConfig, refreshSignal = 0 })
         const totalUnpushed = results.reduce((sum, r) => sum + (r.unpushedCount || 0), 0)
         success = totalUnpushed > 0
         if (success) {
-          setToast({ message: `已停用 ${skill.displayName || skill.name}`, type: 'success' })
+          toast.success(`已停用 ${skill.displayName || skill.name}`)
         }
       } else {
         // 未推送 -> 推送：推送到所有启用的推送目标
@@ -717,7 +720,7 @@ function LegacyManagePage({ onReimport, onNavigateToConfig, refreshSignal = 0 })
         const totalPushed = results.reduce((sum, r) => sum + (r.pushedCount || 0), 0)
         success = totalPushed > 0
         if (success) {
-          setToast({ message: `已推送 ${skill.displayName || skill.name}`, type: 'success' })
+          toast.success(`已推送 ${skill.displayName || skill.name}`)
         }
       }
 
@@ -731,7 +734,7 @@ function LegacyManagePage({ onReimport, onNavigateToConfig, refreshSignal = 0 })
       }
     } catch (error) {
       console.error('Toggle skill status error:', error)
-      setToast({ message: '操作失败', type: 'error' })
+      toast.error('操作失败')
     } finally {
       setIsProcessing(false)
       // 释放操作锁
@@ -747,7 +750,7 @@ function LegacyManagePage({ onReimport, onNavigateToConfig, refreshSignal = 0 })
     // 操作锁检查：防止并发操作
     if (operationLock.current || selected.size === 0) return
     if (pushTargets.length === 0) {
-      setToast({ message: '未配置推送目标，请先点击右上角”配置”', type: 'warning' })
+      toast.warning('未配置推送目标，请先点击右上角”配置”')
       return
     }
 
@@ -761,7 +764,7 @@ function LegacyManagePage({ onReimport, onNavigateToConfig, refreshSignal = 0 })
       )
 
       if (selectedUnpushedSkills.length === 0) {
-        setToast({ message: '选中的技能已全部推送', type: 'info' })
+        toast.info('选中的技能已全部推送')
         setIsProcessing(false)
         return
       }
@@ -778,14 +781,14 @@ function LegacyManagePage({ onReimport, onNavigateToConfig, refreshSignal = 0 })
       const totalPushed = results.reduce((sum, r) => sum + (r.pushedCount || 0), 0)
       const uniqueTools = pushTargets.length
 
-      setToast({ message: `已推送 ${selectedUnpushedSkills.length} 个 skill 到 ${uniqueTools} 个工具`, type: 'success' })
+      toast.success(`已推送 ${selectedUnpushedSkills.length} 个 skill 到 ${uniqueTools} 个工具`)
 
       // 清空选中并刷新
       setSelected(new Set())
       await loadData()
     } catch (error) {
       console.error('Batch push error:', error)
-      setToast({ message: '批量推送失败', type: 'error' })
+      toast.error('批量推送失败')
     } finally {
       setIsProcessing(false)
       // 释放操作锁
@@ -801,7 +804,7 @@ function LegacyManagePage({ onReimport, onNavigateToConfig, refreshSignal = 0 })
     // 操作锁检查：防止并发操作
     if (operationLock.current || selected.size === 0) return
     if (pushTargets.length === 0) {
-      setToast({ message: '未配置推送目标，请先点击右上角”配置”', type: 'warning' })
+      toast.warning('未配置推送目标，请先点击右上角”配置”')
       return
     }
 
@@ -815,7 +818,7 @@ function LegacyManagePage({ onReimport, onNavigateToConfig, refreshSignal = 0 })
       )
 
       if (selectedPushedSkills.length === 0) {
-        setToast({ message: '选中的技能未推送，无需停用', type: 'info' })
+        toast.info('选中的技能未推送，无需停用')
         setIsProcessing(false)
         return
       }
@@ -829,14 +832,14 @@ function LegacyManagePage({ onReimport, onNavigateToConfig, refreshSignal = 0 })
         })
       )
 
-      setToast({ message: `已停用 ${selectedPushedSkills.length} 个 skill`, type: 'success' })
+      toast.success(`已停用 ${selectedPushedSkills.length} 个 skill`)
 
       // 清空选中并刷新
       setSelected(new Set())
       await loadData()
     } catch (error) {
       console.error('Batch deactivate error:', error)
-      setToast({ message: '批量停用失败', type: 'error' })
+      toast.error('批量停用失败')
     } finally {
       setIsProcessing(false)
       // 释放操作锁
@@ -1009,8 +1012,6 @@ function LegacyManagePage({ onReimport, onNavigateToConfig, refreshSignal = 0 })
         skill={usageSampleSkill}
       />
 
-      {/* Toast */}
-      {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
     </PageShell>
   )
 }

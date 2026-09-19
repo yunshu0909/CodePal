@@ -316,7 +316,7 @@ export default function ConfigModal({ isOpen, onClose, onSave }) {
                     <div className={`config-path-checkbox ${selectedImportSources.has(path.id) ? 'checked' : ''}`}>
                       {selectedImportSources.has(path.id) ? checkSvg : null}
                     </div>
-                    <div className="config-path-icon">📁</div>
+                    <div className="config-path-icon" aria-hidden="true"><svg viewBox="0 0 16 16"><path d="M2 4.5h4l1.5 1.5H14v6.5H2z" /></svg></div>
                     <div className="config-path-info">
                       <div className="config-path-name">{getFolderName(path.path)}</div>
                       <div className="config-path-meta">{formatSkillStats(path.skills)}</div>

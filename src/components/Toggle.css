@@ -1,23 +1,24 @@
-/* Toggle 开关组件样式 */
+/* Toggle 开关组件样式（全局元素，设计总纲 3.18）：关闭轨道灰 + 细线，开启规范绿；全应用统一 */
 
 .toggle {
   position: relative;
   width: 36px;
   height: 20px;
   border-radius: 9999px;
-  background: #cbd0d8;
-  cursor: pointer;
+  background: var(--track);
+  box-shadow: inset 0 0 0 .5px rgba(0, 0, 0, .12);
+  cursor: default;
   transition: background 150ms ease;
   display: inline-block;
 }
 
 .toggle.on {
-  background: #16a34a;
+  background: var(--green);
+  box-shadow: none;
 }
 
 .toggle.disabled {
   opacity: 0.5;
-  cursor: not-allowed;
 }
 
 .toggle-thumb {

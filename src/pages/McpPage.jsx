@@ -13,10 +13,10 @@
 
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import Toggle from '../components/Toggle'
-import Toast from '../components/Toast'
+import { toast, notifyToast } from '../components/Toast'
 import Tag from '../components/Tag/Tag'
 import SearchInput from '../components/SearchInput/SearchInput'
-import StateView from '../components/StateView/StateView'
+import StateView, { SEARCH_ICON } from '../components/StateView/StateView'
 import '../styles/mcp-page.css'
 import PageShell from '../components/PageShell'
 
@@ -91,8 +91,6 @@ export default function McpPage({ isActive = true }) {
   const [error, setError] = useState(null)
   // 正在提交写入的 Toggle key
   const [inFlightMap, setInFlightMap] = useState(new Map())
-  // Toast 提示
-  const [toast, setToast] = useState(null)
 
   // 是否已有首次加载结果（用于“切回 Tab 静默刷新”）
   const hasLoadedOnceRef = useRef(false)
@@ -142,7 +140,7 @@ export default function McpPage({ isActive = true }) {
         const message = mapScanErrorMessage(result.errorCode, result.error)
         if (silent) {
           // 静默刷新失败时不打断页面，仅提示一次
-          setToast({ message, type: 'warning' })
+          notifyToast({ message, type: 'warning' })
         } else {
           setError(message)
         }
@@ -154,7 +152,7 @@ export default function McpPage({ isActive = true }) {
 
       // 保留页面可用性：部分成功时只提示 warning，不阻断展示
       if (Array.isArray(result.warnings) && result.warnings.length > 0) {
-        setToast({ message: result.warnings[0], type: 'warning' })
+        toast.warning(result.warnings[0])
       }
 
       if (!silent) {
@@ -163,7 +161,7 @@ export default function McpPage({ isActive = true }) {
     } catch (err) {
       const message = err.message || '未知错误'
       if (silent) {
-        setToast({ message, type: 'warning' })
+        notifyToast({ message, type: 'warning' })
       } else {
         setError(message)
       }
@@ -264,7 +262,7 @@ export default function McpPage({ isActive = true }) {
               : mcp
           )
         )
-        setToast({
+        notifyToast({
           message: mapToggleErrorMessage(result.errorCode, result.error),
           type: 'error'
         })
@@ -272,9 +270,9 @@ export default function McpPage({ isActive = true }) {
       }
 
       if (result.warningCode === 'CONFIG_RELOADED') {
-        setToast({ message: result.warning || '配置已重新加载', type: 'warning' })
+        toast.warning(result.warning || '配置已重新加载')
       } else {
-        setToast({
+        notifyToast({
           message: `已${pending.finalState ? '启用' : '停用'} ${pending.mcpId} → ${TOOL_NAME_MAP[pending.tool]}`,
           type: 'success'
         })
@@ -293,7 +291,7 @@ export default function McpPage({ isActive = true }) {
             : mcp
         )
       )
-      setToast({ message: err.message || '操作失败', type: 'error' })
+      toast.error(err.message || '操作失败')
     } finally {
       setToggleInFlight(toggleKey, false)
     }
@@ -452,14 +450,13 @@ export default function McpPage({ isActive = true }) {
           empty={mcpList.length === 0}
           emptyMessage="未检测到 MCP"
           emptyHint="请在 Claude Code 或 Codex 中添加 MCP 配置"
-          emptyIcon="📡"
         >
           {filteredMcpList.length === 0 && searchQuery ? (
             <StateView
               empty
               emptyMessage="没有找到匹配的 MCP"
               emptyHint="试试其他关键词"
-              emptyIcon="🔍"
+              emptyIcon={SEARCH_ICON}
             />
           ) : renderTable()}
         </StateView>
@@ -472,8 +469,6 @@ export default function McpPage({ isActive = true }) {
         </div>
       )}
 
-      {/* Toast */}
-      {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
     </PageShell>
   )
 }

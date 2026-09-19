@@ -79,11 +79,6 @@
   --shadow-card: 0 2px 20px rgba(0, 0, 0, 0.05), 0 0 0 1px rgba(0, 0, 0, 0.03);
   --shadow-modal: 0 10px 40px rgba(0, 0, 0, 0.12);
 
-  /* Toast 语义阴影：颜色与 toast 自身配色一致，看起来"由内透出" */
-  --shadow-toast-info: 0 4px 16px rgba(37, 99, 235, 0.25);
-  --shadow-toast-success: 0 4px 16px rgba(22, 163, 74, 0.25);
-  --shadow-toast-error: 0 4px 16px rgba(220, 38, 38, 0.25);
-  --shadow-toast-warning: 0 4px 16px rgba(217, 119, 6, 0.25);
 
   /* 品牌 logo 的蓝色 drop-shadow（chrome 中唯一的"暖"元素） */
   --shadow-brand-logo: drop-shadow(0 2px 8px rgba(37, 99, 235, 0.2));

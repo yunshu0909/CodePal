@@ -5,11 +5,17 @@
  * - 注册 Testing Library DOM 断言
  * - 为缺失 localStorage 方法的环境补齐内存实现
  * - 为根目录 tests 提供统一 setup 入口
+ * - 每个用例后清掉全局 Toast
  *
  * @module tests/setup
  */
 
 import '@testing-library/jest-dom/vitest'
+import { afterEach } from 'vitest'
+import { resetToastForTests } from '../src/components/Toast'
+
+// Toast 宿主挂在 body 下、跨用例常驻：每个用例后清掉，避免上一条提示留到下一个用例
+afterEach(() => resetToastForTests())
 
 /**
  * 创建内存版 Storage 实现

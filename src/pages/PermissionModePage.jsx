@@ -15,7 +15,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import PageShell from '../components/PageShell'
 import Button from '../components/Button/Button'
-import Toast from '../components/Toast'
+import { toast } from '../components/Toast'
 import Toggle from '../components/Toggle'
 import ClaudeStatusLineTakeoverModal from './usage/components/ClaudeStatusLineTakeoverModal'
 import useClaudeUsageStatus from './usage/useClaudeUsageStatus'
@@ -88,12 +88,9 @@ function usePermissionMode(notify) {
  * @returns {JSX.Element}
  */
 export default function PermissionModePage() {
-  // Toast：key 递增让同文案也能重新出现
-  const [toast, setToast] = useState(null)
   // 接管确认弹窗
   const [takeoverOpen, setTakeoverOpen] = useState(false)
-  const notify = useCallback((message, type) => setToast({ message, type, key: Date.now() }), [])
-  const closeToast = useCallback(() => setToast(null), [])
+  const notify = toast.show
 
   const { perm, switching, managedNotice, reload: reloadPerm, select } = usePermissionMode(notify)
   const {
@@ -158,7 +155,7 @@ export default function PermissionModePage() {
               <div className="cc-row np-row">
                 <div className="lf"><div className="lb">默认权限模式</div>{modeDesc}</div>
                 {perm.error
-                  ? <Button size="sm" className="cc-btn np-btn" onClick={reloadPerm}>重试</Button>
+                  ? <Button size="sm" className="cc-btn" onClick={reloadPerm}>重试</Button>
                   : <PermissionModeSelect mode={perm.mode} disabled={switching} onSelect={select} />}
               </div>
             </div>
@@ -172,7 +169,7 @@ export default function PermissionModePage() {
                     <Button
                       size="sm"
                       variant={view.action.primary ? 'primary' : 'secondary'}
-                      className="cc-btn np-btn"
+                      className="cc-btn"
                       disabled={installing}
                       onClick={() => onAction(view.action.kind)}
                     >
@@ -197,7 +194,6 @@ export default function PermissionModePage() {
         onClose={() => setTakeoverOpen(false)}
         onConfirm={confirmTakeover}
       />
-      {toast && <Toast key={toast.key} message={toast.message} type={toast.type} onClose={closeToast} />}
     </PageShell>
   )
 }

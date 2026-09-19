@@ -1,0 +1,51 @@
+/**
+ * SegmentedControl 样式（全局元素，设计总纲 3.18，样式包 @export:global .seg）
+ *
+ * 灰轨 + 白滑块，高 24；轨道圆角 8 = 滑块 6 + 内边距 2
+ */
+
+.segmented {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  height: 24px;
+  padding: 2px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, .06);
+  font-family: var(--font-np);
+}
+
+.segmented[aria-disabled='true'] {
+  opacity: .5;
+}
+
+.segmented__item {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  font-size: 12px;
+  line-height: 16px;
+  white-space: nowrap;
+  cursor: default;
+}
+
+.segmented__item.is-selected {
+  background: #fff;
+  font-weight: 500;
+  box-shadow: 0 0 0 .5px rgba(0, 0, 0, .14), 0 1px 1px rgba(0, 0, 0, .06);
+}
+
+.segmented__item:focus {
+  outline: none;
+}
+
+.segmented__item:focus-visible {
+  box-shadow: 0 0 0 3px rgba(43, 127, 255, .25), 0 0 0 .5px var(--blue);
+}

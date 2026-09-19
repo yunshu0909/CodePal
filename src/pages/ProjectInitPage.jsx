@@ -15,7 +15,7 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import PathPickerField from '../components/PathPickerField'
 import ProjectInitSuccessModal, { ProjectInitErrorModal } from '../components/ProjectInitSuccessModal'
-import Toast from '../components/Toast'
+import { toast } from '../components/Toast'
 import '../styles/project-init.css'
 import PageShell from '../components/PageShell'
 import Button from '../components/Button/Button'
@@ -68,8 +68,6 @@ export default function ProjectInitPage() {
     failedSteps: [],
     rollback: null,
   })
-  // Toast
-  const [toast, setToast] = useState(null)
 
   // 是否有指引文件被勾选（记忆系统的依赖条件）
   const hasGuideFile = templateSelection.agents || templateSelection.claude
@@ -166,14 +164,14 @@ export default function ProjectInitPage() {
    */
   const handlePickFolder = async () => {
     if (!window.electronAPI?.selectFolder) {
-      setToast({ message: '当前环境不支持路径浏览', type: 'warning' })
+      toast.warning('当前环境不支持路径浏览')
       return
     }
 
     try {
       const result = await window.electronAPI.selectFolder()
       if (!result.success) {
-        setToast({ message: result.error || '选择路径失败', type: 'error' })
+        toast.error(result.error || '选择路径失败')
         return
       }
       if (!result.canceled && result.path) {
@@ -181,7 +179,7 @@ export default function ProjectInitPage() {
       }
     } catch (error) {
       console.error('Error selecting target folder:', error)
-      setToast({ message: '选择路径失败', type: 'error' })
+      toast.error('选择路径失败')
     }
   }
 
@@ -303,7 +301,7 @@ export default function ProjectInitPage() {
     setValidationResult(null)
     setExecutionResult(null)
     setSuccessModalSummary(DEFAULT_SUCCESS_MODAL_SUMMARY)
-    setToast({ message: '页面已重置，可以开始新的配置', type: 'info' })
+    toast.info('页面已重置，可以开始新的配置')
   }
 
   const handleCloseErrorModal = () => setIsErrorModalVisible(false)
@@ -451,7 +449,6 @@ export default function ProjectInitPage() {
         onRetry={handleRetryErrorModal}
       />
 
-      {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
     </PageShell>
   )
 }

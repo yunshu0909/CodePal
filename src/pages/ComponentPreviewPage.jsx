@@ -15,7 +15,9 @@ import Tag from '../components/Tag/Tag'
 import SearchInput from '../components/SearchInput/SearchInput'
 import StateView from '../components/StateView/StateView'
 import Modal from '../components/Modal/Modal'
-import Toast from '../components/Toast'
+import { confirmDialog } from '../components/Modal/confirmDialog'
+import SegmentedControl from '../components/SegmentedControl/SegmentedControl'
+import { toast } from '../components/Toast'
 import Toggle from '../components/Toggle'
 import Checkbox from '../components/Checkbox'
 import './ComponentPreviewPage.css'
@@ -69,8 +71,9 @@ export default function ComponentPreviewPage() {
   // StateView
   const [stateDemo, setStateDemo] = useState('loading')
 
-  // Toast
-  const [toast, setToast] = useState(null)
+
+  // SegmentedControl
+  const [segment, setSegment] = useState('all')
 
   // Toggle
   const [toggle1, setToggle1] = useState(true)
@@ -99,10 +102,10 @@ export default function ComponentPreviewPage() {
             </div>
           </Row>
           <Row label="小号按钮">
-            <Button size="sm" className="np-btn">重试</Button>
-            <Button size="sm" variant="primary" className="np-btn">立即接入</Button>
-            <Button size="sm" className="np-btn np-btn--danger">从工具移除</Button>
-            <Button size="sm" className="np-btn" disabled>禁用</Button>
+            <Button size="sm">重试</Button>
+            <Button size="sm" variant="primary">立即接入</Button>
+            <Button size="sm" variant="danger">从工具移除</Button>
+            <Button size="sm" disabled>禁用</Button>
           </Row>
           <Row label="状态标签">
             {['blue', 'green', 'purple', 'orange', 'red', 'gray'].map((c) => <span key={c} className={`np-tag np-tag--${c}`}>{{ blue: '还差 180M', green: '已达成', purple: '优秀', orange: '快到期', red: '已到期 · 待确认', gray: '已停' }[c]}</span>)}
@@ -261,12 +264,40 @@ export default function ComponentPreviewPage() {
       {/* ── Toast ──────────────────────────────────────── */}
       <Section title="Toast">
         <Row label="触发">
-          <Button variant="secondary" size="sm" onClick={() => setToast({ message: '操作成功', type: 'success' })}>success</Button>
-          <Button variant="secondary" size="sm" onClick={() => setToast({ message: '发生错误，请重试', type: 'error' })}>error</Button>
-          <Button variant="secondary" size="sm" onClick={() => setToast({ message: '注意：配置已变更', type: 'warning' })}>warning</Button>
-          <Button variant="secondary" size="sm" onClick={() => setToast({ message: '这是一条普通提示', type: 'info' })}>info</Button>
+          <Button variant="secondary" size="sm" onClick={() => toast.success('操作成功')}>success</Button>
+          <Button variant="secondary" size="sm" onClick={() => toast.error('发生错误，请重试')}>error</Button>
+          <Button variant="secondary" size="sm" onClick={() => toast.warning('注意：配置已变更')}>warning</Button>
+          <Button variant="secondary" size="sm" onClick={() => toast.info('这是一条普通提示')}>info</Button>
         </Row>
-        <p className="cp-desc">Toast 显示 3 秒后自动消失，点击上方按钮触发。</p>
+        <p className="cp-desc">全局入口 toast.success / error / warning / info；同时只显示一条，新的顶掉旧的。</p>
+      </Section>
+
+      {/* ── SegmentedControl ───────────────────────────── */}
+      <Section title="SegmentedControl">
+        <Row label="默认">
+          <SegmentedControl
+            ariaLabel="工具"
+            value={segment}
+            onChange={setSegment}
+            options={[{ value: 'all', label: '全部' }, { value: 'claude', label: 'Claude Code' }, { value: 'codex', label: 'Codex' }]}
+          />
+        </Row>
+      </Section>
+
+      {/* ── confirmDialog ──────────────────────────────── */}
+      <Section title="confirmDialog">
+        <Row label="触发">
+          <Button
+            variant="danger"
+            size="sm"
+            onClick={async () => {
+              const ok = await confirmDialog({ title: '只从 CodePal 中央仓库删除 code-review？', description: '工具侧副本会保留。', confirmText: '删除', danger: true })
+              toast.info(ok ? '点了删除' : '点了取消')
+            }}
+          >
+            删除确认
+          </Button>
+        </Row>
       </Section>
 
       {/* ── StateView ──────────────────────────────────── */}
@@ -281,7 +312,7 @@ export default function ComponentPreviewPage() {
             loading={stateDemo === 'loading'}
             error={stateDemo === 'error' ? '扫描配置文件失败，请检查路径是否正确' : null}
             empty={stateDemo === 'empty'}
-            onRetry={() => setToast({ message: '已触发重试', type: 'info' })}
+            onRetry={() => toast.info('已触发重试')}
             emptyMessage="暂无数据"
             emptyHint="请先在工具中添加配置"
           />
@@ -309,7 +340,7 @@ export default function ComponentPreviewPage() {
         footer={
           <>
             <Button variant="secondary" onClick={() => setModalSize(null)}>取消</Button>
-            <Button variant="primary" onClick={() => { setModalSize(null); setToast({ message: '点击了确认', type: 'success' }) }}>确认</Button>
+            <Button variant="primary" onClick={() => { setModalSize(null); toast.success('点击了确认') }}>确认</Button>
           </>
         }
       >
@@ -337,10 +368,6 @@ export default function ComponentPreviewPage() {
           </div>
         </div>
       </Section>
-      {/* Toast 实例 */}
-      {toast && (
-        <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />
-      )}
 
     </PageShell>
   )

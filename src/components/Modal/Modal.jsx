@@ -1,5 +1,5 @@
 /**
- * 通用弹窗组件
+ * 通用弹窗组件（全局元素「对话框」，设计总纲 3.18）
  *
  * 负责：
  * - 提供遮罩 + 面板的通用底座
@@ -8,6 +8,7 @@
  * - 点击遮罩关闭（可配置）
  * - 打开时锁定 body 滚动
  * - 淡入动画
+ * - 样子：居中 + 背景压暗、圆角 12、标题 14/700，说明在标题下；确认类用 confirmDialog()
  *
  * 使用示例：
  *   <Modal open={isOpen} onClose={handleClose} title="添加路径"
@@ -28,7 +29,8 @@ import './Modal.css'
  * @param {boolean} open - 是否显示
  * @param {() => void} onClose - 关闭回调
  * @param {string} title - 标题（可选，不传则不渲染 header）
- * @param {'sm'|'md'|'lg'} size - 面板宽度
+ * @param {React.ReactNode} description - 标题下的一两句说明（可选）
+ * @param {'sm'|'md'|'lg'} size - 面板宽度：sm 380（确认）/ md 560 / lg 720
  * @param {React.ReactNode} footer - 底部插槽（操作按钮区）
  * @param {boolean} closeOnOverlay - 点击遮罩是否关闭，默认 true
  * @param {boolean} showCloseButton - 是否显示右上角关闭按钮，默认 true
@@ -38,6 +40,7 @@ export default function Modal({
   open,
   onClose,
   title,
+  description,
   size = 'md',
   footer,
   closeOnOverlay = true,
@@ -87,8 +90,10 @@ export default function Modal({
           </div>
         )}
 
+        {description && <p className="modal-description">{description}</p>}
+
         {/* Body */}
-        <div className="modal-body">{children}</div>
+        {children && <div className="modal-body">{children}</div>}
 
         {/* Footer */}
         {footer && <div className="modal-footer">{footer}</div>}

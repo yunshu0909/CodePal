@@ -25,7 +25,6 @@ function snapshot(overrides = {}) {
 
 describe('PluginControlPage', () => {
   beforeEach(() => {
-    window.confirm = vi.fn(() => true)
     window.electronAPI = {
       getPluginControlSnapshot: vi.fn(async () => ({ success: true, data: snapshot() })),
       executePluginCommand: vi.fn(async () => ({ success: true, snapshot: snapshot({ plugins: [] }) })),
@@ -60,12 +59,15 @@ describe('PluginControlPage', () => {
   it('SC-110 requires uninstall confirmation and locks only the target operation', async () => {
     render(<PluginControlPage />)
     await screen.findByText('docs')
-    window.confirm.mockReturnValueOnce(false)
+    // 确认走应用内对话框（设计总纲 3.18），不再用浏览器 confirm
     fireEvent.click(screen.getByRole('button', { name: '卸载 docs' }))
+    expect(await screen.findByText('卸载 docs？')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: '取消' }))
+    await waitFor(() => expect(screen.queryByText('卸载 docs？')).toBeNull())
     expect(window.electronAPI.executePluginCommand).not.toHaveBeenCalled()
 
-    window.confirm.mockReturnValueOnce(true)
     fireEvent.click(screen.getByRole('button', { name: '卸载 docs' }))
+    fireEvent.click(await screen.findByRole('button', { name: '卸载' }))
     await waitFor(() => expect(window.electronAPI.executePluginCommand).toHaveBeenCalledWith(expect.objectContaining({ pluginId: 'docs@official', action: 'uninstall' })))
   })
 

@@ -14,7 +14,7 @@ import PageShell from '../components/PageShell'
 import StateView from '../components/StateView/StateView'
 import Modal from '../components/Modal/Modal'
 import Button from '../components/Button/Button'
-import Toast from '../components/Toast'
+import { toast, notifyToast } from '../components/Toast'
 import MarkdownRenderer from '../components/MarkdownRenderer/MarkdownRenderer'
 import useResizableSidebar from '../hooks/useResizableSidebar'
 import '../styles/session-browser.css'
@@ -223,8 +223,6 @@ export default function SessionBrowserPage() {
   // 删除确认弹窗
   const [deleteTarget, setDeleteTarget] = useState(null)
   const [deleting, setDeleting] = useState(false)
-  // Toast 提示
-  const [toast, setToast] = useState(null)
   // v1.4.5 启动此对话：当前 session 的工作目录信息（null 表示未加载或读不到）
   const [resumeCwdInfo, setResumeCwdInfo] = useState(null)
 
@@ -360,9 +358,9 @@ export default function SessionBrowserPage() {
     const cmd = `cd "${resumeCwdInfo.cwd}" && claude --resume ${selectedSessionId}`
     try {
       await navigator.clipboard.writeText(cmd)
-      setToast({ message: 'resume 命令已复制到剪贴板', type: 'success' })
+      toast.success('resume 命令已复制到剪贴板')
     } catch {
-      setToast({
+      notifyToast({
         message: `复制失败，请手动在终端执行 claude --resume ${selectedSessionId}`,
         type: 'error',
       })
@@ -378,15 +376,15 @@ export default function SessionBrowserPage() {
         uuid: selectedSessionId,
       })
       if (result?.success) {
-        setToast({ message: '已在新 Terminal 窗口启动 Claude Code', type: 'success' })
+        toast.success('已在新 Terminal 窗口启动 Claude Code')
       } else {
-        setToast({
+        notifyToast({
           message: 'Terminal 启动失败，可以改用"复制 resume 参数"',
           type: 'error',
         })
       }
     } catch {
-      setToast({
+      notifyToast({
         message: 'Terminal 启动失败，可以改用"复制 resume 参数"',
         type: 'error',
       })
@@ -419,10 +417,10 @@ export default function SessionBrowserPage() {
           setMessages([])
         }
       } else {
-        setToast({ message: '删除失败：' + (result.error || '未知错误'), type: 'error' })
+        toast.error('删除失败：' + (result.error || '未知错误'))
       }
     } catch (err) {
-      setToast({ message: '删除失败：' + err.message, type: 'error' })
+      toast.error('删除失败：' + err.message)
     } finally {
       setDeleting(false)
       setDeleteTarget(null)
@@ -634,7 +632,6 @@ export default function SessionBrowserPage() {
           )}
         </div>
       </div>
-      {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
 
       {/* 删除确认弹窗 */}
       <Modal
