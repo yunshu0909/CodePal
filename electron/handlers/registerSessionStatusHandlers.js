@@ -23,7 +23,7 @@ const {
 const { createSessionStatusMonitor } = require('../services/sessionStatusMonitor')
 
 // 失败原因里的工具名给页面用
-const TOOL_LABEL = { claude: 'Claude Code', codex: 'Codex', all: '会话状态' }
+const TOOL_LABEL = { claude: 'Claude Code', codex: 'Codex', 'codex-trust': 'Codex', all: '会话状态' }
 
 /**
  * @param {object} deps
@@ -58,7 +58,13 @@ function registerSessionStatusHandlers({ ipcMain, store, getWindow, notify }) {
     iconDir: path.join(__dirname, '..', 'assets', 'notify'),
   })
 
-  const toFailures = (list) => list.map((f) => ({ tool: f.tool, label: TOOL_LABEL[f.tool] || f.tool, error: f.error }))
+  const toFailures = (list) => list.map((f) => ({
+    tool: f.tool,
+    label: TOOL_LABEL[f.tool] || f.tool,
+    error: f.error,
+    // 信任没自动成功：钩子已装好，只差用户在 Codex 里确认
+    message: f.tool === 'codex-trust' ? `Codex 的新钩子没能自动确认（${f.error}），请在 Codex 里输入 /hooks 信任` : null,
+  }))
 
   async function snapshot() {
     const [tools, hooks, list] = await Promise.all([detectTools(), readHookPresence(), monitor.refresh()])
@@ -93,7 +99,7 @@ function registerSessionStatusHandlers({ ipcMain, store, getWindow, notify }) {
       if (enabled) {
         const result = await ensureInstalled()
         if (!result.success) {
-          const reason = failures[0]?.error || '未知原因'
+          const reason = failures.find((f) => f.tool !== 'codex-trust')?.error || '未知原因'
           failures = []
           return { success: false, error: reason }
         }

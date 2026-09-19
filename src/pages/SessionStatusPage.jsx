@@ -111,7 +111,7 @@ export default function SessionStatusPage() {
                 <div className="np-row" key={f.tool}>
                   <div className="lf">
                     <div className="lb">{f.label}</div>
-                    <div className="ds bad" title={f.error}>没能写入 {f.label} 的配置：{f.error}</div>
+                    <div className="ds bad" title={f.message || f.error}>{f.message || `没能写入 ${f.label} 的配置：${f.error}`}</div>
                   </div>
                   <Button size="sm" disabled={retrying} onClick={onRetry}>{retrying ? '重试中...' : '重试'}</Button>
                 </div>

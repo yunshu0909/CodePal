@@ -16,6 +16,7 @@ const path = require('path')
 const os = require('os')
 // settings.json 写入统一走唯一 broker（V1.9.8 收口）；本模块 atomicWriteText 只用于 Codex config / 本目录的 conf
 const { mutateClaudeSettingsFile, detectUnsupportedCustomRoot } = require('./claudeSettingsService')
+const { trustCodePalCodexHooks } = require('./codexHookTrust')
 
 const HOOK_DIR = path.join(os.homedir(), '.claude', 'k28-status-light')
 const TEMPLATE_DIR = path.resolve(__dirname, '..', '..', 'templates', 'k28-status-light')
@@ -703,7 +704,7 @@ async function clearStateFiles() {
  * 一边失败不影响另一边；返回每个工具的结果
  * @returns {Promise<{success: boolean, tools: {claude: boolean, codex: boolean}, failures: Array<{tool: string, error: string}>}>}
  */
-async function installSessionStatus() {
+async function installSessionStatus({ trustHooks = trustCodePalCodexHooks } = {}) {
   const tools = await detectTools()
   const failures = []
   if (!tools.claude && !tools.codex) return { success: true, tools, failures }
@@ -733,12 +734,20 @@ async function installSessionStatus() {
   if (tools.codex) {
     try {
       await installCodexHooks()
+      // 钩子装好后替用户在 Codex 里信任 CodePal 自己的钩子（走官方接口），否则新钩子不会运行
+      try {
+        await trustHooks({ configPath: CODEX_CONFIG_PATH })
+      } catch (error) {
+        failures.push({ tool: 'codex-trust', error: error.message })
+      }
     } catch (error) {
       failures.push({ tool: 'codex', error: error.message })
     }
   }
+  // 信任没成功不算装失败：旧的已信任钩子照常工作，页面提示用户去 Codex 里 /hooks 手动确认
+  const hardFailures = failures.filter((f) => f.tool !== 'codex-trust').length
   const attempted = Number(tools.claude) + Number(tools.codex)
-  return { success: failures.length < attempted, tools, failures }
+  return { success: hardFailures < attempted, tools, failures }
 }
 
 /**

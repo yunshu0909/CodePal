@@ -23,7 +23,7 @@
     "test:safety": "vitest run tests/safety/settingsWriteConsolidation.test.js tests/safety/navigationGuard.test.js tests/safety/openExternalHandler.test.js tests/safety/markdownLink.test.jsx",
     "test:root": "vitest run tests/testWiring.test.js tests/claudeUsageStreaming.test.js tests/usageSpanIndex.test.js tests/codexUsageNoTruncation.test.js tests/usageDayCacheCompat.test.js tests/usageEquivalence.test.js tests/aggregateUsageDateRange.empty.test.js tests/findEarliestLogDate.test.js tests/getPresetPeriodDateRange.test.js tests/importService.regression.test.js tests/pricing-gpt56.test.js tests/claudeSettingsPage.test.jsx tests/claudeSettingsWiring.test.js tests/globalElements.test.jsx tests/brandShell.test.jsx tests/usage-custom-range-switch.test.jsx tests/usage-heavy-periods.test.jsx tests/usageAggregationIntegrity.test.js",
     "test:v21": "vitest run --root . tests/v21/pluginControlService.test.js tests/v21/PluginControlPage.test.jsx tests/v21/skillExplainability.test.jsx tests/v21/pluginExplainability.test.jsx",
-    "test:session-status": "vitest run tests/sessionStatusService.test.js tests/sessionStatusHook.test.js tests/sessionStatusMonitor.test.js tests/sessionStatusPage.test.jsx",
+    "test:session-status": "vitest run tests/sessionStatusService.test.js tests/sessionStatusHook.test.js tests/sessionStatusMonitor.test.js tests/sessionStatusPage.test.jsx tests/codexHookTrust.test.js",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "test:ui": "vitest --ui",

@@ -254,6 +254,8 @@ function loadFresh(home) {
   return require('../electron/services/sessionStatusService')
 }
 
+const noTrust = async () => ({ trusted: 0, alreadyTrusted: 0 })
+
 describe('打开 / 关掉：临时 HOME 下的往返', () => {
   const originalHome = process.env.HOME
   const originalRoot = process.env.CLAUDE_CONFIG_DIR
@@ -272,12 +274,12 @@ describe('打开 / 关掉：临时 HOME 下的往返', () => {
     await mkdir(path.join(home, '.claude'), { recursive: true })
     await writeFile(path.join(home, '.claude', 'settings.json'), JSON.stringify({ model: 'opus' }))
     const svc = loadFresh(home)
-    await svc.installSessionStatus()
+    await svc.installSessionStatus({ trustHooks: noTrust })
     const first = await readFile(path.join(home, '.claude', 'settings.json'), 'utf-8')
     const count = async () => (await readdir(path.join(home, '.claude'), { recursive: true })).filter((f) => /settings-.*\.json$/.test(f)).length
     const before = await count()
-    await svc.installSessionStatus()
-    await svc.installSessionStatus()
+    await svc.installSessionStatus({ trustHooks: noTrust })
+    await svc.installSessionStatus({ trustHooks: noTrust })
     expect(await readFile(path.join(home, '.claude', 'settings.json'), 'utf-8')).toBe(first)
     expect(await count()).toBe(before)
   })
@@ -292,7 +294,7 @@ describe('打开 / 关掉：临时 HOME 下的往返', () => {
     await writeFile(path.join(home, '.codex', 'config.toml'), 'model = "gpt-5"\n')
     const svc = loadFresh(home)
 
-    const on = await svc.installSessionStatus()
+    const on = await svc.installSessionStatus({ trustHooks: noTrust })
     expect(on).toMatchObject({ success: true, tools: { claude: true, codex: true }, failures: [] })
     const settings = JSON.parse(await readFile(path.join(home, '.claude', 'settings.json'), 'utf-8'))
     expect(JSON.stringify(settings.hooks)).toContain('k28-status-light/k28_status.sh')
@@ -327,7 +329,7 @@ describe('打开 / 关掉：临时 HOME 下的往返', () => {
     await mkdir(path.join(home, '.claude', 'k28-status-light'), { recursive: true })
     await writeFile(path.join(home, '.claude', 'k28-status-light', 'tts.conf'), 'STATUS_LIGHT_ENABLED=0\nVOLC_API_KEY=sk-***\n')
     const svc = loadFresh(home)
-    await svc.installSessionStatus()
+    await svc.installSessionStatus({ trustHooks: noTrust })
     const conf = await readFile(path.join(home, '.claude', 'k28-status-light', 'tts.conf'), 'utf-8')
     expect(conf).toMatch(/^STATUS_LIGHT_ENABLED=1$/m)
     expect(conf).toContain('VOLC_API_KEY=sk-***')
@@ -342,7 +344,7 @@ describe('打开 / 关掉：临时 HOME 下的往返', () => {
       .map((spec) => { const [e, st, m] = spec.split('|'); return `[[hooks.${e}]]\n${m ? `matcher = "${m}"\n` : ''}\n[[hooks.${e}.hooks]]\ntype = "command"\ncommand = "bash ${home}/.claude/k28-status-light/codex-hook.sh ${st}"\ntimeout = 10\nstatusMessage = "K28 ${st}"\n` }).join('\n')
     await writeFile(path.join(home, '.codex', 'config.toml'), `model = "gpt-5"\n\n[features]\nhooks = true\n\n# CodePal K28 status light hooks\n${oldBlock}`)
     const svc = loadFresh(home)
-    await svc.installSessionStatus()
+    await svc.installSessionStatus({ trustHooks: noTrust })
     const cfg = await readFile(path.join(home, '.codex', 'config.toml'), 'utf-8')
     for (const e of ['SessionStart', 'UserPromptSubmit', 'PermissionRequest', 'PostToolUse', 'Stop', 'SessionEnd', 'Interrupt']) {
       expect(cfg.match(new RegExp(`^\\[\\[hooks\\.${e}\\]\\]$`, 'gm'))).toHaveLength(1)
@@ -356,7 +358,7 @@ describe('打开 / 关掉：临时 HOME 下的往返', () => {
     expect(cfg).toContain('model = "gpt-5"')
     const backups = async () => (await readdir(path.join(home, '.codex'))).filter((f) => f.endsWith('.bak')).length
     const before = await backups()
-    await svc.installSessionStatus()
+    await svc.installSessionStatus({ trustHooks: noTrust })
     expect(await readFile(path.join(home, '.codex', 'config.toml'), 'utf-8')).toBe(cfg)
     expect(await backups()).toBe(before)
   })
@@ -368,7 +370,7 @@ describe('打开 / 关掉：临时 HOME 下的往返', () => {
     const notify = 'notify = [\n  "/Applications/Some Tool/bin",\n  "turn-ended",\n]\n'
     await writeFile(path.join(home, '.codex', 'config.toml'), `model = "gpt-5"\n${notify}\n[features]\nhooks = true\n`)
     const svc = loadFresh(home)
-    await svc.installSessionStatus()
+    await svc.installSessionStatus({ trustHooks: noTrust })
     const on = await readFile(path.join(home, '.codex', 'config.toml'), 'utf-8')
     expect(on.match(/^notify\s*=/gm)).toHaveLength(1)
     expect(on).toContain(notify)
@@ -378,10 +380,24 @@ describe('打开 / 关掉：临时 HOME 下的往返', () => {
     expect(off).not.toContain('codex-hook.sh')
   })
 
+  it('Codex 钩子装好后自动信任；信任失败不算装失败，只记一条提示', async () => {
+    const home = await mkdtemp(path.join(os.tmpdir(), 'ss-home-'))
+    delete process.env.CLAUDE_CONFIG_DIR
+    await mkdir(path.join(home, '.codex'), { recursive: true })
+    const svc = loadFresh(home)
+    const calls = []
+    const ok = await svc.installSessionStatus({ trustHooks: async (opts) => { calls.push(opts.configPath); return { trusted: 7, alreadyTrusted: 0 } } })
+    expect(ok).toMatchObject({ success: true, failures: [] })
+    expect(calls).toEqual([path.join(home, '.codex', 'config.toml')])
+    const bad = await svc.installSessionStatus({ trustHooks: async () => { throw new Error('没找到 Codex 程序') } })
+    expect(bad.success).toBe(true)
+    expect(bad.failures).toEqual([{ tool: 'codex-trust', error: '没找到 Codex 程序' }])
+  })
+
   it('两个工具都没装：不做任何事，算成功', async () => {
     const home = await mkdtemp(path.join(os.tmpdir(), 'ss-home-'))
     const svc = loadFresh(home)
-    expect(await svc.installSessionStatus()).toEqual({ success: true, tools: { claude: false, codex: false }, failures: [] })
+    expect(await svc.installSessionStatus({ trustHooks: noTrust })).toEqual({ success: true, tools: { claude: false, codex: false }, failures: [] })
     await expect(readdir(path.join(home, '.claude'))).rejects.toThrow()
   })
 
@@ -390,7 +406,7 @@ describe('打开 / 关掉：临时 HOME 下的往返', () => {
     await mkdir(path.join(home, '.claude'), { recursive: true })
     process.env.CLAUDE_CONFIG_DIR = path.join(home, 'elsewhere')
     const svc = loadFresh(home)
-    const result = await svc.installSessionStatus()
+    const result = await svc.installSessionStatus({ trustHooks: noTrust })
     expect(result.success).toBe(false)
     expect(result.failures[0]).toMatchObject({ tool: 'claude' })
     expect(result.failures[0].error).toMatch(/CLAUDE_CONFIG_DIR/)
