@@ -11,6 +11,9 @@
 
 import { describe, it, expect, vi } from 'vitest'
 import { createRequire } from 'node:module'
+import fs from 'node:fs'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 const require = createRequire(import.meta.url)
 const { createSessionStatusMonitor, buildSessionNotification } = require('../electron/services/sessionStatusMonitor')
@@ -104,5 +107,16 @@ describe('sessionStatusMonitor', () => {
   it('通知内容：完成时没有「在干嘛」就只写标题', () => {
     expect(buildSessionNotification(S('done', { task: '' }), '/i').body).toBe('')
     expect(buildSessionNotification(S('busy'), '/i')).toBeNull()
+  })
+  it('通知用的两张彩色小图真实存在，并在打包范围（electron/**）内', () => {
+    const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
+    const iconDir = path.join(root, 'electron', 'assets', 'notify')
+    for (const name of ['done.png', 'ask.png']) {
+      const file = path.join(iconDir, name)
+      expect(fs.existsSync(file)).toBe(true)
+      expect(fs.readFileSync(file).subarray(1, 4).toString()).toBe('PNG')
+    }
+    const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'))
+    expect(pkg.build.files).toContain('electron/**/*')
   })
 })
