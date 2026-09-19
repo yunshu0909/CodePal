@@ -617,43 +617,30 @@ contextBridge.exposeInMainWorld('electronAPI', {
    */
   consumePendingNavigation: () => ipcRenderer.invoke('app:consumePendingNavigation'),
 
-  // Session 浏览 APIs
+  // 对话回顾 APIs
 
   /**
-   * 获取所有项目列表
-   * @returns {Promise<{success: boolean, data: Array, error: string|null}>}
+   * 跨项目的最近对话（按修改时间倒序）
+   * @returns {Promise<{success: boolean, data: {projectsDirExists: boolean, sessions: Array}|null, error: string|null}>}
    */
-  listSessionProjects: () => ipcRenderer.invoke('session:listProjects'),
+  listRecentSessions: () => ipcRenderer.invoke('session:listRecent'),
 
   /**
-   * 获取指定项目的 session 列表
+   * 从尾部倒着读一页对话消息
    * @param {string} projectId - 编码后的项目目录名
-   * @returns {Promise<{success: boolean, data: Array, error: string|null}>}
+   * @param {string} sessionId - 对话 id
+   * @param {{limit?: number, before?: number}} [options] - before 为上一页返回的 cursor
+   * @returns {Promise<{success: boolean, data: {messages: Array, hasMore: boolean, cursor: number}|null, error: string|null}>}
    */
-  listSessions: (projectId) => ipcRenderer.invoke('session:listSessions', projectId),
+  readSession: (projectId, sessionId, options) => ipcRenderer.invoke('session:readSession', projectId, sessionId, options),
 
   /**
-   * 读取 session 对话内容
-   * @param {string} projectId - 项目目录名
-   * @param {string} sessionId - session UUID
-   * @returns {Promise<{success: boolean, data: Array, error: string|null}>}
+   * 在当前范围里搜对话正文
+   * @param {string} keyword - 关键词
+   * @param {{projectPath?: string|null, includeAuto?: boolean}} [options]
+   * @returns {Promise<{success: boolean, data: Array|null, error: string|null}>}
    */
-  readSession: (projectId, sessionId) => ipcRenderer.invoke('session:readSession', projectId, sessionId),
-
-  /**
-   * 全文搜索对话内容
-   * @param {string} keyword - 搜索关键词
-   * @returns {Promise<{success: boolean, data: Array, error: string|null}>}
-   */
-  searchSessions: (keyword) => ipcRenderer.invoke('session:search', keyword),
-
-  /**
-   * 删除指定 session
-   * @param {string} projectId - 项目目录名
-   * @param {string} sessionId - session UUID
-   * @returns {Promise<{success: boolean, error: string|null}>}
-   */
-  deleteSession: (projectId, sessionId) => ipcRenderer.invoke('session:delete', projectId, sessionId),
+  searchSessions: (keyword, options) => ipcRenderer.invoke('session:search', keyword, options),
 
   // v1.4.5 启动历史对话 APIs
 

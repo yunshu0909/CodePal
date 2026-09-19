@@ -21,6 +21,9 @@ let _execFile = childProcess.execFile
 
 const CLAUDE_PROJECTS_DIR = path.join(os.homedir(), '.claude', 'projects')
 
+// 数据目录每次调用时取：截图与端到端测试用 CODEPAL_CLAUDE_PROJECTS_DIR 指向构造数据，不读真实对话
+const projectsDir = () => process.env.CODEPAL_CLAUDE_PROJECTS_DIR || CLAUDE_PROJECTS_DIR
+
 // 扫 JSONL 前 N 行找 cwd；已知 Claude Code session 格式里 cwd 最晚在第 3 行，20 行是安全冗余
 const MAX_LINES_TO_SCAN = 20
 
@@ -52,7 +55,7 @@ async function readSessionCwd(projectId, sessionId) {
     throw new Error('INVALID_ID')
   }
 
-  const jsonlPath = path.join(CLAUDE_PROJECTS_DIR, projectId, `${sessionId}.jsonl`)
+  const jsonlPath = path.join(projectsDir(), projectId, `${sessionId}.jsonl`)
 
   // 预检：文件不存在则直接抛错给上层
   try {

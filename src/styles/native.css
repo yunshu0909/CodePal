@@ -372,3 +372,116 @@
   background: rgba(0, 0, 0, .07);
   color: transparent;
 }
+
+/* ── 列表与阅读（09-19 对话回顾定稿回流：样式包 @export:list 首次落地；弹出按钮第二次出现一起回流）── */
+/* 分组小标题右端的计数 */
+:is(.page-shell--native, .np-scope) .np-glabel .cnt { margin-left: auto; font-weight: 400; font-family: var(--num); }
+/* 筛选行：左搜索框（最宽 280）+ 筛选，右动作 */
+:is(.page-shell--native, .np-scope) .np-filterbar { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+:is(.page-shell--native, .np-scope) .np-filterbar .np-sf { flex: 1; max-width: 280px; }
+/* 搜索框：灰底无边、圆角 6、高 24；聚焦变白出蓝光圈；有内容时右侧清除钮 */
+:is(.page-shell--native, .np-scope) .np-sf {
+  display: flex; align-items: center; gap: 6px; height: 24px; padding: 0 8px; border-radius: 6px;
+  background: rgba(0, 0, 0, .06); font-size: 12.5px; color: var(--fg);
+}
+:is(.page-shell--native, .np-scope) .np-sf svg { flex: none; width: 11px; height: 11px; fill: none; stroke: var(--fg-3); stroke-width: 1.6; stroke-linecap: round; }
+:is(.page-shell--native, .np-scope) .np-sf input { flex: 1; min-width: 0; padding: 0; border: 0; background: transparent; font: inherit; color: inherit; outline: none; }
+:is(.page-shell--native, .np-scope) .np-sf input::placeholder { color: var(--fg-4); }
+:is(.page-shell--native, .np-scope) .np-sf:focus-within { background: #fff; box-shadow: 0 0 0 3px rgba(43, 127, 255, .25), inset 0 0 0 .5px var(--blue); }
+:is(.page-shell--native, .np-scope) .np-sf-clear {
+  flex: none; width: 13px; height: 13px; margin-left: auto; padding: 0; border: 0; border-radius: 50%;
+  background: var(--fg-4); color: #fff; font-size: 11px; line-height: 13px; text-align: center; cursor: default;
+}
+/* 弹出按钮：高 24、最小宽 128、白底描边一层投影；右侧下箭头 */
+:is(.page-shell--native, .np-scope) .np-popbtn {
+  appearance: none; display: inline-flex; align-items: center; gap: 7px; flex: none; height: 24px; min-width: 128px; padding: 0 6px 0 8px;
+  border: 0; border-radius: 6px; background: #fff; color: var(--fg); box-shadow: 0 0 0 .5px rgba(0, 0, 0, .14), 0 1px 1px rgba(0, 0, 0, .06);
+  font: inherit; font-size: 12.5px; font-weight: 500; white-space: nowrap; cursor: default;
+}
+:is(.page-shell--native, .np-scope) .np-popbtn .chev { margin-left: auto; width: 10px; height: 10px; fill: none; stroke: var(--fg-3); stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+:is(.page-shell--native, .np-scope) .np-popbtn:focus { outline: none; }
+:is(.page-shell--native, .np-scope) .np-popbtn:focus-visible,
+:is(.page-shell--native, .np-scope) .np-popbtn[aria-expanded="true"] { box-shadow: 0 0 0 3px rgba(43, 127, 255, .25), 0 0 0 .5px var(--blue); }
+/* 下拉菜单：弹层材质、内边距 5；项两行（名称 + 说明），右侧打勾；悬停整项蓝底白字。位置、宽度由页面定 */
+:is(.page-shell--native, .np-scope) .np-menu {
+  position: absolute; z-index: 5; padding: 5px; border-radius: 10px; background: #fff;
+  box-shadow: 0 0 0 .5px rgba(0, 0, 0, .14), 0 10px 30px rgba(0, 0, 0, .16);
+}
+:is(.page-shell--native, .np-scope) .np-mitem {
+  /* 照样式包 .mitem：左侧留 16 宽的图标 / 勾号位（8 + 16 + 8 = 32 起排文字），右侧 12 放 ✓ */
+  appearance: none; display: grid; grid-template-columns: 1fr 12px; gap: 8px; align-items: start; width: 100%; padding: 6px 8px 6px 32px;
+  border: 0; border-radius: 6px; background: transparent; color: var(--fg); font: inherit; text-align: left; cursor: default;
+}
+:is(.page-shell--native, .np-scope) .np-mitem .tx { min-width: 0; }
+:is(.page-shell--native, .np-scope) .np-mitem .tx b { display: block; font-size: 12.5px; font-weight: 500; line-height: 18px; }
+:is(.page-shell--native, .np-scope) .np-mitem .tx span { display: block; font-size: 11px; line-height: 14px; color: var(--fg-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+:is(.page-shell--native, .np-scope) .np-mitem .ck { font-size: 12px; font-weight: 600; line-height: 18px; color: var(--blue-fg); }
+:is(.page-shell--native, .np-scope) .np-mitem:hover,
+:is(.page-shell--native, .np-scope) .np-mitem:focus-visible { outline: none; background: var(--blue); }
+:is(.page-shell--native, .np-scope) .np-mitem:hover :is(.tx b, .tx span, .ck),
+:is(.page-shell--native, .np-scope) .np-mitem:focus-visible :is(.tx b, .tx span, .ck) { color: #fff; }
+:is(.page-shell--native, .np-scope) .np-msep { height: .5px; margin: 4px 8px; background: rgba(0, 0, 0, .1); }
+/* 图标方块：彩色圆角方块 + 白色线形图，--c 给底色（只从 --ic-* 与品牌色里取）；18 默认，另有 16 / 20 */
+:is(.page-shell--native, .np-scope) .np-ic {
+  display: inline-grid; place-items: center; flex: none; width: 18px; height: 18px; border-radius: 5px;
+  background: var(--c); box-shadow: inset 0 -.5px 0 rgba(0, 0, 0, .18);
+}
+:is(.page-shell--native, .np-scope) .np-ic svg { width: 11px; height: 11px; fill: none; stroke: #fff; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+:is(.page-shell--native, .np-scope) .np-ic.np-ic--s20 { width: 20px; height: 20px; border-radius: 6px; box-shadow: inset 0 -.5px 0 rgba(0, 0, 0, .18), 0 .5px 1px rgba(0, 0, 0, .1); }
+:is(.page-shell--native, .np-scope) .np-ic.np-ic--s20 svg { width: 12px; height: 12px; }
+:is(.page-shell--native, .np-scope) .np-ic.np-ic--s16 { width: 16px; height: 16px; border-radius: 4.5px; }
+:is(.page-shell--native, .np-scope) .np-ic.np-ic--s16 svg { width: 10px; height: 10px; }
+/* 文字按钮：<Button variant="ghost" className="np-btn-text">，蓝字无底无边（「‹ 上一页名」「清除搜索」） */
+:is(.page-shell--native, .np-scope) .btn.btn--ghost.np-btn-text {
+  appearance: none; display: inline-flex; align-items: center; height: 24px; min-height: 0; padding: 0 4px; border: 0;
+  background: transparent; box-shadow: none; color: var(--blue-fg); font: inherit; font-size: 11.5px; font-weight: 500; transform: none; cursor: default;
+}
+:is(.page-shell--native, .np-scope) .btn.btn--ghost.np-btn-text:hover:not(:disabled) { background: transparent; color: var(--blue); transform: none; }
+:is(.page-shell--native, .np-scope) .btn.btn--ghost.np-btn-text:focus { outline: none; }
+:is(.page-shell--native, .np-scope) .btn.btn--ghost.np-btn-text:focus-visible { box-shadow: 0 0 0 3px rgba(43, 127, 255, .25); border-radius: 6px; }
+/* 两行记录行：装在 .np-card--form 里；行首图标方块 20，名称 + 说明，行尾次要信息、时间、›；整行可点 */
+:is(.page-shell--native, .np-scope) .np-row.np-row--rec { justify-content: flex-start; gap: 12px; cursor: default; outline: none; }
+:is(.page-shell--native, .np-scope) .np-row--rec > .lf { flex: 1; min-width: 0; }
+:is(.page-shell--native, .np-scope) .np-row--rec .lb { overflow: hidden; text-overflow: ellipsis; }
+:is(.page-shell--native, .np-scope) .np-row--rec:hover { background: rgba(0, 0, 0, .06); }
+:is(.page-shell--native, .np-scope) .np-row--rec:focus-visible { background: rgba(0, 0, 0, .06); box-shadow: inset 0 0 0 1.5px rgba(43, 127, 255, .5); border-radius: 6px; }
+:is(.page-shell--native, .np-scope) .np-rec-end { flex: none; display: inline-flex; align-items: center; gap: 8px; font-size: 12px; color: var(--fg-3); white-space: nowrap; }
+:is(.page-shell--native, .np-scope) .np-rec-end .num { min-width: 36px; font-family: var(--num); text-align: right; }
+:is(.page-shell--native, .np-scope) .np-rec-end .chev { width: 10px; height: 10px; fill: none; stroke: var(--fg-4); stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+/* 钻入式详情：顶部固定块（「‹ 上一页名」/ 标题 / 元信息 + 动作），下面 0.5 线；正文自己滚 */
+:is(.page-shell--native, .np-scope) .np-detail-hd { position: relative; flex: none; padding: 8px 20px 12px; box-shadow: inset 0 -.5px 0 var(--hair); }
+:is(.page-shell--native, .np-scope) .np-detail-hd .ttl { display: flex; align-items: center; gap: 8px; min-width: 0; margin-top: 4px; font-size: 14px; font-weight: 700; line-height: 20px; }
+:is(.page-shell--native, .np-scope) .np-detail-hd .ttl > span:last-child { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+:is(.page-shell--native, .np-scope) .np-detail-hd .meta { display: flex; align-items: center; gap: 8px; min-width: 0; margin-top: 4px; font-size: 11.5px; line-height: 15px; color: var(--fg-2); }
+:is(.page-shell--native, .np-scope) .np-detail-hd .meta > :first-child { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+:is(.page-shell--native, .np-scope) .np-detail-hd .meta .acts { display: inline-flex; align-items: center; gap: 8px; flex: none; margin-left: auto; }
+:is(.page-shell--native, .np-scope) .np-detail-body { flex: 1; min-height: 0; overflow: auto; padding: 16px 20px 20px; }
+/* 搜索命中：只在命中的字上铺底色 */
+:is(.page-shell--native, .np-scope) .np-hit { padding: 0; border-radius: 4px; background: var(--orange-bg); color: var(--fg); }
+/* 消息流：提问是右侧灰气泡，回答直接排在白底上，上方一行署名；顶上一行日期时间 */
+:is(.page-shell--native, .np-scope) .np-msg-when { margin: 0 0 8px; font-family: var(--num); font-size: 11px; line-height: 16px; color: var(--fg-3); text-align: center; }
+:is(.page-shell--native, .np-scope) .np-ask {
+  width: fit-content; max-width: 86%; margin: 0 0 12px auto; padding: 8px 12px; border-radius: 12px; background: var(--card);
+  font-size: 13px; line-height: 20px; white-space: pre-wrap; word-break: break-word;
+}
+:is(.page-shell--native, .np-scope) .np-sender { display: flex; align-items: center; gap: 6px; margin: 4px 0; font-size: 11px; font-weight: 600; line-height: 16px; color: var(--fg-3); }
+/* 长文阅读：套在 MarkdownRenderer 上（className="np-read"）。正文 13 / 20，标题三档，代码块灰底、不做语法高亮；
+   选择器写 .np-read.np-read 压过 MarkdownRenderer.css 自带的暗色代码块与高亮配色 */
+:is(.page-shell--native, .np-scope) .np-read.np-read { font-size: 13px; line-height: 20px; color: var(--fg); word-break: break-word; }
+:is(.page-shell--native, .np-scope) .np-read.np-read :is(h1, h2, h3, h4, h5, h6) { margin: 12px 0 4px; padding: 0; border: 0; line-height: 20px; color: var(--fg); }
+:is(.page-shell--native, .np-scope) .np-read.np-read h1 { font-size: 15px; font-weight: 700; }
+:is(.page-shell--native, .np-scope) .np-read.np-read h2 { font-size: 14px; font-weight: 700; }
+:is(.page-shell--native, .np-scope) .np-read.np-read :is(h3, h4, h5, h6) { font-size: 13px; font-weight: 600; }
+:is(.page-shell--native, .np-scope) .np-read.np-read > :first-child { margin-top: 0; }
+:is(.page-shell--native, .np-scope) .np-read.np-read > :last-child { margin-bottom: 0; }
+:is(.page-shell--native, .np-scope) .np-read.np-read p { margin: 0 0 8px; }
+:is(.page-shell--native, .np-scope) .np-read.np-read :is(ul, ol) { margin: 0 0 8px; padding-left: 20px; }
+:is(.page-shell--native, .np-scope) .np-read.np-read li { margin: 0; }
+:is(.page-shell--native, .np-scope) .np-read.np-read li::marker { color: var(--fg-3); }
+:is(.page-shell--native, .np-scope) .np-read.np-read code:not(pre code) { padding: 1px 4px; border-radius: 4px; background: rgba(0, 0, 0, .06); color: var(--fg); font-family: var(--mono); font-size: 12px; }
+:is(.page-shell--native, .np-scope) .np-read.np-read pre { margin: 0 0 8px; padding: 10px 12px; border-radius: 10px; background: var(--card); overflow-x: auto; line-height: 17px; }
+:is(.page-shell--native, .np-scope) .np-read.np-read pre code { padding: 0; background: none; color: var(--fg); font-family: var(--mono); font-size: 11.5px; white-space: pre; }
+:is(.page-shell--native, .np-scope) .np-read.np-read pre code.hljs,
+:is(.page-shell--native, .np-scope) .np-read.np-read .hljs [class*="hljs-"] { color: inherit; background: none; font-style: normal; font-weight: inherit; }
+:is(.page-shell--native, .np-scope) .np-read.np-read a { color: var(--blue-fg); text-decoration: none; cursor: pointer; }
+:is(.page-shell--native, .np-scope) .np-read.np-read blockquote { margin: 0 0 8px; padding: 0 0 0 12px; border-left: 2px solid var(--track); color: var(--fg-2); }
