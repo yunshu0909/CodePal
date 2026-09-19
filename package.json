@@ -16,7 +16,7 @@
     "dist:mac": "npm run clean:release && npm run build && electron-builder --mac --arm64",
     "dist:win": "npm run clean:release && npm run build && electron-builder --win nsis --x64",
     "preview": "vite preview",
-    "test": "npm run test:root && npm run test:v2 && npm run test:v21 && npm run test:safety && npm run test:statusline && npm run test:usage-model-cost && npm run test:dsh-usage && npm run test:k28 && npm run test:usage-calendar && npm run test:plan && npm run test:shared-usage && npm run test:network",
+    "test": "npm run test:root && npm run test:v2 && npm run test:v21 && npm run test:safety && npm run test:statusline && npm run test:usage-model-cost && npm run test:dsh-usage && npm run test:k28 && npm run test:usage-calendar && npm run test:plan && npm run test:shared-usage && npm run test:network && npm run test:sessions",
     "test:dsh-usage": "vitest run tests/dshZstdFrames.test.js tests/dshUsageRecords.test.js tests/dshUsageScan.test.js tests/dshUsageAggregation.test.js tests/dshUsageRenderer.test.jsx tests/dshPricing.test.js tests/dshIsolation.test.js",
     "test:v2": "vitest run --root . tests/v2/skillControlService.test.js tests/v2/ManagePage.skillControl.test.jsx",
     "test:statusline": "vitest run --config tests/statusLine/vitest.config.js",
@@ -32,7 +32,8 @@
     "test:usage-calendar": "vitest run tests/calendarUtils.test.js tests/usageCalendarService.test.js tests/UsageMonitorPage.calendar.test.jsx tests/usageCalendarIsolation.test.jsx tests/usageCalendarStrict.test.js tests/usageCalendarEdges.test.jsx",
     "test:plan": "vitest run tests/plan",
     "test:shared-usage": "vitest run tests/sharedUsage",
-    "test:network": "vitest run tests/network"
+    "test:network": "vitest run tests/network",
+    "test:sessions": "vitest run tests/sessions"
   },
   "keywords": [
     "electron",

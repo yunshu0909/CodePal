@@ -149,3 +149,7 @@
 .cp-native__pop { display: flex; flex-direction: column; gap: 8px; width: 250px; padding: 10px 12px 12px; }
 .cp-native__meter { grid-template-columns: 120px 1fr 64px; }
 .cp-native__meter b { text-align: right; font-family: var(--num); font-weight: 600; }
+
+/* 列表与阅读预览：详情块给个边框看出范围；菜单改为静态摆放 */
+.cp-native__detail { margin-top: 12px; display: flex; flex-direction: column; height: 260px; border-radius: 10px; box-shadow: 0 0 0 .5px rgba(0, 0, 0, .14); overflow: hidden; }
+.np-scope .np-menu.cp-native__menu { position: static; width: 300px; margin-top: 12px; }

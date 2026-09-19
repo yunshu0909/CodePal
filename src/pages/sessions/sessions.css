@@ -1,0 +1,39 @@
+/**
+ * 对话回顾页专属样式（前缀 sr-）
+ *
+ * 负责：
+ * - 只写本页独有的位置与尺寸：下拉菜单锚点、骨架块、消息流里的工具调用折叠行与系统行、搜索命中框
+ * - 通用样式（筛选行、搜索框、弹出按钮、两行记录行、钻入式详情、长文、消息流）都在 styles/native.css
+ * - 数值来源：specs/redesign-CodePal视觉重做/对话回顾-定稿/前端设计定稿-对话回顾.md §3、§11.2
+ */
+
+/* 项目下拉：锚在弹出按钮下面，左对齐 */
+.sr-page .sr-pop { position: relative; display: inline-flex; }
+.sr-page .sr-menu { top: 28px; left: 0; width: 300px; }
+
+/* 骨架 */
+.sr-page .sr-sk-label { width: 28px; height: 10px; }
+.sr-page .sr-sk-ic { flex: none; width: 20px; height: 20px; border-radius: 6px; }
+.sr-page .sr-sk-lines { display: flex; flex-direction: column; gap: 8px; }
+.sr-page .sr-sk-lines--list { gap: 4px; }
+.sr-page .sr-sk-sub { height: 10px; }
+.sr-page .sr-sk-sender { width: 60px; height: 10px; margin-bottom: 8px; }
+
+/* 列表区的一句话：「无匹配结果」后接文字按钮；上限提示 */
+.sr-page .sr-empty-line { display: flex; align-items: center; gap: 4px; }
+.sr-page .sr-cap { margin-top: 12px; }
+
+/* 消息流：回答块、工具调用折叠行与展开清单、系统行（弱灰居中一行） */
+.sr-page .sr-ans { margin: 0 0 12px; }
+.sr-page .sr-tools {
+  appearance: none; display: flex; align-items: center; gap: 4px; margin: 0 0 12px; padding: 0; border: 0; background: none;
+  font: inherit; font-size: 11.5px; line-height: 16px; color: var(--fg-3); cursor: default;
+}
+.sr-page .sr-tools[aria-expanded="true"] { margin-bottom: 4px; }
+.sr-page .sr-tools svg { width: 10px; height: 10px; fill: none; stroke: var(--fg-3); stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.sr-page .sr-tool-list { margin: 0 0 12px 12px; font-family: var(--mono); font-size: 11.5px; line-height: 17px; color: var(--fg-2); }
+.sr-page .sr-sysline { margin: 0 0 12px; font-size: 11px; line-height: 16px; color: var(--fg-3); text-align: center; }
+
+/* 从搜索进来：第一处命中所在的块加框 */
+.sr-page .np-ask.sr-hit-first { box-shadow: 0 0 0 1.5px var(--orange-fg); }
+.sr-page .sr-ans.sr-hit-first { margin-left: -12px; margin-right: -12px; padding: 8px 12px; border-radius: 12px; box-shadow: 0 0 0 1.5px var(--orange-fg); }

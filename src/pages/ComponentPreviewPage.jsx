@@ -137,6 +137,44 @@ export default function ComponentPreviewPage() {
         </div>
       </Section>
 
+      {/* ── 列表与阅读（styles/native.css，对话回顾定稿回流）──── */}
+      <Section title="Native+ 列表与阅读">
+        <div className="np-scope cp-native">
+          <div className="np-filterbar">
+            <div className="np-sf"><svg viewBox="0 0 12 12"><circle cx="5" cy="5" r="3.6" /><path d="m7.8 7.8 2.6 2.6" /></svg><input placeholder="搜索框 np-sf" readOnly /></div>
+            <button type="button" className="np-popbtn">弹出按钮 np-popbtn<svg className="chev" viewBox="0 0 10 10"><path d="M2.5 4 5 6.5 7.5 4" /></svg></button>
+          </div>
+          <div className="np-glabel">两行记录行 np-row--rec<span className="cnt">2</span></div>
+          <div className="np-card np-card--form">
+            {[['blue', '网络诊断页重做：出口 IP 与通知', 'OK 启动新版本我看看', 'skills', '14:36'], ['purple', '修复用量监测切换月份后数据为空', '这个月的数据怎么没了', 'skill-manager', '22:41']].map(([c, t, d, p, time]) => (
+              <div key={t} className="np-row np-row--rec">
+                <span className="np-ic np-ic--s20" style={{ '--c': `var(--ic-${c})` }}><svg viewBox="0 0 16 16"><path d="M2.5 4.5h4l1.5 1.5h5.5v6.5h-11z" /></svg></span>
+                <div className="lf"><div className="lb">{t}</div><div className="ds">{d.includes('数据') ? <>这个月的<mark className="np-hit">数据</mark>怎么没了</> : d}</div></div>
+                <span className="np-rec-end"><span>{p}</span><span className="num">{time}</span><svg className="chev" viewBox="0 0 10 10"><path d="M4 2.5 6.5 5 4 7.5" /></svg></span>
+              </div>
+            ))}
+          </div>
+          <div className="cp-native__detail">
+            <div className="np-detail-hd">
+              <Button variant="ghost" className="np-btn-text">‹ 上一页</Button>
+              <div className="ttl"><span className="np-ic np-ic--s20" style={{ '--c': 'var(--ic-blue)' }}><svg viewBox="0 0 16 16"><path d="M2.5 4.5h4l1.5 1.5h5.5v6.5h-11z" /></svg></span><span>钻入式详情 np-detail-hd</span></div>
+              <div className="meta"><span>skills · master · 今天 14:36</span><span className="acts"><Button size="sm" variant="primary" className="np-btn">主动作</Button><Button size="sm" className="np-btn">次动作</Button></span></div>
+            </div>
+            <div className="np-detail-body">
+              <div className="np-msg-when">今天 14:30</div>
+              <div className="np-ask">提问气泡 np-ask</div>
+              <div className="np-sender"><span className="np-ic np-ic--s16" style={{ '--c': 'var(--tool-claude)' }}><svg viewBox="0 0 16 16"><path d="M3 4.5 6.5 8 3 11.5M8 12h5" /></svg></span>Claude</div>
+              <div className="np-read"><p>长文 np-read：正文 13 / 20，<code>行内代码</code>。</p><pre><code>代码块不做语法高亮</code></pre></div>
+            </div>
+          </div>
+          <div className="np-menu cp-native__menu">
+            <button type="button" className="np-mitem"><span className="tx"><b>下拉菜单 np-menu</b></span><span className="ck">✓</span></button>
+            <div className="np-msep" />
+            <button type="button" className="np-mitem"><span className="tx"><b>skills</b><span>~/Documents · 16 个对话</span></span><span className="ck" /></button>
+          </div>
+        </div>
+      </Section>
+
       {/* ── Tokens ─────────────────────────────────────── */}
       <Section title="Design Tokens">
         <Row label="颜色">
