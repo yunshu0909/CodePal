@@ -2,6 +2,7 @@
  * Independent Plan snapshots and selected-cycle queries.
  * - Version and request guards prevent stale responses after saves/navigation.
  * - Read cached snapshots on entry and shared revisions; an unset card never requests a cycle.
+ * - Ended-cycle price edits go through the same per-plan write queue; model prices are global, so both cards re-query.
  * @module pages/plan/usePlanData
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -169,16 +170,17 @@ export default function usePlanData(notify) {
           planId: id,
           operationId,
           expectedVersion: c.plan.version,
-          ...(kind === 'save' ? value : {
+          ...(kind === 'action' ? {
             action: value,
             cycleId: c.plan.cycles.at(-1)?.id
-          })
+          } : value)
         };
-        const result = await window.electronAPI[kind === 'save' ? 'savePlan' : 'actPlan'](payload);
+        const method = kind === 'save' ? 'savePlan' : kind === 'cycle-price' ? 'setPlanCyclePrice' : 'actPlan';
+        const result = await window.electronAPI[method](payload);
         if (!result?.success) throw new Error('write');
         const changed = result.data.changed !== false && !result.data.duplicate;
         if (apply(id, result.data, kind === 'action')) void query(id);
-        if (changed && kind === 'save') toast.current?.({
+        if (changed && kind !== 'action') toast.current?.({
           message: `${NAMES[id]} 订阅已更新`,
           type: 'success'
         });
@@ -204,11 +206,67 @@ export default function usePlanData(notify) {
     writes.current[id] = result.catch(() => {});
     return result;
   }, [apply, query, patch]);
+  const requeryAll = useCallback(() => IDS.forEach(id => void query(id)), [query]);
+  // 价格是全局的：刷新 / 自填 / 清除成功后两张卡都重算
+  const priceAction = useCallback(async (call, success) => {
+    let result = null;
+    try {
+      result = await call();
+    } catch {}
+    if (!result?.success) return {
+      success: false
+    };
+    if (success(result.data)) requeryAll();
+    return {
+      success: true,
+      ...result.data
+    };
+  }, [requeryAll]);
+  const onRefreshPrice = useCallback(model => priceAction(() => window.electronAPI.refreshPlanPrice({
+    model
+  }), data => {
+    if (data?.found) toast.current?.({
+      message: '价格已更新',
+      type: 'success'
+    });
+    return data?.found === true;
+  }), [priceAction]);
+  const onSaveLocalPrice = useCallback(async (model, rates) => {
+    const result = await priceAction(() => window.electronAPI.setPlanLocalPrice({
+      model,
+      ...rates
+    }), () => true);
+    toast.current?.(result.success ? {
+      message: '价格已保存',
+      type: 'success'
+    } : {
+      message: '价格保存失败',
+      type: 'error'
+    });
+    return result;
+  }, [priceAction]);
+  const onClearLocalPrice = useCallback(async model => {
+    const result = await priceAction(() => window.electronAPI.clearPlanLocalPrice({
+      model
+    }), () => true);
+    if (!result.success) toast.current?.({
+      message: '价格保存失败',
+      type: 'error'
+    });
+    return result;
+  }, [priceAction]);
   return {
     cards: cards.map(c => ({
       ...c,
       onSave: (draft, id) => mutate(c.planId, 'save', draft, id),
       onAction: action => mutate(c.planId, 'action', action, globalThis.crypto.randomUUID()),
+      onSaveCyclePrice: (cycleId, price) => mutate(c.planId, 'cycle-price', {
+        cycleId,
+        price
+      }, globalThis.crypto.randomUUID()),
+      onRefreshPrice,
+      onSaveLocalPrice,
+      onClearLocalPrice,
       onNavigate: cycleId => {
         const cycle = current(c.planId).plan.cycles.find(item => item.id === cycleId);
         if (cycle) {

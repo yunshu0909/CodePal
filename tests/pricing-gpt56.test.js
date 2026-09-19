@@ -4,7 +4,7 @@
  * GPT-5.6 全系定价防回归测试
  *
  * 负责：
- * - 校验 Sol 别名、Sol、Terra、Luna 的官方单价
+ * - 校验 Sol（原价，不计促销价）、Terra、Luna（现价 + 降价前历史段）的单价
  * - 校验模型名归一化后能实际命中费用计算
  * - 校验极端离线 fallback 同样覆盖 GPT-5.6 全系
  *
@@ -22,11 +22,13 @@ const {
   validatePricing,
 } = require('../electron/services/registries/pricingRegistry.js')
 
+// Terra/Luna 顶层是 07-30 永久降价后的官方现价，降价前的上市价放在 history 段；
+// Sol 08-21 起的 $4/$20 是限时促销价，按用户要求不计，始终按原价
 const EXPECTED_GPT56_PRICING = {
   'gpt-5-6': { displayName: 'GPT-5.6 Sol', input: 5, output: 30, cacheRead: 0.5, cacheWrite: 6.25 },
   'gpt-5-6-sol': { displayName: 'GPT-5.6 Sol', input: 5, output: 30, cacheRead: 0.5, cacheWrite: 6.25 },
-  'gpt-5-6-terra': { displayName: 'GPT-5.6 Terra', input: 2.5, output: 15, cacheRead: 0.25, cacheWrite: 3.125 },
-  'gpt-5-6-luna': { displayName: 'GPT-5.6 Luna', input: 1, output: 6, cacheRead: 0.1, cacheWrite: 1.25 },
+  'gpt-5-6-terra': { displayName: 'GPT-5.6 Terra', input: 2, output: 12, cacheRead: 0.2, cacheWrite: 2.5, history: [{ until: '2026-07-30', input: 2.5, output: 15, cacheRead: 0.25, cacheWrite: 3.125 }] },
+  'gpt-5-6-luna': { displayName: 'GPT-5.6 Luna', input: 0.2, output: 1.2, cacheRead: 0.02, cacheWrite: 0.25, history: [{ until: '2026-07-30', input: 1, output: 6, cacheRead: 0.1, cacheWrite: 1.25 }] },
 }
 
 describe('GPT-5.6 pricing registry', () => {
@@ -51,8 +53,8 @@ describe('GPT-5.6 pricing registry', () => {
   it.each([
     ['gpt-5.6', 41.75],
     ['gpt-5.6-sol', 41.75],
-    ['gpt-5.6-terra', 20.875],
-    ['gpt-5.6-luna', 8.35],
+    ['gpt-5.6-terra', 16.7],
+    ['gpt-5.6-luna', 1.67],
   ])('%s 能命中输入、输出、缓存读写费用', (modelName, expectedCost) => {
     const result = calculateCosts([{
       name: modelName,

@@ -21,6 +21,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   savePlan: (payload) => ipcRenderer.invoke('plan-save', payload),
   actPlan: (payload) => ipcRenderer.invoke('plan-action', payload),
   queryPlan: (payload) => ipcRenderer.invoke('plan-query', payload),
+  setPlanCyclePrice: (payload) => ipcRenderer.invoke('plan-cycle-price', payload),
+  refreshPlanPrice: (payload) => ipcRenderer.invoke('plan-price-refresh', payload),
+  setPlanLocalPrice: (payload) => ipcRenderer.invoke('plan-price-set-local', payload),
+  clearPlanLocalPrice: (payload) => ipcRenderer.invoke('plan-price-clear-local', payload),
   onPlanResume: (callback) => {
     const listener = () => callback()
     ipcRenderer.on('plan-resume', listener)

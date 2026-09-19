@@ -45,10 +45,11 @@ const HARDCODED_PRICING_FALLBACK = Object.freeze({
     'claude-sonnet-5': { displayName: 'Claude Sonnet 5', input: 2.0, output: 10.0, cacheRead: 0.2, cacheWrite: 2.5 },
     'claude-haiku-4-5': { displayName: 'Claude Haiku 4.5', input: 1.0, output: 5.0, cacheRead: 0.1, cacheWrite: 1.25 },
     'claude-haiku-4-5-20251001': { displayName: 'Claude Haiku 4.5', input: 1.0, output: 5.0, cacheRead: 0.1, cacheWrite: 1.25 },
-    'gpt-5-6': { displayName: 'GPT-5.6 Sol', input: 5.0, output: 30.0, cacheRead: 0.5, cacheWrite: 6.25 },
-    'gpt-5-6-sol': { displayName: 'GPT-5.6 Sol', input: 5.0, output: 30.0, cacheRead: 0.5, cacheWrite: 6.25 },
-    'gpt-5-6-terra': { displayName: 'GPT-5.6 Terra', input: 2.5, output: 15.0, cacheRead: 0.25, cacheWrite: 3.125 },
-    'gpt-5-6-luna': { displayName: 'GPT-5.6 Luna', input: 1.0, output: 6.0, cacheRead: 0.1, cacheWrite: 1.25 },
+    // GPT-5.6：Terra/Luna 顶层为 07-30 永久降价后的官方现价，history 为降价前上市价；Sol 的 08-21 促销价不计，始终原价
+    'gpt-5-6': { displayName: 'GPT-5.6 Sol', input: 5, output: 30, cacheRead: 0.5, cacheWrite: 6.25 },
+    'gpt-5-6-sol': { displayName: 'GPT-5.6 Sol', input: 5, output: 30, cacheRead: 0.5, cacheWrite: 6.25 },
+    'gpt-5-6-terra': { displayName: 'GPT-5.6 Terra', input: 2, output: 12, cacheRead: 0.2, cacheWrite: 2.5, history: [{ until: '2026-07-30', input: 2.5, output: 15, cacheRead: 0.25, cacheWrite: 3.125 }] },
+    'gpt-5-6-luna': { displayName: 'GPT-5.6 Luna', input: 0.2, output: 1.2, cacheRead: 0.02, cacheWrite: 0.25, history: [{ until: '2026-07-30', input: 1, output: 6, cacheRead: 0.1, cacheWrite: 1.25 }] },
     'deepseek-v4-1-flash': { displayName: 'DeepSeek V4.1 Flash', input: 0.148692, output: 0.594769, cacheRead: 0.002974, cacheWrite: 0.148692 },
     'deepseek-v4-flash-vision-exp': { displayName: 'DeepSeek V4 Flash (Vision)', input: 0.148692, output: 0.594769, cacheRead: 0.002974, cacheWrite: 0.148692 },
     'deepseek-v4-pro': { displayName: 'DeepSeek V4 Pro', input: 0.669115, output: 2.007345, cacheRead: 0.022304, cacheWrite: 0.669115 },
@@ -106,9 +107,36 @@ function validatePricing(data) {
         return { valid: false, error: `models.${key}.${field} 必须是非负数` }
       }
     }
+    // history 可选：旧价格段，按 until 严格递增；旧版本 app 不读这个字段，所以只加不改顶层
+    if (entry.history !== undefined) {
+      const error = validatePriceHistory(entry.history)
+      if (error) return { valid: false, error: `models.${key}.history ${error}` }
+    }
   }
 
   return { valid: true }
+}
+
+/**
+ * 校验一个模型的历史价格段
+ * @param {unknown} history - 待校验的 history 字段
+ * @returns {string|null} 错误说明；合法返回 null
+ */
+function validatePriceHistory(history) {
+  if (!Array.isArray(history)) return '必须是数组'
+  let prior = ''
+  for (const segment of history) {
+    const until = segment?.until
+    const validDay = typeof until === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(until)
+      && new Date(until + 'T00:00:00Z').toISOString().slice(0, 10) === until
+    if (!validDay) return 'until 必须是合法日期'
+    if (until <= prior) return 'until 必须严格递增'
+    prior = until
+    for (const field of ['input', 'output', 'cacheRead', 'cacheWrite']) {
+      if (typeof segment[field] !== 'number' || !Number.isFinite(segment[field]) || segment[field] < 0) return `${field} 必须是非负数`
+    }
+  }
+  return null
 }
 
 /**

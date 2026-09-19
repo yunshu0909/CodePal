@@ -2,6 +2,7 @@
  * Atomic Plan ledger storage.
  * - One global queue for both cards sharing an electron-store envelope.
  * - Persist operation identities and publish only after successful writes.
+ * - Reads also backfill estimated history once the source's earliest usage is known.
  * @module electron/services/plan/planStoreService
  */
 const {
@@ -10,7 +11,9 @@ const {
   validateDraft,
   reconcilePlan,
   savePlan,
-  performPlanAction
+  performPlanAction,
+  backfillPlan,
+  setCyclePrice
 } = require('./planCycleService');
 const LEDGER_KEY = 'planLedgerV1';
 const emptyPlan = () => ({
@@ -30,7 +33,7 @@ function checkPlan(p) {
   let priorEnd = null;
   const ids = new Set();
   for (const c of p.cycles) {
-    if (typeof c.id !== 'string' || !c.id || ids.has(c.id) || !validDate(c.start) || !validDate(c.end) || c.end <= c.start || typeof c.price !== 'number' || !Number.isFinite(c.price) || c.price <= 0 || priorEnd && c.start < priorEnd) throw Error('INVALID_LEDGER');
+    if (typeof c.id !== 'string' || !c.id || ids.has(c.id) || !validDate(c.start) || !validDate(c.end) || c.end <= c.start || typeof c.price !== 'number' || !Number.isFinite(c.price) || c.price <= 0 || c.estimated !== undefined && typeof c.estimated !== 'boolean' || priorEnd && c.start < priorEnd) throw Error('INVALID_LEDGER');
     ids.add(c.id);
     priorEnd = c.end;
   }
@@ -39,7 +42,8 @@ function checkPlan(p) {
 function createPlanStoreService({
   store,
   nowFn = () => new Date(),
-  metadataFn = async () => unknownMetadata()
+  metadataFn = async () => unknownMetadata(),
+  earliestFn = async () => null
 }) {
   let queue = Promise.resolve();
   const serialize = fn => {
@@ -124,8 +128,19 @@ function createPlanStoreService({
       metadata
     };
   }
+  // 取最早日期失败只是本次不补历史，不能让读取本身失败
+  async function earliestOf(id) {
+    try {
+      return await earliestFn(id);
+    } catch {
+      return null;
+    }
+  }
   return {
-    read: id => withMetadata(id, publish(id, reconcilePlan)),
+    read: async id => {
+      const earliest = await earliestOf(id);
+      return withMetadata(id, publish(id, (p, today) => backfillPlan(reconcilePlan(p, today), earliest)));
+    },
     save: async (id, draft, operationId, options) => {
       const renewalOnly = draft && Object.keys(draft).length === 1 && typeof draft.autoRenew === 'boolean';
       if (!renewalOnly) validateDraft(draft);
@@ -136,6 +151,11 @@ function createPlanStoreService({
         options
       }));
     },
+    setCyclePrice: (id, cycleId, price, operationId, options) => withMetadata(id, publish(id, p => setCyclePrice(p, cycleId, price), {
+      operationId,
+      kind: 'cycle-price',
+      options
+    })),
     act: (id, action, operationId, options) => withMetadata(id, publish(id, (p, today) => performPlanAction(p, action, today), {
       operationId,
       kind: action,

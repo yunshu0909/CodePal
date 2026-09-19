@@ -57,7 +57,7 @@
 .plan-page .plan-kv .plan-range { color: var(--plan-fg-3); font-weight: 400; font-family: inherit; margin-right: 8px; }
 .plan-page .plan-kv .plan-nv { display: inline-block; width: 16px; text-align: center; color: var(--plan-fg-3); font-weight: 500; font-family: inherit; cursor: default; }
 .plan-page .plan-kv .plan-nv.plan-off { color: var(--plan-track); }
-.plan-page .plan-kv .plan-nv:hover { color: var(--plan-blue-fg); }
+.plan-page .plan-kv .plan-nv:not(:disabled):hover { color: var(--plan-blue-fg); }
 .plan-page .plan-models { margin-top: 12px; display: flex; flex-direction: column; }
 .plan-page .plan-mrow { display: grid; grid-template-columns: 120px 1fr 64px; gap: 10px; align-items: center; height: 22px; font-size: 12px; }
 .plan-page .plan-mrow .plan-nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -106,7 +106,7 @@
 .plan-page .plan-price-button:hover {color:var(--plan-blue-fg);background:transparent}
 .plan-page .plan-price-button.plan-link {color:var(--plan-blue-fg)}
 .plan-page .plan-nv {width:16px;color:var(--plan-fg-3);font-weight:500}
-.plan-page .plan-nv:disabled {color:var(--plan-track);opacity:1;cursor:default}
+.plan-page .plan-nv:disabled {color:var(--plan-track);opacity:1;cursor:default;pointer-events:none}
 .plan-page .plan-nv:not(:disabled):hover {color:var(--plan-blue-fg);background:transparent}
 .plan-page .plan-model-0 {--plan-mc:#2b7fff}
 .plan-page .plan-model-1 {--plan-mc:#8e4ee6}
@@ -130,3 +130,21 @@
 .plan-page .plan-sk .plan-sub {color:var(--plan-fg-3)}
 
 .plan-page.plan-preview {margin:0;width:100%;overflow:visible}
+
+/* Plan 历史周期：到头箭头的提示挂在外层 span；推算 / 自填标记；两种新弹层 */
+.plan-page .plan-nv-wrap {display:inline-flex}
+.plan-page .plan-kv .plan-est {margin-left:4px;font-family:inherit;font-size:10.5px;font-weight:500;color:var(--plan-fg-3)}
+.plan-page .plan-mrow .plan-own {margin-left:5px;font-size:10.5px;font-weight:500;color:var(--plan-fg-3)}
+.plan-page .plan-mrow .plan-v {position:relative}
+.plan-page .plan-pop.plan-pop-up {top:auto;bottom:22px}
+.plan-page .plan-pop.plan-pop-up::before {top:auto;bottom:-6px;box-shadow:.5px .5px 0 rgba(0,0,0,.14)}
+.plan-page .plan-pop .plan-pop-act {display:flex;align-items:center;gap:8px;margin-top:8px}
+.plan-page .plan-pop .plan-pop-sep {height:.5px;background:rgba(0,0,0,.1);margin:9px 0 2px}
+.plan-page .plan-pop .plan-pop-lab {font-size:11px;color:var(--plan-fg-3);margin-top:7px}
+.plan-page .plan-pop .plan-pop-grid {display:grid;grid-template-columns:1fr 1fr;gap:6px 8px;margin-top:5px}
+.plan-page .plan-pop .plan-pop-grid .plan-pop-row {grid-template-columns:38px 1fr;gap:4px;margin-top:0}
+.plan-page .plan-pop .plan-in.plan-busy {background:var(--plan-card);box-shadow:none}
+.plan-page .plan-pop .plan-in.plan-busy input {color:var(--plan-fg-3)}
+.plan-page .plan-pop .plan-hint.plan-bad {color:var(--plan-red-fg)}
+.plan-page .plan-pop .plan-pop-clear {height:auto;min-height:0;padding:0;margin-top:8px;border:0;box-shadow:none;background:transparent;font-size:11px;color:var(--plan-blue-fg)}
+.plan-page .plan-pop .plan-pop-clear:hover:not(:disabled) {background:transparent;color:var(--plan-blue-fg);text-decoration:underline}

@@ -295,6 +295,27 @@ async function refreshRemoteConfigInBackground(spec, { getUserDataPath }) {
 }
 
 /**
+ * 立即刷新某个 registry：拉成功即写 cache，并替换本次会话的内存快照（不用等重启）
+ * 远程比打包版旧时不替换，但算成功——云端还没更新不是网络故障
+ * @param {object} spec - registry spec
+ * @param {{ getUserDataPath: () => string }} deps
+ * @returns {Promise<{ success: boolean, replaced?: boolean, version?: string, error?: string }>}
+ */
+async function refreshRemoteConfigNow(spec, { getUserDataPath }) {
+  const result = await fetchRemote(spec)
+  if (!result.success) {
+    if (result.error === 'REMOTE_VERSION_STALE') return { success: true, replaced: false }
+    return { success: false, error: result.error }
+  }
+  const cacheFilePath = path.join(getUserDataPath(), spec.cacheFileName)
+  if (!(await saveCached(spec, cacheFilePath, result.config))) {
+    return { success: false, error: 'CACHE_WRITE_FAILED' }
+  }
+  registryStore.set(spec.name, { config: result.config, source: 'cache', spec })
+  return { success: true, replaced: true, version: result.config?.version || 'unknown' }
+}
+
+/**
  * 测试辅助：清空所有已注册的 registry 快照
  * 仅在测试环境调用，生产代码不应使用
  */
@@ -306,6 +327,7 @@ module.exports = {
   initRemoteConfig,
   getRemoteConfig,
   refreshRemoteConfigInBackground,
+  refreshRemoteConfigNow,
   REMOTE_SOURCE_TEMPLATES,
   FETCH_TIMEOUT_MS,
   VERSION_PATTERN,

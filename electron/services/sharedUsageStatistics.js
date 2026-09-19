@@ -8,11 +8,11 @@ const fs = require('node:fs/promises')
 const path = require('node:path')
 const os = require('node:os')
 const {randomUUID} = require('node:crypto')
-const {scanClaudeLogs,scanCodexLogs,scanDshLogs,aggregateByModel,aggregateByProject,findEarliestLogDate} = require('./usageLogScanService')
+const {scanClaudeLogs,scanCodexLogs,scanDshLogs,aggregateByModel,aggregateByProject,findEarliestLogDate,findEarliestClaudeDate,findEarliestCodexDate} = require('./usageLogScanService')
 const {DAILY_SUMMARY_SCHEMA_VERSION,buildDailySummary,normalizeDailySummary,mergeDailySummaries} = require('./dailySummaryService')
 const {createLogScanWindowContext} = require('../logScanner')
 const SOURCES = ['claude','codex','dsh'], FIELDS = ['input','output','cacheRead','cacheCreate']
-const SCHEMA = 1, SEMANTICS = `source-day-v1:daily-${DAILY_SUMMARY_SCHEMA_VERSION}`, DAY = 86400000
+const SCHEMA = 1, SEMANTICS = `source-day-v1:daily-${DAILY_SUMMARY_SCHEMA_VERSION}`, DAY = 86400000, EARLIEST_TTL = 3600000
 const dayKey = date => new Date(new Date(date).getTime()+8*3600000).toISOString().slice(0,10)
 const midnight = key => new Date(key+'T00:00:00+08:00')
 const validDay = key => typeof key==='string' && /^\d{4}-\d{2}-\d{2}$/.test(key) && Number.isFinite(midnight(key).getTime()) && dayKey(midnight(key))===key
@@ -31,13 +31,30 @@ function createStatisticsStorage(home=os.homedir()) {
 }
 
 /** @param {object} deps Optional isolated storage/scanners/clock. @returns {object} Shared statistics authority. */
-function createSharedUsageStatistics({homeDir=os.homedir(),storage=createStatisticsStorage(homeDir),scanFn,sourceStatusFn,earliestFn,legacyReadFn,nowFn=()=>new Date()}={}) {
+function createSharedUsageStatistics({homeDir=os.homedir(),storage=createStatisticsStorage(homeDir),scanFn,sourceStatusFn,earliestFn,sourceEarliestFn,legacyReadFn,nowFn=()=>new Date()}={}) {
   const days=new Map(),listeners=new Set(),progressListeners=new Set()
   const openDays=new Set(),demand=new Map()
   let tail=Promise.resolve(),initialized=null,discoveryPromise=null,discovered=false,earliestDate=null,dataCutoff=null,revision=0,ticking=null,lastRunAt=null,scans=0
   const scan = scanFn || ((id,start,end,options)=>({claude:scanClaudeLogs,codex:scanCodexLogs,dsh:scanDshLogs}[id])(start,end,{...options,homeDir,strictScan:true,pathExistsFn:async()=>true}))
   const status = sourceStatusFn || (async id=>{try{const s=await fs.stat(sourcePath(homeDir,id));if(!s.isDirectory())throw Error('SOURCE_NOT_DIRECTORY');return 'present'}catch(e){if(e.code==='ENOENT')return 'missing';throw e}})
   const legacyRead = legacyReadFn || (async key=>{try{return normalizeDailySummary(JSON.parse(await fs.readFile(path.join(homeDir,'.ai-workbench','daily-stats',key+'.json'),'utf8')),key)}catch(e){if(e.code==='ENOENT'||e instanceof SyntaxError)return null;throw e}})
+  const logEarliest = sourceEarliestFn || (id=>id==='claude'?findEarliestClaudeDate(sourcePath(homeDir,'claude')):findEarliestCodexDate(sourcePath(homeDir,'codex')))
+  const earliestMemo=new Map()
+  // 单来源最早有用量的日期 = min(日志目录最早日, 逐日缓存里该来源最早有 token 的日)；日志被清理后缓存仍能保住历史
+  // Claude 的日志探测要逐文件读首行，按小时缓存
+  async function getSourceEarliestDate(id){
+    if(!['claude','codex'].includes(id))throw Error('INVALID_PLAN')
+    const hit=earliestMemo.get(id)
+    if(hit&&nowFn().getTime()-hit.at<EARLIEST_TTL)return hit.value
+    await initialize()
+    let fromLogs=null
+    try{const value=await logEarliest(id);fromLogs=validDay(value)?value:null}catch{/* Unreadable logs only lose the log-side hint. */}
+    let fromCache=null
+    for(const key of (await storage.list()).sort()){const e=await loadDay(key);if(e?.sources?.[id]?.records?.some(r=>FIELDS.some(f=>r[f]>0))){fromCache=key;break}}
+    const value=[fromLogs,fromCache].filter(Boolean).sort()[0]||null
+    earliestMemo.set(id,{value,at:nowFn().getTime()})
+    return value
+  }
   const emit=(set,event)=>{for(const listener of set){try{listener(event)}catch{/* A closed consumer cannot fail a background batch. */}}}
   const enqueue=fn=>{const result=tail.then(fn);tail=result.catch(()=>{});return result}
   function initialize(){
@@ -207,6 +224,6 @@ function createSharedUsageStatistics({homeDir=os.homedir(),storage=createStatist
     for(const c of cycles)if(c?.start&&c?.end)await ensureRange(c.start,c.end)
     return {lastRunAt,dataCutoff,revision}
   }
-  return {ensureRange,getCalendar,getPlanTokens,getTodayAggregates,getEarliestDate:discover,readLegacyDay,tick,bootstrap,subscribe:fn=>{listeners.add(fn);return()=>listeners.delete(fn)},snapshot:()=>({revision,dataCutoff,lastRunAt,earliestDate,scans,queuedOpenDays:openDays.size}),async earliestLedgerDay(){await initialize();for(const key of (await storage.list()).sort()){const e=await loadDay(key);if(e&&(e.legacy?.summary?.total>0||recordsOf(e).some(r=>FIELDS.some(f=>r[f]>0))))return key}if(!legacyReadFn){try{for(const name of (await fs.readdir(path.join(homeDir,'.ai-workbench','daily-stats'))).sort()){const key=name.slice(0,10);if(validDay(key)&&(await legacyRead(key))?.summary?.total>0)return key}}catch(e){if(e.code!=='ENOENT')throw e}}return null}}
+  return {ensureRange,getCalendar,getPlanTokens,getTodayAggregates,getEarliestDate:discover,getSourceEarliestDate,readLegacyDay,tick,bootstrap,subscribe:fn=>{listeners.add(fn);return()=>listeners.delete(fn)},snapshot:()=>({revision,dataCutoff,lastRunAt,earliestDate,scans,queuedOpenDays:openDays.size}),async earliestLedgerDay(){await initialize();for(const key of (await storage.list()).sort()){const e=await loadDay(key);if(e&&(e.legacy?.summary?.total>0||recordsOf(e).some(r=>FIELDS.some(f=>r[f]>0))))return key}if(!legacyReadFn){try{for(const name of (await fs.readdir(path.join(homeDir,'.ai-workbench','daily-stats'))).sort()){const key=name.slice(0,10);if(validDay(key)&&(await legacyRead(key))?.summary?.total>0)return key}}catch(e){if(e.code!=='ENOENT')throw e}}return null}}
 }
 module.exports={createSharedUsageStatistics,createStatisticsStorage,SCHEMA,SEMANTICS,dayKey,nextDay}

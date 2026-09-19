@@ -64,11 +64,13 @@ const { createPlanDailySummaryService } = require('./services/plan/planDailySumm
 const { createSharedUsageStatistics } = require('./services/sharedUsageStatistics')
 const { createUsageStatisticsScheduler } = require('./services/usageStatisticsScheduler')
 const { configureSharedStatistics } = require('./services/dailySummaryService')
-const { createPlanUsageQuery } = require('./services/plan/planUsageService')
+const { createPlanUsageQuery, getEffectivePricing } = require('./services/plan/planUsageService')
+const { createPlanPriceOverrideService } = require('./services/plan/planPriceOverrideService')
 const { readPlanMetadata } = require('./services/plan/planMetadataService')
 const {
   initRemoteConfig,
   refreshRemoteConfigInBackground,
+  refreshRemoteConfigNow,
 } = require('./services/remoteConfigLoader')
 const { modelRegistrySpec } = require('./services/registries/modelRegistry')
 const { pricingRegistrySpec } = require('./services/registries/pricingRegistry')
@@ -90,11 +92,25 @@ const PROVIDER_REGISTRY_FILE_PATH = resolveProviderRegistryFilePath()
 const PROVIDER_REGISTRY_MCP_SCRIPT_PATH = path.resolve(__dirname, '..', 'mcp', 'provider_registry_mcp.js')
 
 const store = new Store()
-const planLedger = createPlanStoreService({ store, metadataFn: readPlanMetadata })
+// usageStatistics 在下方创建；earliestFn 只在读取账本时才调用，届时已就绪
+const planLedger = createPlanStoreService({ store, metadataFn: readPlanMetadata, earliestFn: id => usageStatistics.getSourceEarliestDate(id) })
 const usageStatistics = createSharedUsageStatistics()
 configureSharedStatistics(usageStatistics)
 const planDaily = createPlanDailySummaryService({ statistics: usageStatistics })
-const planService = { ...planLedger, query: createPlanUsageQuery({ ledger: planLedger, daily: planDaily }) }
+const planPriceOverrides = createPlanPriceOverrideService({ store })
+const planPricing = () => getEffectivePricing(undefined, undefined, planPriceOverrides.list())
+const planService = {
+  ...planLedger,
+  query: createPlanUsageQuery({ ledger: planLedger, daily: planDaily, pricingFn: planPricing, earliestFn: id => usageStatistics.getSourceEarliestDate(id) }),
+  // 一键刷新：拉云端价格并立即生效；found 按刷新后的有效价格（含自填）判断
+  refreshPrice: async model => {
+    const result = await refreshRemoteConfigNow(pricingRegistrySpec, { getUserDataPath: () => app.getPath('userData') })
+    if (!result.success) throw Error(result.error || 'PRICE_REFRESH_FAILED')
+    return { found: Boolean(planPricing().models?.[model]) }
+  },
+  setLocalPrice: async (model, prices) => { planPriceOverrides.set(model, prices); return {} },
+  clearLocalPrice: async model => { planPriceOverrides.clear(model); return {} },
+}
 registerPlanHandlers({ ipcMain, service: planService })
 const usageScheduler = createUsageStatisticsScheduler({statistics:usageStatistics,getCycles:async()=>{
   const cycles=[]
