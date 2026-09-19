@@ -1,13 +1,13 @@
 /**
- * IP 监控 Hook
+ * 出口 IP 监控 Hook
  *
  * 负责：
- * - 页面挂载时从主进程拉取已有监控状态
- * - 订阅主进程推送的实时采样更新
- * - 页面打开时切换到快速模式（5 秒），离开时回到后台模式（60 秒）
- * - 提供单次检测与持续监控开关
+ * - 页面挂载时从主进程拉取状态，订阅主进程推送的采样更新
+ * - 页面打开时切到快速模式（5 秒），离开时回到后台模式（60 秒）
+ * - 提供「检测一次」与持续监控开关；开关成功 / 失败给 Toast
  *
- * IP 采样定时器运行在主进程，本 Hook 只做数据订阅和展示。
+ * 检测是读取类动作，成功失败都只原地更新、不弹 Toast；IP 变化与连续失败由主进程发系统通知。
+ * 采样定时器运行在主进程，本 Hook 只做数据订阅和动作转发。
  *
  * @module hooks/useIpMonitor
  */
@@ -15,98 +15,76 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 
 /**
- * @param {(message: string, type: string) => void} onToast - Toast 回调
- * @returns {{ state: Object, toggle: () => void }}
+ * @param {(message: string, type: 'success'|'error') => void} onToast - Toast 回调
+ * @returns {{state: Object|null, probing: boolean, saving: boolean, probeOnce: () => Promise<void>, toggle: (enabled: boolean) => Promise<void>}}
  */
 export default function useIpMonitor(onToast) {
   const [state, setState] = useState(null)
+  // 页面刚点了「检测一次」还没回来：主进程推送前就让按钮进入「检测中…」
   const [probing, setProbing] = useState(false)
+  // 开关写入中：禁用开关防重复点
+  const [saving, setSaving] = useState(false)
   const onToastRef = useRef(onToast)
   onToastRef.current = onToast
-  const hasShownFailToastRef = useRef(false)
   const stateRef = useRef(null)
+
+  const apply = useCallback((next) => {
+    stateRef.current = next
+    setState(next)
+  }, [])
 
   useEffect(() => {
     let cancelled = false
+    const api = window.electronAPI
 
-    // 1. 拉取已有状态
-    window.electronAPI.getIpMonitorState().then((response) => {
-      if (!cancelled && response.success) {
-        setState(response.data)
-        stateRef.current = response.data
-      }
+    api.getIpMonitorState().then((response) => {
+      if (!cancelled && response?.success) apply(response.data)
+    }).catch(() => {})
+
+    api.setIpMonitorFastMode(true)
+
+    const unsubscribe = api.onIpStateUpdate((next) => {
+      if (!cancelled) apply(next)
     })
 
-    // 2. 切换到快速模式
-    window.electronAPI.setIpMonitorFastMode(true)
-
-    // 3. 订阅实时更新（不在 setState updater 中触发副作用）
-    const unsubscribe = window.electronAPI.onIpStateUpdate((newState) => {
-      if (cancelled) return
-      const prev = stateRef.current
-
-      // IP 切换 Toast：switchCount 增加时弹
-      if (prev && newState.switchCount > prev.switchCount && newState.previousIp && newState.currentIp) {
-        onToastRef.current(`检测到 IP 切换：${newState.previousIp} → ${newState.currentIp}`, 'warning')
-      }
-
-      // 连续失败 Toast：达到 3 次且未弹过
-      if (newState.consecutiveFailCount >= 3 && !hasShownFailToastRef.current) {
-        onToastRef.current('公网 IP 获取失败，请检查网络连接', 'error')
-        hasShownFailToastRef.current = true
-      }
-
-      // 失败恢复后重置 Toast 标记
-      if (newState.consecutiveFailCount === 0) {
-        hasShownFailToastRef.current = false
-      }
-
-      stateRef.current = newState
-      setState(newState)
-    })
-
-    // 4. 离开页面时回到后台模式
     return () => {
       cancelled = true
-      unsubscribe()
-      window.electronAPI.setIpMonitorFastMode(false)
+      unsubscribe?.()
+      api.setIpMonitorFastMode(false)
     }
-  }, [])
+  }, [apply])
 
   const probeOnce = useCallback(async () => {
     if (!window.electronAPI?.probeIpOnce || probing) return
     setProbing(true)
     try {
       const response = await window.electronAPI.probeIpOnce()
-      if (response.success) {
-        stateRef.current = response.data
-        setState(response.data)
-      } else {
-        onToastRef.current('公网 IP 检测失败，请检查网络连接', 'error')
-      }
+      if (response?.data) apply(response.data)
     } catch {
-      onToastRef.current('公网 IP 检测失败，请检查网络连接', 'error')
+      // IPC 本身失败：保持原画面，主进程下次推送会纠正
     } finally {
       setProbing(false)
     }
-  }, [probing])
+  }, [probing, apply])
 
   const toggle = useCallback(async (enabled) => {
-    if (!stateRef.current) return
-    const newEnabled = typeof enabled === 'boolean' ? enabled : !stateRef.current.isEnabled
+    if (!stateRef.current || saving) return
+    setSaving(true)
     try {
-      const response = await window.electronAPI.toggleIpMonitor(newEnabled)
-      if (response.success) {
-        stateRef.current = response.data
-        setState(response.data)
-        hasShownFailToastRef.current = false
+      const response = await window.electronAPI.toggleIpMonitor(enabled)
+      if (response?.success) {
+        apply(response.data)
+        onToastRef.current(enabled ? '已开启持续监控' : '已关闭持续监控', 'success')
       } else {
+        if (response?.data) apply(response.data)
         onToastRef.current('无法保存持续监控设置，请重试', 'error')
       }
     } catch {
       onToastRef.current('无法保存持续监控设置，请重试', 'error')
+    } finally {
+      setSaving(false)
     }
-  }, [])
+  }, [saving, apply])
 
-  return { state, probing, probeOnce, toggle }
+  return { state, probing, saving, probeOnce, toggle }
 }

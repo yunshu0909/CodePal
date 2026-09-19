@@ -1,0 +1,87 @@
+/**
+ * 网络诊断页样式
+ *
+ * 负责：
+ * - 只写本页的排布与本页专属件（卡头图标、变化行、记录行、「检测时发现」注）
+ * - 颜色 / 字体全部用全局 tokens；卡片、按钮、标签、主角数字等共用件在 styles/native.css
+ *
+ * @module pages/network/network.css
+ */
+
+/* 卡头标题图标：20px 绿底圆角方块 + 白色线形地球 */
+.nd-page .nd-icon {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 6px;
+  background: var(--ic-green);
+  box-shadow: inset 0 -.5px 0 rgba(0, 0, 0, .18), 0 .5px 1px rgba(0, 0, 0, .1);
+}
+
+.nd-page .nd-icon svg {
+  width: 12px;
+  height: 12px;
+  fill: none;
+  stroke: #fff;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* 卡头 → 主体 10 */
+.nd-page .nd-body { margin-top: 10px; }
+
+.nd-page .nd-num { font-family: var(--num); }
+
+.nd-page .nd-sub-sk { width: 150px; }
+
+/* 变化行、失败原因紧贴上一行 */
+.nd-page .nd-change {
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--orange-fg);
+}
+
+.nd-page .nd-tight { margin-top: 4px; }
+
+/* 记录分组名右端计数 */
+.nd-page .nd-count {
+  margin-left: auto;
+  font-family: var(--num);
+  font-weight: 400;
+}
+
+.nd-page .nd-time {
+  font-family: var(--num);
+  font-size: 12px;
+  color: var(--fg-2);
+  white-space: nowrap;
+}
+
+/* 监控关着时手动检测才发现的变化：时间是发现时间，不是实际变化时间 */
+.nd-page .nd-found {
+  margin-left: 8px;
+  font-family: var(--font-np);
+  font-size: 11px;
+  color: var(--fg-3);
+}
+
+.nd-page .nd-ip {
+  font-family: var(--num);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.nd-page .nd-old {
+  font-weight: 500;
+  color: var(--fg-3);
+}
+
+.nd-page .nd-arrow {
+  margin: 0 4px;
+  font-weight: 400;
+  color: var(--fg-4);
+}

@@ -1,22 +1,18 @@
 /**
- * 网络诊断服务
+ * 网络诊断服务（出口 IP）
  *
  * 负责：
- * - 获取公网 IPv4（双源降级：ipify → icanhazip）
- * - DNS 解析测速
- * - TLS 握手测速
- * - HTTP 可达性检测
- * - 端点三段式完整探测（DNS → TLS → HTTP）
+ * - 获取公网 IPv4（双源降级：ipify → icanhazip）与归属地（ipinfo.io）
+ * - 按需检测一次 / 用户开启的持续监控（页面内 5 秒、后台 60 秒）
+ * - 持久化上次结果、近 7 天 IP 变化记录（最多 200 条）、是否比过
+ * - 判定何时发系统通知：监控中 IP 变了、连续 3 次测不到；停在本页且窗口在前时不发
  *
- * 从 scripts/network/runVpnDiagnosticsDemo.js 提取核心函数，
- * 去除 CLI 相关逻辑，供 IPC Handler 调用。
+ * 默认零请求：只有持久化开关严格为 true 时才在启动后恢复监控。
  *
  * @module electron/services/networkDiagnosticsService
  */
 
-const dns = require('dns').promises
 const https = require('https')
-const tls = require('tls')
 const { performance } = require('perf_hooks')
 
 const REQUEST_TIMEOUT_MS = 6000
@@ -40,37 +36,6 @@ const IP_SOURCES = [
     parseResponseBody(body) {
       return normalizeIpValue(body)
     },
-  },
-]
-
-/**
- * API 端点探测配置
- * expectedStatuses 中的状态码均视为"可达"（握手成功，不验证凭证）
- */
-const ENDPOINT_PROBES = [
-  {
-    id: 'openai-api',
-    label: 'OpenAI',
-    host: 'api.openai.com',
-    method: 'GET',
-    path: '/v1/models',
-    headers: {
-      Accept: 'application/json',
-      'User-Agent': 'CodePal-Network-Diagnostics/1.0',
-    },
-    expectedStatuses: new Set([200, 401, 403]),
-  },
-  {
-    id: 'anthropic-api',
-    label: 'Anthropic',
-    host: 'api.anthropic.com',
-    method: 'HEAD',
-    path: '/v1/messages',
-    headers: {
-      Accept: 'application/json',
-      'User-Agent': 'CodePal-Network-Diagnostics/1.0',
-    },
-    expectedStatuses: new Set([200, 401, 403, 405]),
   },
 ]
 
@@ -146,164 +111,115 @@ async function probePublicIp() {
   return { success: false, ip: null, source: null, durationMs: null, error: 'NO_IP_SOURCE_AVAILABLE' }
 }
 
+/* ============================================================
+   归属地
+   ============================================================ */
+
+const LOCATION_URL = 'https://ipinfo.io/json'
+
 /**
- * 测量 DNS 查询耗时
- * @param {string} host
- * @returns {Promise<{success: boolean, address: string|null, family: number|null, durationMs: number|null, error: string|null}>}
+ * 国家代码转中文名；系统不认识的代码原样返回
+ * @param {string} code - ISO 3166 两位代码，如 JP
+ * @returns {string|null}
  */
-async function probeDns(host) {
-  const startedAt = performance.now()
+function countryName(code) {
+  const value = String(code || '').trim().toUpperCase()
+  if (!value) return null
   try {
-    const result = await dns.lookup(host)
-    return { success: true, address: result.address, family: result.family, durationMs: performance.now() - startedAt, error: null }
-  } catch (error) {
-    return { success: false, address: null, family: null, durationMs: performance.now() - startedAt, error: error.message }
+    return new Intl.DisplayNames(['zh-CN'], { type: 'region' }).of(value) || value
+  } catch {
+    return value
   }
 }
 
 /**
- * 测量 TLS 握手耗时
- * @param {string} host
- * @param {number} [port=443]
- * @returns {Promise<{success: boolean, protocol: string|null, cipher: string|null, durationMs: number|null, error: string|null}>}
+ * 查询当前出口的归属地（只取国家与城市；城市没有可靠的中文来源，原样保留）
+ * @returns {Promise<{country: string|null, city: string|null}|null>} 查不到返回 null
  */
-function probeTls(host, port = 443) {
-  return new Promise((resolve) => {
-    const startedAt = performance.now()
-    let settled = false
-    const socket = tls.connect({ host, port, servername: host, timeout: REQUEST_TIMEOUT_MS, rejectUnauthorized: true })
-
-    const finish = (result) => {
-      if (settled) return
-      settled = true
-      socket.destroy()
-      resolve(result)
-    }
-
-    socket.on('secureConnect', () => {
-      finish({ success: true, protocol: socket.getProtocol() || null, cipher: socket.getCipher()?.name || null, durationMs: performance.now() - startedAt, error: null })
-    })
-    socket.on('timeout', () => {
-      finish({ success: false, protocol: null, cipher: null, durationMs: performance.now() - startedAt, error: `TLS_TIMEOUT_${REQUEST_TIMEOUT_MS}MS` })
-    })
-    socket.on('error', (error) => {
-      finish({ success: false, protocol: null, cipher: null, durationMs: performance.now() - startedAt, error: error.message })
-    })
-  })
-}
-
-/**
- * 测量 API 端点 HTTP 可达性
- * @param {Object} probe - 端点配置
- * @returns {Promise<{success: boolean, statusCode: number|null, durationMs: number|null, error: string|null}>}
- */
-async function probeHttp(probe) {
+async function lookupLocation() {
   try {
     const response = await requestText({
-      url: `https://${probe.host}${probe.path}`,
-      method: probe.method,
-      headers: probe.headers,
+      url: LOCATION_URL,
+      headers: { Accept: 'application/json', 'User-Agent': 'CodePal-Network-Diagnostics/1.0' },
     })
-    return {
-      success: response.statusCode !== null && probe.expectedStatuses.has(response.statusCode),
-      statusCode: response.statusCode,
-      durationMs: response.durationMs,
-      error: null,
-    }
-  } catch (error) {
-    return { success: false, statusCode: null, durationMs: null, error: error.message }
+    const parsed = JSON.parse(response.body)
+    const country = countryName(parsed.country)
+    const city = typeof parsed.city === 'string' && parsed.city.trim() ? parsed.city.trim() : null
+    return country || city ? { country, city } : null
+  } catch {
+    return null
   }
-}
-
-/**
- * 执行单个端点的三段式探测（DNS → TLS → HTTP）
- * @param {Object} probe - 端点配置
- * @returns {Promise<{id: string, label: string, host: string, dns: Object, tls: Object, http: Object, reachable: boolean}>}
- */
-async function probeEndpoint(probe) {
-  const failStub = { success: false, durationMs: null, error: null }
-  const dnsResult = await probeDns(probe.host)
-
-  // DNS 失败时短路，不浪费时间执行后续探测
-  if (!dnsResult.success) {
-    return {
-      id: probe.id, label: probe.label, host: probe.host,
-      dns: dnsResult,
-      tls: { ...failStub, protocol: null, cipher: null },
-      http: { ...failStub, statusCode: null },
-      reachable: false,
-    }
-  }
-
-  const tlsResult = await probeTls(probe.host)
-
-  // TLS 失败时短路
-  if (!tlsResult.success) {
-    return {
-      id: probe.id, label: probe.label, host: probe.host,
-      dns: dnsResult, tls: tlsResult,
-      http: { ...failStub, statusCode: null },
-      reachable: false,
-    }
-  }
-
-  const httpResult = await probeHttp(probe)
-
-  return {
-    id: probe.id, label: probe.label, host: probe.host,
-    dns: dnsResult, tls: tlsResult, http: httpResult,
-    reachable: httpResult.success,
-  }
-}
-
-/**
- * 并行检测所有配置的 API 端点
- * @returns {Promise<Array<{id, label, host, dns, tls, http, reachable}>>}
- */
-async function probeAllEndpoints() {
-  return Promise.all(ENDPOINT_PROBES.map((probe) => probeEndpoint(probe)))
 }
 
 /* ============================================================
-   公网 IP 按需检测 / 用户授权的持续监控
-   默认零请求；只有持久化开关严格为 true 时才在启动后恢复。
+   通知文案
+   ============================================================ */
+
+/**
+ * 归属地写成「（国家 · 城市）」；没有就返回空串
+ * @param {{country: string|null, city: string|null}|null} location
+ * @returns {string}
+ */
+function bracketLocation(location) {
+  const text = [location?.country, location?.city].filter(Boolean).join(' · ')
+  return text ? `（${text}）` : ''
+}
+
+/**
+ * 生成系统通知的标题与正文
+ * @param {'changed'|'unreachable'} kind
+ * @param {{fromIp?: string, toIp?: string, fromLocation?: object|null, toLocation?: object|null}} [data]
+ * @returns {{kind: string, title: string, body: string}}
+ */
+function buildEgressNotification(kind, data = {}) {
+  if (kind === 'unreachable') {
+    return { kind, title: '测不到出口 IP', body: '已连续 3 次检测失败，检查网络或代理' }
+  }
+  return {
+    kind: 'changed',
+    title: '出口 IP 变了',
+    // 全角括号自带留白，括号后直接接箭头；没有归属地时箭头两侧空一格
+    body: `${data.fromIp}${bracketLocation(data.fromLocation) || ' '}→ ${data.toIp}${bracketLocation(data.toLocation)}`,
+  }
+}
+
+/* ============================================================
+   按需检测 / 持续监控
    ============================================================ */
 
 const CONTINUOUS_MONITORING_STORE_KEY = 'networkDiagnostics.continuousMonitoring'
+const LAST_RESULT_STORE_KEY = 'networkDiagnostics.lastResult'
+const CHANGE_LOG_STORE_KEY = 'networkDiagnostics.changeLog'
+const HAS_COMPARED_STORE_KEY = 'networkDiagnostics.hasCompared'
 const BACKGROUND_INTERVAL_MS = 60000  // 页面关闭后 60 秒
 const FOREGROUND_INTERVAL_MS = 5000   // 页面打开时 5 秒
-const MAX_TIMELINE_POINTS = 30
-const ROUND_DURATION_MS = 30 * 60 * 1000
+const CHANGE_LOG_RETENTION_MS = 7 * 24 * 60 * 60 * 1000
+const CHANGE_LOG_MAX_ENTRIES = 200
+const UNREACHABLE_NOTIFY_THRESHOLD = 3
 
-/**
- * 创建空闲初始状态
- * @returns {object}
- */
-function createInitialState() {
-  return {
-    isEnabled: false,
-    status: 'idle',  // idle | detecting | stable | switched | failed | off
-    currentIp: null,
-    currentSource: null,
-    previousIp: null,
-    sampleCount: 0,
-    uniqueIps: [],
-    switchCount: 0,
-    timeline: [],
-    consecutiveFailCount: 0,
-    successCount: 0,
-    roundStartTime: null,
-    lastCheckedAt: null,
-    sampleIntervalMs: null,
-  }
+/** 只留近 7 天、最多 200 条；新的在前 */
+function pruneChangeLog(log, now) {
+  if (!Array.isArray(log)) return []
+  return log
+    .filter((entry) => entry && typeof entry.at === 'number' && entry.at >= now - CHANGE_LOG_RETENTION_MS)
+    .slice(0, CHANGE_LOG_MAX_ENTRIES)
+}
+
+/** 持久化里的上次结果只接受完整形状，坏数据当作没有 */
+function readLastResult(value) {
+  if (!value || typeof value.ip !== 'string' || !value.ip || typeof value.checkedAt !== 'number') return null
+  return { ip: value.ip, location: value.location || null, checkedAt: value.checkedAt }
 }
 
 /**
  * 创建可注入依赖的网络诊断实例
  * @param {object} [deps]
  * @param {() => Promise<object>} [deps.probePublicIpFn] - 公网 IP 探测函数
+ * @param {() => Promise<object|null>} [deps.lookupLocationFn] - 归属地查询函数
  * @param {{get?: Function, set?: Function}|null} [deps.store] - electron-store 实例
  * @param {() => import('electron').BrowserWindow|null} [deps.getWindow] - 获取主窗口
+ * @param {(payload: {kind: string, title: string, body: string}) => void} [deps.notify] - 发系统通知
+ * @param {() => boolean} [deps.isWindowFocused] - 主窗口是否在前
  * @param {Function} [deps.setIntervalFn] - 定时器注入
  * @param {Function} [deps.clearIntervalFn] - 清理定时器注入
  * @param {() => number} [deps.nowFn] - 当前时间注入
@@ -311,23 +227,44 @@ function createInitialState() {
  */
 function createNetworkDiagnosticsService({
   probePublicIpFn = probePublicIp,
+  lookupLocationFn = lookupLocation,
   store = null,
   getWindow = () => null,
+  notify = () => {},
+  isWindowFocused,
   setIntervalFn = setInterval,
   clearIntervalFn = clearInterval,
   nowFn = Date.now,
 } = {}) {
-  let monitorState = createInitialState()
+  const windowFocused = isWindowFocused || (() => {
+    const win = getWindow?.()
+    return Boolean(win && !win.isDestroyed() && win.isFocused())
+  })
+
+  let isEnabled = false
+  let status = 'idle' // idle | detecting | stable | switched | failed | off
+  let lastResult = null
+  let changeLog = []
+  let hasCompared = false
+  let failReason = null
+  let consecutiveFailCount = 0
+  // 本轮连续失败是否已经通知过：只在第 3 次通知一次，成功后复位
+  let unreachableNotified = false
   let intervalId = null
+  let sampleIntervalMs = null
   let isForeground = false
   let samplePromise = null
 
-  /** 返回不可变快照，避免 renderer/测试改坏服务内部数组 */
+  /** 返回快照，避免 renderer/测试改坏服务内部对象 */
   function getState() {
     return {
-      ...monitorState,
-      uniqueIps: [...monitorState.uniqueIps],
-      timeline: monitorState.timeline.map((point) => ({ ...point })),
+      isEnabled,
+      status,
+      current: lastResult ? { ...lastResult } : null,
+      changeLog: pruneChangeLog(changeLog, nowFn()).map((entry) => ({ ...entry })),
+      hasCompared,
+      failReason,
+      consecutiveFailCount,
     }
   }
 
@@ -343,73 +280,113 @@ function createNetworkDiagnosticsService({
     }
   }
 
+  /** 写持久化；失败只影响下次启动，不打断检测 */
+  function persist(key, value) {
+    try {
+      store?.set?.(key, value)
+    } catch (error) {
+      console.warn('[network] persist failed:', key, error?.message || error)
+    }
+  }
+
+  /** 停在本页且窗口在前：页面自己会显示，不再弹系统通知 */
+  function shouldNotify() {
+    if (!isEnabled) return false
+    try {
+      return !(isForeground && windowFocused())
+    } catch {
+      return true
+    }
+  }
+
+  function sendNotification(kind, data) {
+    if (!shouldNotify()) return
+    try {
+      notify(buildEgressNotification(kind, data))
+    } catch (error) {
+      console.warn('[network] notify failed:', error?.message || error)
+    }
+  }
+
   /** 清理现有 interval，并同步公开的当前频率 */
   function clearSchedule() {
     if (intervalId !== null) {
       clearIntervalFn(intervalId)
       intervalId = null
     }
-    monitorState.sampleIntervalMs = null
+    sampleIntervalMs = null
   }
 
   /** 仅在用户已开启持续监控时建立唯一 interval */
   function restartSchedule() {
     clearSchedule()
-    if (!monitorState.isEnabled) return
-
-    const intervalMs = isForeground ? FOREGROUND_INTERVAL_MS : BACKGROUND_INTERVAL_MS
-    monitorState.sampleIntervalMs = intervalMs
-    intervalId = setIntervalFn(() => {
-      runSample({ allowWhenDisabled: false }).catch(() => {})
-    }, intervalMs)
+    if (!isEnabled) return
+    sampleIntervalMs = isForeground ? FOREGROUND_INTERVAL_MS : BACKGROUND_INTERVAL_MS
+    // 返回 promise 便于测试等待一次采样完成；定时器本身忽略返回值
+    intervalId = setIntervalFn(() => runSample({ allowWhenDisabled: false }).catch(() => {}), sampleIntervalMs)
   }
 
   /**
-   * 处理一次采样结果
-   * @param {{success: boolean, ip: string|null, source: string|null}} result
+   * 归属地：第一次拿到 IP、IP 变了、或上次没查到时才查
+   * @param {string} ip
+   * @param {object|null} previous
    */
-  function handleSampleResult(result) {
+  async function resolveLocation(ip, previous) {
+    if (previous && previous.ip === ip && previous.location) return previous.location
+    try {
+      return (await lookupLocationFn(ip)) || null
+    } catch {
+      return null
+    }
+  }
+
+  /**
+   * 处理一次成功采样：比对上次结果、写记录、决定通知
+   * @param {string} ip
+   * @param {boolean} enabledAtStart - 发起时监控是否开着（区分手动发现）
+   */
+  async function handleSuccess(ip, enabledAtStart) {
+    const previous = lastResult
+    const location = await resolveLocation(ip, previous)
     const now = nowFn()
-    if (monitorState.roundStartTime && now - monitorState.roundStartTime >= ROUND_DURATION_MS) {
-      monitorState.sampleCount = 0
-      monitorState.switchCount = 0
-      monitorState.uniqueIps = monitorState.currentIp ? [monitorState.currentIp] : []
-      monitorState.timeline = []
-      monitorState.consecutiveFailCount = 0
-      monitorState.successCount = 0
-      monitorState.roundStartTime = now
+    const changed = Boolean(previous && previous.ip !== ip)
+
+    lastResult = { ip, location, checkedAt: now }
+    persist(LAST_RESULT_STORE_KEY, lastResult)
+
+    if (previous && !hasCompared) {
+      hasCompared = true
+      persist(HAS_COMPARED_STORE_KEY, true)
     }
 
-    monitorState.lastCheckedAt = now
+    consecutiveFailCount = 0
+    unreachableNotified = false
+    failReason = null
+    status = changed ? 'switched' : 'stable'
 
-    if (result.success && result.ip) {
-      const isFirstSample = monitorState.currentIp === null
-      const isSwitched = !isFirstSample && result.ip !== monitorState.currentIp
-
-      if (!monitorState.uniqueIps.includes(result.ip)) {
-        monitorState.uniqueIps.push(result.ip)
+    if (changed) {
+      const entry = {
+        at: now,
+        fromIp: previous.ip,
+        toIp: ip,
+        fromLocation: previous.location || null,
+        toLocation: location,
+        foundByManual: !enabledAtStart,
       }
-
-      monitorState.previousIp = isFirstSample ? null : monitorState.currentIp
-      monitorState.currentIp = result.ip
-      monitorState.currentSource = result.source
-      monitorState.sampleCount += 1
-      monitorState.successCount += 1
-      monitorState.consecutiveFailCount = 0
-      monitorState.switchCount += isSwitched ? 1 : 0
-      monitorState.status = isSwitched ? 'switched' : 'stable'
-      monitorState.timeline.push({ type: isSwitched ? 'switch' : 'stable', ip: result.ip, timestamp: now })
-      if (!monitorState.roundStartTime) monitorState.roundStartTime = now
-    } else {
-      monitorState.sampleCount += 1
-      monitorState.consecutiveFailCount += 1
-      monitorState.status = 'failed'
-      monitorState.timeline.push({ type: 'fail', ip: null, timestamp: now })
-      if (!monitorState.roundStartTime) monitorState.roundStartTime = now
+      changeLog = pruneChangeLog([entry, ...changeLog], now)
+      persist(CHANGE_LOG_STORE_KEY, changeLog)
+      sendNotification('changed', entry)
     }
+  }
 
-    if (monitorState.timeline.length > MAX_TIMELINE_POINTS) {
-      monitorState.timeline = monitorState.timeline.slice(-MAX_TIMELINE_POINTS)
+  /** 处理一次失败采样：保留上次结果，只在第 3 次连续失败时通知 */
+  function handleFailure(error) {
+    consecutiveFailCount += 1
+    failReason = String(error || '').startsWith('REQUEST_TIMEOUT_') ? 'timeout' : 'other'
+    status = 'failed'
+    if (consecutiveFailCount >= UNREACHABLE_NOTIFY_THRESHOLD && !unreachableNotified) {
+      unreachableNotified = true
+      sendNotification('unreachable')
     }
   }
 
@@ -419,11 +396,11 @@ function createNetworkDiagnosticsService({
    * @returns {Promise<object>}
    */
   async function runSample({ allowWhenDisabled }) {
-    if (!monitorState.isEnabled && !allowWhenDisabled) return getState()
+    if (!isEnabled && !allowWhenDisabled) return getState()
     if (samplePromise) return samplePromise
 
-    const startedWhileEnabled = monitorState.isEnabled
-    monitorState.status = 'detecting'
+    const startedWhileEnabled = isEnabled
+    status = 'detecting'
     emitState()
 
     samplePromise = (async () => {
@@ -433,12 +410,16 @@ function createNetworkDiagnosticsService({
       } catch (error) {
         result = { success: false, ip: null, source: null, error: error?.message || 'IP_PROBE_FAILED' }
       }
-      handleSampleResult(result)
 
-      // 不论是 interval 还是用户手动单次检测，只要请求发出时开关为开、
-      // 完成前被关闭，结果可保留，但状态不能从 off 反弹为 stable/failed。
-      if (startedWhileEnabled && !monitorState.isEnabled) {
-        monitorState.status = monitorState.currentIp || monitorState.sampleCount > 0 ? 'off' : 'idle'
+      if (result?.success && result.ip) {
+        await handleSuccess(result.ip, startedWhileEnabled)
+      } else {
+        handleFailure(result?.error)
+      }
+
+      // 请求发出时开关为开、完成前被关闭：结果保留，但状态不能从 off 反弹为 stable/failed
+      if (startedWhileEnabled && !isEnabled) {
+        status = lastResult ? 'off' : 'idle'
       }
       emitState()
       return getState()
@@ -451,24 +432,28 @@ function createNetworkDiagnosticsService({
     }
   }
 
-  /** 根据持久化选择初始化；默认或读取失败均为关闭 */
+  /** 读持久化并按开关决定是否恢复监控；默认或读取失败均为关闭 */
   function initialize() {
-    let shouldResume = false
-    try {
-      shouldResume = store?.get?.(CONTINUOUS_MONITORING_STORE_KEY, false) === true
-    } catch {
-      shouldResume = false
+    const read = (key, fallback) => {
+      try {
+        return store?.get?.(key, fallback) ?? fallback
+      } catch {
+        return fallback
+      }
     }
+    lastResult = readLastResult(read(LAST_RESULT_STORE_KEY, null))
+    changeLog = pruneChangeLog(read(CHANGE_LOG_STORE_KEY, []), nowFn())
+    hasCompared = read(HAS_COMPARED_STORE_KEY, false) === true
+    isEnabled = read(CONTINUOUS_MONITORING_STORE_KEY, false) === true
+    failReason = null
+    consecutiveFailCount = 0
+    unreachableNotified = false
+    status = isEnabled ? 'detecting' : (lastResult ? 'off' : 'idle')
 
-    monitorState = createInitialState()
-    monitorState.isEnabled = shouldResume
-    monitorState.status = shouldResume ? 'detecting' : 'idle'
-
-    if (shouldResume) {
+    if (isEnabled) {
       runSample({ allowWhenDisabled: false }).catch(() => {})
       restartSchedule()
     }
-    emitState()
     return getState()
   }
 
@@ -488,7 +473,7 @@ function createNetworkDiagnosticsService({
     return getState()
   }
 
-  /** 用户明确开启/关闭持续监控，并同步持久化 */
+  /** 用户明确开启/关闭持续监控，并同步持久化；写入失败抛错且状态不变 */
   function setContinuousMonitoring(enabled) {
     const nextEnabled = Boolean(enabled)
     try {
@@ -499,14 +484,17 @@ function createNetworkDiagnosticsService({
       throw persistError
     }
 
-    monitorState.isEnabled = nextEnabled
+    isEnabled = nextEnabled
+    // 「连续失败」只算本轮监控期间的：开关一动就重新计数，关着时手动失败不带进来
+    consecutiveFailCount = 0
+    unreachableNotified = false
     if (nextEnabled) {
-      monitorState.status = 'detecting'
+      status = 'detecting'
       runSample({ allowWhenDisabled: false }).catch(() => {})
       restartSchedule()
     } else {
       clearSchedule()
-      monitorState.status = monitorState.currentIp || monitorState.sampleCount > 0 ? 'off' : 'idle'
+      status = lastResult ? 'off' : 'idle'
       emitState()
     }
     return getState()
@@ -527,12 +515,12 @@ function createNetworkDiagnosticsService({
   }
 }
 
-/** 默认实例：由 main 注入 electron-store 与窗口引用 */
+/** 默认实例：由 main 注入 electron-store、窗口引用与通知 */
 let defaultIpService = createNetworkDiagnosticsService()
 
-function initializeIpMonitor({ store, getWindow }) {
+function initializeIpMonitor({ store, getWindow, notify }) {
   defaultIpService.dispose()
-  defaultIpService = createNetworkDiagnosticsService({ store, getWindow })
+  defaultIpService = createNetworkDiagnosticsService({ store, getWindow, notify })
   return defaultIpService.initialize()
 }
 
@@ -554,7 +542,8 @@ function toggleIpMonitor(enabled) {
 
 module.exports = {
   probePublicIp,
-  probeAllEndpoints,
+  lookupLocation,
+  buildEgressNotification,
   createNetworkDiagnosticsService,
   initializeIpMonitor,
   getIpMonitorState,
@@ -565,5 +554,4 @@ module.exports = {
   BACKGROUND_INTERVAL_MS,
   FOREGROUND_INTERVAL_MS,
   REQUEST_TIMEOUT_MS,
-  ENDPOINT_PROBES,
 }

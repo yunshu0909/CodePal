@@ -284,3 +284,94 @@
 @keyframes np-pulse {
   50% { opacity: .35; }
 }
+
+/* ── 主角数字卡（09-19 网络诊断定稿回流：订阅管理 .plan-x、各页空态 / 错误行第二次出现）──
+   订阅管理、用量监测里的同类写法暂未迁移，下次改到那两页时换成这里的类 */
+
+/* 卡头：左标题（可带 20px 图标），右标签与按钮 */
+:is(.page-shell--native, .np-scope) .np-card-hd {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+:is(.page-shell--native, .np-scope) .np-card-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: -.01em;
+}
+
+:is(.page-shell--native, .np-scope) .np-card-acts {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* 主角数字：圆体 40 / 700；没有值或失败时的「—」用 .na 占位灰 */
+:is(.page-shell--native, .np-scope) .np-hero-num {
+  font-family: var(--num);
+  font-size: 40px;
+  font-weight: 700;
+  line-height: 44px;
+  letter-spacing: -.02em;
+  color: var(--blue-fg);
+  white-space: nowrap;
+}
+
+:is(.page-shell--native, .np-scope) .np-hero-num.na { color: var(--fg-4); }
+
+/* 主角数字下的副行 */
+:is(.page-shell--native, .np-scope) .np-sub {
+  margin-top: 2px;
+  font-size: 12px;
+  line-height: 14px;
+  font-weight: 500;
+  color: var(--fg-2);
+}
+
+/* 还没有值：主角位不放大那个词，一行状态话 + 一行说明（总纲「状态呈现」） */
+:is(.page-shell--native, .np-scope) .np-hero-na {
+  font-size: 13px;
+  line-height: 16px;
+  font-weight: 500;
+  color: var(--fg-2);
+}
+
+:is(.page-shell--native, .np-scope) .np-hero-hint {
+  margin-top: 2px;
+  font-size: 12px;
+  line-height: 14px;
+  color: var(--fg-3);
+}
+
+/* 空态一句话；单独成卡时卡里只放它 */
+:is(.page-shell--native, .np-scope) .np-empty {
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--fg-3);
+}
+
+/* 单项失败的红字原因 */
+:is(.page-shell--native, .np-scope) .np-errline {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--red-fg);
+}
+
+/* 文字形骨架：占住真实文字的尺寸，文字本身不可见 */
+:is(.page-shell--native, .np-scope) .np-sk-text {
+  display: inline-block;
+  border-radius: 5px;
+  background: rgba(0, 0, 0, .07);
+  color: transparent;
+}
+
+/* 禁用的小号按钮一律 .5 */
+:is(.page-shell--native, .np-scope) .np-btn:disabled { opacity: .5; }
