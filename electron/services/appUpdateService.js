@@ -21,9 +21,14 @@ const DEFAULT_APP_UPDATE_STATE = Object.freeze({
   currentVersion: '',
   latestVersion: '',
   releaseUrl: DEFAULT_RELEASE_PAGE_URL,
+  // GitHub 发布说明原文（Markdown），应用内「新版本」对话框展示用；过长截断
+  releaseNotes: '',
   error: null,
   checkedAt: null,
 })
+
+// 发布说明最多带回的字数，够对话框显示前几条
+const RELEASE_NOTES_LIMIT = 4000
 
 let appUpdateState = { ...DEFAULT_APP_UPDATE_STATE }
 const stateSubscribers = new Set()
@@ -157,6 +162,7 @@ async function checkForAppUpdate(currentVersion) {
       currentVersion: normalizedCurrentVersion,
       latestVersion,
       releaseUrl: release?.html_url || DEFAULT_RELEASE_PAGE_URL,
+      releaseNotes: typeof release?.body === 'string' ? release.body.slice(0, RELEASE_NOTES_LIMIT) : '',
       checkedAt: new Date().toISOString(),
       error: null,
     })
@@ -168,6 +174,7 @@ async function checkForAppUpdate(currentVersion) {
       currentVersion: normalizedCurrentVersion,
       latestVersion: '',
       releaseUrl: DEFAULT_RELEASE_PAGE_URL,
+      releaseNotes: '',
       checkedAt: new Date().toISOString(),
       error: error?.message || 'UPDATE_CHECK_FAILED',
     })

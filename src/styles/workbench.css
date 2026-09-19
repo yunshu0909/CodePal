@@ -2,7 +2,7 @@
  * WorkbenchLayout 样式（Native+ 窗口外壳）
  *
  * 包含：
- * - 全高侧边栏（红绿灯行 + 分组导航 + 底部品牌版本）
+ * - 全高侧边栏（红绿灯行 + 品牌头 + 分组导航；有新版时底部新版卡）
  * - 内容区域布局（主内容）
  */
 
@@ -153,59 +153,7 @@
   line-height: 14px;
 }
 
-/* ==================== 底部：品牌 + 版本 + 新版提示 ==================== */
-
-.sidebar-footer {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  flex-shrink: 0;
-  padding: 6px 6px 0;
-  font-size: 11px;
-  color: var(--fg-3);
-}
-
-.footer-brand {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  min-width: 0;
-  font-weight: 600;
-  color: var(--fg-2);
-  white-space: nowrap;
-}
-
-.footer-logo {
-  width: 14px;
-  height: 14px;
-  border-radius: 4px;
-  object-fit: contain;
-}
-
-.footer-version {
-  font-weight: 400;
-  color: var(--fg-3);
-}
-
-/* 新版提示：橙色胶囊，需要处理但没坏 */
-.sidebar-update-pill {
-  flex: none;
-  padding: 0 6px;
-  border: 0;
-  border-radius: 999px;
-  background: var(--orange-bg);
-  color: var(--orange-fg);
-  font: inherit;
-  font-size: 10.5px;
-  font-weight: 500;
-  line-height: 16px;
-  cursor: default;
-}
-
-.sidebar-update-pill:hover {
-  filter: brightness(0.96);
-}
+/* 品牌头、新版卡：见 components/brand/brand.css */
 
 /* ==================== 右侧内容区 ==================== */
 

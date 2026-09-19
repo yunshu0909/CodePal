@@ -512,6 +512,17 @@ contextBridge.exposeInMainWorld('electronAPI', {
   openAppUpdatePage: () => ipcRenderer.invoke('app-update:open-release-page'),
 
   /**
+   * 订阅「关于 CodePal」菜单项
+   * @param {() => void} callback
+   * @returns {() => void} 取消订阅
+   */
+  onShowAbout: (callback) => {
+    const handler = () => callback()
+    ipcRenderer.on('app:show-about', handler)
+    return () => ipcRenderer.removeListener('app:show-about', handler)
+  },
+
+  /**
    * 监听主进程推送的应用更新状态
    * @param {(state: Object) => void} callback - 状态更新回调
    * @returns {() => void}

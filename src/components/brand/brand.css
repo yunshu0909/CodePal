@@ -1,0 +1,145 @@
+/**
+ * 品牌位样式（设计总纲 3.19）
+ *
+ * - 侧栏顶部品牌头：图标 28 + 字标 17 / 700 圆体
+ * - 侧栏底部新版卡：浅蓝底，一句话 + 「查看更新」
+ * - 关于对话框、新版本对话框里的内容
+ */
+
+/* 侧栏品牌头：红绿灯那一行下面；是按钮（点开「关于」），没有悬停底色，和系统侧栏一致 */
+.brand-head {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  flex-shrink: 0;
+  width: 100%;
+  margin: 0 0 6px;
+  padding: 0 6px 8px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  text-align: left;
+  cursor: default;
+}
+
+.brand-head:focus { outline: none; }
+.brand-head:focus-visible { box-shadow: 0 0 0 3px rgba(43, 127, 255, .25); }
+
+.brand-head__icon {
+  width: 28px;
+  height: 28px;
+  flex: none;
+  border-radius: 7px;
+}
+
+.brand-wordmark {
+  font-family: var(--num);
+  font-weight: 700;
+  letter-spacing: -.01em;
+  white-space: nowrap;
+}
+
+.brand-head .brand-wordmark {
+  font-size: 17px;
+  line-height: 22px;
+}
+
+/* 侧栏底部新版卡：平时不出现 */
+.brand-update-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  flex-shrink: 0;
+  margin-top: 8px;
+  padding: 10px;
+  border-radius: 10px;
+  background: var(--blue-bg);
+  font-family: var(--font-np);
+}
+
+.brand-update-card__text {
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--fg);
+}
+
+.brand-update-card__text b {
+  color: var(--blue-fg);
+  font-family: var(--num);
+  font-weight: 600;
+}
+
+/* 关于对话框：居中排 */
+.brand-about {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 8px 0 0;
+  text-align: center;
+  font-family: var(--font-np);
+}
+
+.brand-about__icon {
+  width: 72px;
+  height: 72px;
+}
+
+.brand-about__name {
+  margin-top: 8px;
+  font-family: var(--num);
+  font-size: 17px;
+  font-weight: 700;
+  line-height: 22px;
+}
+
+.brand-about__ver {
+  margin-top: 2px;
+  font-size: 11.5px;
+  line-height: 16px;
+  color: var(--fg-2);
+}
+
+.brand-about__update,
+.brand-about__links button {
+  appearance: none;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--blue-fg);
+  font: inherit;
+  cursor: default;
+}
+
+.brand-about__links {
+  display: flex;
+  justify-content: center;
+  gap: 16px;
+  margin-top: 12px;
+  font-size: 12px;
+}
+
+.brand-about__foot {
+  margin-top: 16px;
+  font-size: 10.5px;
+  line-height: 15px;
+  color: var(--fg-3);
+}
+
+/* 新版本对话框里的更新条目 */
+.brand-update__notes {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 12.5px;
+  line-height: 19px;
+  color: var(--fg);
+}
+
+.brand-update__more {
+  list-style: none;
+  margin-left: -18px;
+  margin-top: 4px;
+  color: var(--fg-3);
+}

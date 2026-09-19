@@ -44,6 +44,7 @@ dotenv.config({ path: ENV_FILE_PATH })
 const { scanSkillDirectory, parseSkillMd } = require('./services/skillScanService')
 const { registerSkillHandlers } = require('./handlers/registerSkillHandlers')
 const { registerImportPageHandlers } = require('./handlers/registerImportPageHandlers')
+const { installAppMenu, applyDevDockIcon } = require('./appMenu')
 const { registerAppUpdateHandlers } = require('./handlers/registerAppUpdateHandlers')
 const { registerUsageAggregationHandlers } = require('./handlers/registerUsageAggregationHandlers')
 const { setDshIsolatedRunner } = require('./services/usageLogScanService')
@@ -219,6 +220,10 @@ function createWindow() {
 }
 
 app.whenReady().then(async () => {
+  // 应用菜单（「关于 CodePal」走应用内关于窗口）与开发时的 Dock 图标
+  installAppMenu({ app, getMainWindow: () => mainWindow })
+  applyDevDockIcon(app)
+
   // 启动时自动 ensure 内置 provider_registry，避免用户先手动安装
   try {
     const ensureResult = await ensureBuiltinProviderRegistryInstalled({

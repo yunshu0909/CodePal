@@ -81,6 +81,7 @@
   color: var(--fg-3);
   font-size: 12px;
   cursor: default;
+  margin-left: auto; /* 没有标题时也靠右 */
 }
 
 .modal-close:hover {

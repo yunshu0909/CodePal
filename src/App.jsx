@@ -41,6 +41,7 @@ const INITIAL_APP_UPDATE_STATE = Object.freeze({
   currentVersion: '',
   latestVersion: '',
   releaseUrl: '',
+  releaseNotes: '',
   error: null,
   checkedAt: null,
 })
@@ -295,8 +296,8 @@ export default function App() {
       <WorkbenchLayout
         activeModule={activeModule}
         onModuleChange={handleModuleChange}
-        hasUpdate={appUpdateState.hasUpdate}
-        onUpdateClick={handleUpdateClick}
+        appUpdate={appUpdateState}
+        onDownloadUpdate={handleUpdateClick}
       >
         {activeModule === 'skills' && (
           initialSkillManagerPage === null

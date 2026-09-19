@@ -2,7 +2,8 @@
  * WorkbenchLayout - 工作台布局组件（Native+ 窗口外壳）
  *
  * 负责：
- * - 左侧导航侧边栏：顶部 52 高留给 macOS 红绿灯，下面分组导航，底部品牌 + 版本 + 新版提示
+ * - 左侧导航侧边栏：顶部 52 高留给 macOS 红绿灯，下面品牌头（点开「关于」）和分组导航；有新版时底部出一张新版卡
+ * - 关于对话框、新版本对话框（品牌规则见设计总纲 3.19）
  * - macOS 上侧栏透出系统毛玻璃（主进程 vibrancy），其他平台退成纯灰底
  * - 模块切换与内容区渲染；新样式页面的 52 高工具栏由 PageShell native 提供，和红绿灯同一行
  * - 规则见 docs/design-operating-system.md 3.10「窗口外壳」
@@ -10,11 +11,15 @@
  * @module components/WorkbenchLayout
  */
 
-import React from 'react'
+import React, { useEffect, useState } from 'react'
 import '../styles/workbench.css'
 import pkg from '../../package.json'
 import brandLogo from '../assets/codepal-logo.png'
 import { SIDEBAR_ICONS } from './sidebarIcons'
+import Button from './Button/Button'
+import AboutDialog from './brand/AboutDialog'
+import UpdateDialog from './brand/UpdateDialog'
+import './brand/brand.css'
 
 // 只有 macOS 有系统毛玻璃；其他平台侧栏用纯灰底
 const IS_MAC = typeof navigator !== 'undefined' && /Macintosh|Mac OS X/.test(navigator.userAgent)
@@ -25,11 +30,19 @@ const IS_MAC = typeof navigator !== 'undefined' && /Macintosh|Mac OS X/.test(nav
  * @param {React.ReactNode} props.children - 内容区域要渲染的子元素
  * @param {'skills'|'mcp'|'usage'|'claude-usage'|'api'|'project-init'|'permission'|'network'|'k28-status-light'|'sessions'|'doc-browser'} props.activeModule - 当前激活的模块
  * @param {function} props.onModuleChange - 模块切换回调函数
- * @param {boolean} props.hasUpdate - 是否有新版本可用
- * @param {function} props.onUpdateClick - 点击更新按钮的回调
+ * @param {object} [props.appUpdate] - 应用更新状态（hasUpdate / latestVersion / releaseNotes / checked / error）
+ * @param {function} [props.onDownloadUpdate] - 「下载新版」：打开发布页
  * @returns {React.ReactElement}
  */
-function WorkbenchLayout({ children, activeModule, onModuleChange, hasUpdate, onUpdateClick }) {
+function WorkbenchLayout({ children, activeModule, onModuleChange, appUpdate, onDownloadUpdate }) {
+  // 关于 / 新版本两个对话框；同一时间只开一个
+  const [dialog, setDialog] = useState(null)
+  const update = appUpdate || {}
+  const version = pkg.version
+
+  // 菜单栏「关于 CodePal」也打开同一个关于对话框
+  useEffect(() => window.electronAPI?.onShowAbout?.(() => setDialog('about')), [])
+
   /**
    * 分组导航配置
    * 按用途分四组（2026-09-19 用户定顺序），新功能按每组的定义归组：
@@ -93,6 +106,12 @@ function WorkbenchLayout({ children, activeModule, onModuleChange, hasUpdate, on
         {/* 红绿灯那一行：52 高，和新样式页面的工具栏同一行，可拖拽窗口 */}
         <div className="sidebar-titlebar" />
 
+        {/* 品牌头：点开「关于 CodePal」 */}
+        <button type="button" className="brand-head" aria-label="关于 CodePal" onClick={() => setDialog('about')}>
+          <img className="brand-head__icon" src={brandLogo} alt="" />
+          <span className="brand-wordmark">CodePal</span>
+        </button>
+
         {/* 分组导航 */}
         <nav className="sidebar-nav">
           {navGroups.map((group) => (
@@ -118,19 +137,13 @@ function WorkbenchLayout({ children, activeModule, onModuleChange, hasUpdate, on
           ))}
         </nav>
 
-        {/* 底部：品牌 + 版本号，有新版本时右侧出提示 */}
-        <div className="sidebar-footer">
-          <span className="footer-brand">
-            <img className="footer-logo" src={brandLogo} alt="" />
-            CodePal
-            <span className="footer-version">v{pkg.version}</span>
-          </span>
-          {hasUpdate && (
-            <button className="sidebar-update-pill" onClick={onUpdateClick}>
-              新版可用
-            </button>
-          )}
-        </div>
+        {/* 底部：平时空着；有新版时出一张新版卡 */}
+        {update.hasUpdate && (
+          <div className="brand-update-card np-scope">
+            <div className="brand-update-card__text">新版本 <b>{update.latestVersion}</b> 已发布</div>
+            <Button size="sm" variant="primary" onClick={() => setDialog('update')}>查看更新</Button>
+          </div>
+        )}
       </aside>
 
       {/* 右侧内容区：顶部不再留标题栏占位，新样式页面的工具栏直接顶到窗口上沿 */}
@@ -140,6 +153,22 @@ function WorkbenchLayout({ children, activeModule, onModuleChange, hasUpdate, on
           {children}
         </main>
       </div>
+
+      <AboutDialog
+        open={dialog === 'about'}
+        onClose={() => setDialog(null)}
+        version={version}
+        update={update}
+        onShowUpdate={() => setDialog('update')}
+      />
+      <UpdateDialog
+        open={dialog === 'update'}
+        onClose={() => setDialog(null)}
+        currentVersion={version}
+        latestVersion={update.latestVersion}
+        releaseNotes={update.releaseNotes}
+        onDownload={() => onDownloadUpdate?.()}
+      />
     </div>
   )
 }
