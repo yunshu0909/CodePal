@@ -44,8 +44,7 @@ function WorkbenchLayout({ children, activeModule, onModuleChange, hasUpdate, on
         { id: 'permission', label: 'Claude Code 设置' },
         { id: 'project-init', label: '新建项目' },
         { id: 'network', label: '网络诊断' },
-        { id: 'k28-status-light', label: '状态灯' },
-        { id: 'harness', label: 'Harness 管理' }
+        { id: 'k28-status-light', label: '状态灯' }
       ]
     },
     {

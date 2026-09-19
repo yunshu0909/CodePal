@@ -21,7 +21,6 @@ import ProjectInitPage from './pages/ProjectInitPage'
 import PermissionModePage from './pages/PermissionModePage'
 import McpPage from './pages/McpPage'
 import PluginControlPage from './pages/PluginControlPage'
-import HarnessPage from './pages/HarnessPage'
 import NetworkDiagnosticsPage from './pages/NetworkDiagnosticsPage'
 import SessionBrowserPage from './pages/SessionBrowserPage'
 import DocBrowserPage from './pages/DocBrowserPage'
@@ -33,7 +32,7 @@ import useMainNavigation from './hooks/useMainNavigation'
 
 const AUTO_INCREMENTAL_REFRESH_INTERVAL_MS = 5 * 60 * 1000
 const DEFAULT_ACTIVE_MODULE = 'permission'
-const VALID_ACTIVE_MODULES = new Set(['skills', 'plugins', 'mcp', 'usage', 'claude-usage', 'project-init', 'permission', 'network', 'k28-status-light', 'sessions', 'doc-browser', 'harness'])
+const VALID_ACTIVE_MODULES = new Set(['skills', 'plugins', 'mcp', 'usage', 'claude-usage', 'project-init', 'permission', 'network', 'k28-status-light', 'sessions', 'doc-browser'])
 const INITIAL_APP_UPDATE_STATE = Object.freeze({
   checked: false,
   checking: false,
@@ -47,7 +46,7 @@ const INITIAL_APP_UPDATE_STATE = Object.freeze({
 
 /**
  * 读取上次访问的模块，并过滤已下线模块
- * @returns {'skills'|'plugins'|'mcp'|'usage'|'claude-usage'|'project-init'|'permission'|'network'|'k28-status-light'|'sessions'|'doc-browser'|'harness'}
+ * @returns {'skills'|'plugins'|'mcp'|'usage'|'claude-usage'|'project-init'|'permission'|'network'|'k28-status-light'|'sessions'|'doc-browser'}
  */
 function getInitialActiveModule() {
   const storedModule = localStorage.getItem('codepal-active-module')
@@ -310,7 +309,6 @@ export default function App() {
               />
         )}
         {activeModule === 'plugins' && <PluginControlPage />}
-        {activeModule === 'harness' && <HarnessPage />}
         {(activeModule === 'mcp' || hasVisitedMcp) && (
           <div className="keep-alive-wrapper" hidden={activeModule !== 'mcp'}>
             <McpPage isActive={activeModule === 'mcp'} />

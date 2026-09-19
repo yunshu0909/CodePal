@@ -14,7 +14,6 @@ export const SIDEBAR_ICONS = {
   'project-init': { color: 'var(--ic-blue)', path: 'M8 3v10M3 8h10' },
   network: { color: 'var(--ic-green)', path: 'M8 2a6 6 0 1 0 0 12A6 6 0 0 0 8 2zM2 8h12M8 2c2 2 2 10 0 12M8 2c-2 2-2 10 0 12' },
   'k28-status-light': { color: 'var(--ic-orange)', path: 'M6 1.5h4a1 1 0 0 1 1 1v11a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1v-11a1 1 0 0 1 1-1zM8 4.5v.01M8 8v.01M8 11.5v.01' },
-  harness: { color: 'var(--ic-teal)', path: 'M9 1.5 3.5 9H8l-1 5.5L12.5 7H8z' },
   usage: { color: 'var(--ic-blue)', path: 'M2 13.5h12M4 11V6M8 11V3M12 11V8' },
   'claude-usage': { color: 'var(--ic-purple)', path: 'M3.5 4h9a1.5 1.5 0 0 1 1.5 1.5v5a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 2 10.5v-5A1.5 1.5 0 0 1 3.5 4zM2 7h12' },
   sessions: { color: 'var(--ic-green)', path: 'M2.5 3.5h11v7h-6l-3 2.5v-2.5h-2z' },
