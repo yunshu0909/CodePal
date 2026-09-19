@@ -7,6 +7,7 @@
  * - 某个会话进入「等你确认」「完成了」的那一刻发一次系统通知；同一会话同一状态不重复
  * - 不发的时候：功能关着；CodePal 窗口在前台且正停在会话状态页
  * - 启动时的第一份快照只记下来不通知，避免一打开 CodePal 就补发一堆旧状态
+ * - 每次状态变化发没发、为什么，写进通知日志（不给用户看，方便事后排查）
  *
  * @module electron/services/sessionStatusMonitor
  */
@@ -52,6 +53,7 @@ function buildSessionNotification(session, iconDir) {
  * @param {(payload: object) => void} deps.onChange - 推给页面
  * @param {(n: {title: string, body: string, icon: string, sound: string}) => void} deps.notify
  * @param {string} deps.iconDir
+ * @param {(message: string) => void} [deps.log] - 通知日志
  * @param {typeof fs.watch} [deps.watchFn]
  * @returns {{start: () => Promise<void>, stop: () => void, refresh: () => Promise<object>, reset: () => void}}
  */
@@ -63,6 +65,7 @@ function createSessionStatusMonitor({
   onChange,
   notify,
   iconDir,
+  log = () => {},
   watchFn = fs.watch,
   setIntervalFn = setInterval,
   clearIntervalFn = clearInterval,
@@ -93,18 +96,31 @@ function createSessionStatusMonitor({
     const next = new Map(result.sessions.map((s) => [s.key, s.state]))
     if (seen) {
       for (const session of result.sessions) {
-        if (seen.get(session.key) === session.state) continue
-        if (!NOTIFY_STYLE[session.state]) continue
-        if (isPageInFront()) continue
+        const before = seen.get(session.key)
+        if (before === session.state) continue
+        const line = `${session.name} · ${session.source} [${session.key.slice(0, 8)}] ${before || '新'} → ${session.state}`
+        if (!NOTIFY_STYLE[session.state]) {
+          log(`${line}：不发（这个状态不通知）`)
+          continue
+        }
+        if (isPageInFront()) {
+          log(`${line}：不发（正停在会话状态页）`)
+          continue
+        }
         const n = buildSessionNotification(session, iconDir)
-        if (n) {
-          try {
-            notify(n)
-          } catch (error) {
-            console.warn('[session-status] notify failed:', error?.message || error)
-          }
+        try {
+          notify(n)
+          log(`${line}：已发`)
+        } catch (error) {
+          log(`${line}：发送失败 ${error?.message || error}`)
+          console.warn('[session-status] notify failed:', error?.message || error)
         }
       }
+      for (const [key, state] of seen) {
+        if (!next.has(key)) log(`[${key.slice(0, 8)}] ${state} → 消失`)
+      }
+    } else {
+      log(`第一份快照（不通知）：${result.sessions.length} 个会话${result.error ? `，读取失败 ${result.error}` : ''}`)
     }
     seen = next
     onChange(result)

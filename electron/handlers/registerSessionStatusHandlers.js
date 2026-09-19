@@ -21,6 +21,7 @@ const {
   listSessions,
 } = require('../services/sessionStatusService')
 const { createSessionStatusMonitor } = require('../services/sessionStatusMonitor')
+const { createNotifyLog } = require('../services/notifyLog')
 
 // 失败原因里的工具名给页面用
 const TOOL_LABEL = { claude: 'Claude Code', codex: 'Codex', 'codex-trust': 'Codex', all: '会话状态' }
@@ -56,6 +57,8 @@ function registerSessionStatusHandlers({ ipcMain, store, getWindow, notify }) {
     onChange: (result) => send('session-status:changed', result),
     notify,
     iconDir: path.join(__dirname, '..', 'assets', 'notify'),
+    // 和 Codex 调试日志放一起：~/.claude/k28-status-light/notify.log
+    log: createNotifyLog(path.join(path.dirname(STATES_DIR), 'notify.log')),
   })
 
   const toFailures = (list) => list.map((f) => ({

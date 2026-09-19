@@ -5,6 +5,7 @@
  * - 第一份快照只记不通知
  * - 进入「等你确认」「完成了」各发一次，彩色小图与提示音不同；同一状态不重复；进行中不发
  * - 本页在前台时不发；功能关着时列表为空、不发
+ * - 通知日志：每次变化记发没发、为什么；只留 24 小时
  *
  * @module tests/sessionStatusMonitor
  */
@@ -12,11 +13,13 @@
 import { describe, it, expect, vi } from 'vitest'
 import { createRequire } from 'node:module'
 import fs from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const require = createRequire(import.meta.url)
 const { createSessionStatusMonitor, buildSessionNotification } = require('../electron/services/sessionStatusMonitor')
+const { createNotifyLog } = require('../electron/services/notifyLog')
 
 const S = (state, extra = {}) => ({ key: 's1', state, epoch: 1, name: 'skills', source: 'Codex', task: '整理 ISSUES', ...extra })
 
@@ -24,6 +27,7 @@ function setup({ enabled = true, front = false } = {}) {
   let list = { sessions: [], total: 0 }
   const notify = vi.fn()
   const onChange = vi.fn()
+  const log = vi.fn()
   const monitor = createSessionStatusMonitor({
     statesDir: '/tmp/unused',
     listSessions: async () => list,
@@ -32,8 +36,9 @@ function setup({ enabled = true, front = false } = {}) {
     onChange,
     notify,
     iconDir: '/icons',
+    log,
   })
-  return { monitor, notify, onChange, set: (sessions) => { list = { sessions, total: sessions.length } } }
+  return { monitor, notify, onChange, log, set: (sessions) => { list = { sessions, total: sessions.length } } }
 }
 
 describe('sessionStatusMonitor', () => {
@@ -103,6 +108,44 @@ describe('sessionStatusMonitor', () => {
     t.set([S('done')])
     await Promise.all([t.monitor.refresh(), t.monitor.refresh(), t.monitor.refresh()])
     expect(t.notify).toHaveBeenCalledTimes(1)
+  })
+
+  it('通知日志：每次变化都记发没发、为什么；同一状态不重复记', async () => {
+    const t = setup()
+    t.set([S('busy')])
+    await t.monitor.refresh()
+    t.set([S('done')])
+    await t.monitor.refresh()
+    await t.monitor.refresh()
+    t.set([S('stopped')])
+    await t.monitor.refresh()
+    t.set([])
+    await t.monitor.refresh()
+    expect(t.log.mock.calls.map((c) => c[0])).toEqual([
+      '第一份快照（不通知）：1 个会话',
+      'skills · Codex [s1] busy → done：已发',
+      'skills · Codex [s1] done → stopped：不发（这个状态不通知）',
+      '[s1] stopped → 消失',
+    ])
+  })
+
+  it('通知日志：正停在本页时记下没发的原因', async () => {
+    const t = setup({ front: true })
+    await t.monitor.refresh()
+    t.set([S('done')])
+    await t.monitor.refresh()
+    expect(t.log).toHaveBeenLastCalledWith('skills · Codex [s1] 新 → done：不发（正停在会话状态页）')
+  })
+
+  it('通知日志文件只留最近 24 小时', () => {
+    const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'notify-log-')), 'notify.log')
+    const day = 24 * 60 * 60 * 1000
+    let now = new Date(2026, 8, 18, 10, 0, 0).getTime()
+    createNotifyLog(file, { now: () => now })('旧的一行')
+    now += day + 60 * 1000
+    createNotifyLog(file, { now: () => now })('新的一行')
+    const lines = fs.readFileSync(file, 'utf8').trim().split('\n')
+    expect(lines).toEqual(['2026-09-19 10:01:00 新的一行'])
   })
 
   it('读取失败时把原因推给页面', async () => {
