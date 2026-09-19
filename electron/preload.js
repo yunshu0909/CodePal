@@ -628,10 +628,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
     setKeepAlive: (params) => ipcRenderer.invoke('harness:set-keepalive', params)
   },
 
-  // V1.2.4 网络诊断 APIs
+  // 网络诊断（出口 IP）APIs
 
   /**
-   * 获取 IP 监控当前状态（含历史时间线）
+   * 获取出口 IP 当前状态（上次结果、近 7 天变化记录、开关）
    * @returns {Promise<{success: boolean, data: Object}>}
    */
   getIpMonitorState: () => ipcRenderer.invoke('network:getIpMonitorState'),
@@ -668,10 +668,21 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
 
   /**
-   * 并行检测所有 API 端点连通性（OpenAI + Anthropic）
-   * @returns {Promise<{success: boolean, data: Array, error: string|null}>}
+   * 监听主进程要求切页（如点系统通知后切到网络诊断）
+   * @param {(moduleId: string) => void} callback
+   * @returns {() => void} 取消监听函数
    */
-  probeEndpoints: () => ipcRenderer.invoke('network:probeEndpoints'),
+  onNavigate: (callback) => {
+    const handler = (_event, moduleId) => callback(moduleId)
+    ipcRenderer.on('app:navigate', handler)
+    return () => ipcRenderer.removeListener('app:navigate', handler)
+  },
+
+  /**
+   * 领取窗口创建前记下的待跳转模块（领一次即清空）
+   * @returns {Promise<string|null>}
+   */
+  consumePendingNavigation: () => ipcRenderer.invoke('app:consumePendingNavigation'),
 
   // Session 浏览 APIs
 

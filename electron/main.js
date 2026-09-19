@@ -9,7 +9,7 @@
  * @module electron/main
  */
 
-const { app, BrowserWindow, ipcMain, dialog, shell, powerMonitor, net } = require('electron')
+const { app, BrowserWindow, ipcMain, dialog, shell, powerMonitor, net, Notification } = require('electron')
 const path = require('path')
 const fs = require('fs/promises')
 const { randomUUID } = require('crypto')
@@ -83,6 +83,8 @@ const { registerDocBrowserHandlers } = require('./handlers/registerDocBrowserHan
 const { registerK28StatusLightHandlers } = require('./handlers/registerK28StatusLightHandlers')
 const { initDocBrowserStore } = require('./services/docBrowserService')
 const { initializeIpMonitor, setIpMonitorFastMode } = require('./services/networkDiagnosticsService')
+const { createEgressNotifier } = require('./services/egressNotifier')
+const { createNavigationBridge } = require('./services/appNavigation')
 const { registerRepoWatcherHandlers } = require('./handlers/registerRepoWatcherHandlers')
 const { attachNavigationGuard, registerNavigationGuardHandlers } = require('./services/navigationGuardService')
 const { resolveProviderRegistryFilePath } = require('./services/providerRegistryPathService')
@@ -136,6 +138,12 @@ process.stderr.on('error', (err) => {
 })
 
 let mainWindow
+// 主进程要求页面切模块（点系统通知后切到网络诊断）；窗口不在时新建并留待页面领取
+const navigationBridge = createNavigationBridge({
+  getWindow: () => mainWindow,
+  createWindow: () => createWindow(),
+  app,
+})
 // 中央仓库监听服务清理函数
 let repoWatcherCleanup = null
 /**
@@ -277,7 +285,12 @@ app.whenReady().then(async () => {
   })
 
   // 恢复用户明确选择的持续监控；默认关闭时不会发起公网 IP 请求。
-  initializeIpMonitor({ store, getWindow: () => mainWindow })
+  // IP 变了 / 连续测不到时发系统通知，点通知恢复或新建窗口并切到网络诊断。
+  const egressNotifier = createEgressNotifier({
+    NotificationClass: Notification,
+    onClick: () => navigationBridge.requestNavigate('network'),
+  })
+  initializeIpMonitor({ store, getWindow: () => mainWindow, notify: egressNotifier.notify })
 
   // 启动中央仓库文件监听（方向 1：中央→工具自动推送）
   let initialRepoPath = '~/Documents/SkillManager/'
@@ -848,6 +861,8 @@ registerClaudeUsageStatusHandlers({
 registerMcpHandlers({
   ipcMain,
 })
+
+ipcMain.handle('app:consumePendingNavigation', () => navigationBridge.consumePending())
 
 registerNetworkDiagnosticsHandlers({
   ipcMain,

@@ -2,14 +2,12 @@
  * 网络诊断 IPC 处理模块
  *
  * 负责：
- * - 注册 IP 监控状态查询/控制 IPC channel
- * - 注册 API 端点连通性检测 IPC channel
+ * - 注册出口 IP 状态查询 / 单次检测 / 前后台频率 / 持续监控开关 IPC channel
  *
  * @module electron/handlers/registerNetworkDiagnosticsHandlers
  */
 
 const {
-  probeAllEndpoints,
   probeIpOnce,
   getIpMonitorState,
   setIpMonitorFastMode,
@@ -58,18 +56,6 @@ function registerNetworkDiagnosticsHandlers({ ipcMain }) {
       return { success: true, data: getIpMonitorState(), error: null }
     } catch (error) {
       return { success: false, data: getIpMonitorState(), error: error.message }
-    }
-  })
-
-  /**
-   * 并行检测所有 API 端点连通性
-   */
-  ipcMain.handle('network:probeEndpoints', async () => {
-    try {
-      const results = await probeAllEndpoints()
-      return { success: true, data: results, error: null }
-    } catch (error) {
-      return { success: false, data: null, error: error.message }
     }
   })
 }

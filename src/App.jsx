@@ -29,6 +29,7 @@ import K28StatusLightPage from './pages/K28StatusLightPage'
 import Toast from './components/Toast'
 import { dataStore } from './store/data'
 import { setPricingOverride } from './store/costCalculator'
+import useMainNavigation from './hooks/useMainNavigation'
 
 const AUTO_INCREMENTAL_REFRESH_INTERVAL_MS = 5 * 60 * 1000
 const DEFAULT_ACTIVE_MODULE = 'permission'
@@ -205,6 +206,9 @@ export default function App() {
     setActiveModule(moduleId)
     localStorage.setItem('codepal-active-module', moduleId)
   }
+
+  // 主进程要求切页（点系统通知后切到网络诊断）
+  useMainNavigation((moduleId) => handleModuleChange(moduleId), VALID_ACTIVE_MODULES)
 
   useEffect(() => {
     if (activeModule === 'mcp') {
