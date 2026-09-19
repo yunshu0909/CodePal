@@ -60,7 +60,7 @@ beforeAll(async () => {
   ;({ setPermissionMode, resetPermissionMode, restorePermissionMode } = require('../../electron/handlers/permissionModeHandlers'))
   ;({ setModelConfig, resetModelConfig } = require('../../electron/handlers/modelConfigHandlers'))
   ;({ createClaudeUsageStatusService } = require('../../electron/services/claudeUsageStatusService'))
-  k28Private = require('../../electron/services/k28StatusLightService')._private
+  k28Private = require('../../electron/services/sessionStatusService')._private
 })
 
 afterAll(async () => {

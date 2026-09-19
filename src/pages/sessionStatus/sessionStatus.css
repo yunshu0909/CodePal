@@ -1,0 +1,44 @@
+/**
+ * 会话状态页专属样式（只写本页结构和尺寸，颜色 / 字体用全局 tokens，共用件见 styles/native.css）
+ */
+
+.ss-page .np-row .lf {
+  flex: 1;
+}
+
+.ss-page .ss-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 行右侧：状态标签 + 时间，永不换行 */
+.ss-page .ss-acts {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  flex: none;
+}
+
+.ss-page .ss-time {
+  font-family: var(--num);
+  font-size: 12px;
+  color: var(--fg-3);
+  white-space: nowrap;
+}
+
+/* 分组小标题右端的计数 */
+.ss-page .ss-count {
+  margin-left: auto;
+  font-family: var(--num);
+  font-weight: 400;
+}
+
+/* 检测到的工具：名称常规字重，值次级灰右对齐 */
+.ss-page .ss-kv-l {
+  font-weight: 400;
+}
+
+.ss-page .ss-kv-v {
+  color: var(--fg-2);
+  white-space: nowrap;
+}

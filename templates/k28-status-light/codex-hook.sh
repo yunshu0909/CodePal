@@ -3,6 +3,7 @@
 # 用法（codex-hooks.json 里）：bash codex-hook.sh <busy|done|attention|idle>
 DIR="$HOME/.claude/k28-status-light"
 PYBIN="$DIR/.venv/bin/python"
+[ -x "$PYBIN" ] || PYBIN="$(command -v python3 || echo /usr/bin/python3)"
 STATES="$DIR/states"
 STATE="$1"
 INPUT=""
@@ -60,7 +61,7 @@ clear_if_due() {
   TARGET_MARK="$2"
   TARGET_TS="$3"
   NOW=$(date +%s)
-  [ $((NOW - TARGET_TS)) -lt 600 ] && return 1
+  [ $((NOW - TARGET_TS)) -lt 1800 ] && return 1
   if [ -f "$TARGET_FILE" ]; then
     CURRENT_TS=$(awk -F "\t" "{print \$2}" "$TARGET_FILE" 2>/dev/null)
     [ "$CURRENT_TS" = "$TARGET_TS" ] || return 1
@@ -110,23 +111,22 @@ for ORPHAN_MARK in "$DIR"/codex-clear-*.mark; do
   esac
   if clear_if_due "$STATES/$ORPHAN_KEY.txt" "$ORPHAN_MARK" "$ORPHAN_TS"; then
     rm -f "$ORPHAN_PIDFILE"
-    nohup "$PYBIN" "$DIR/k28_render.py" >/dev/null 2>&1 &
   else
     NOW=$(date +%s)
-    REMAINING=$((600 - (NOW - ORPHAN_TS)))
+    REMAINING=$((1800 - (NOW - ORPHAN_TS)))
     schedule_timer "$STATES/$ORPHAN_KEY.txt" "$ORPHAN_MARK" "$ORPHAN_TS" "$ORPHAN_PIDFILE" "$REMAINING"
   fi
 done
 
-# Codex Desktop 没有可靠的窗口关闭事件：完成后保留绿灯 10 分钟，再回到待机保底。
+# Codex 没有可靠的窗口关闭事件：完成后 30 分钟没有新动静就清掉，CodePal 列表里这条随之消失。
 case "$STATE" in
   done)
     cancel_timer
     TS=$(date +%s)
     printf '%s\n' "$TS" > "$MARK"
-    schedule_timer "$FILE" "$MARK" "$TS" "$PIDFILE" 600
+    schedule_timer "$FILE" "$MARK" "$TS" "$PIDFILE" 1800
     ;;
-  busy|attention|idle)
+  busy|attention|idle|clear)
     cancel_timer
     rm -f "$MARK"
     ;;

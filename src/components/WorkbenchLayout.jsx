@@ -28,7 +28,7 @@ const IS_MAC = typeof navigator !== 'undefined' && /Macintosh|Mac OS X/.test(nav
  * 工作台布局组件
  * @param {Object} props
  * @param {React.ReactNode} props.children - 内容区域要渲染的子元素
- * @param {'skills'|'mcp'|'usage'|'claude-usage'|'api'|'project-init'|'permission'|'network'|'k28-status-light'|'sessions'|'doc-browser'} props.activeModule - 当前激活的模块
+ * @param {'skills'|'mcp'|'usage'|'claude-usage'|'api'|'project-init'|'permission'|'network'|'session-status'|'sessions'|'doc-browser'} props.activeModule - 当前激活的模块
  * @param {function} props.onModuleChange - 模块切换回调函数
  * @param {object} [props.appUpdate] - 应用更新状态（hasUpdate / latestVersion / releaseNotes / checked / error）
  * @param {function} [props.onDownloadUpdate] - 「下载新版」：打开发布页
@@ -65,6 +65,7 @@ function WorkbenchLayout({ children, activeModule, onModuleChange, appUpdate, on
       label: '项目开发',
       items: [
         { id: 'project-init', label: '新建项目' },
+        { id: 'session-status', label: '会话状态' },
         { id: 'sessions', label: '对话回顾' },
         { id: 'doc-browser', label: '文档查阅' }
       ]
@@ -83,8 +84,7 @@ function WorkbenchLayout({ children, activeModule, onModuleChange, appUpdate, on
       items: [
         // 'api' 供应商切换模块已断接线隔离（v1.9.8），代码在 _disabled/api-config/，恢复步骤见其 README
         { id: 'permission', label: 'Claude Code 设置' },
-        { id: 'network', label: '网络诊断' },
-        { id: 'k28-status-light', label: '状态灯' }
+        { id: 'network', label: '网络诊断' }
       ]
     }
   ]

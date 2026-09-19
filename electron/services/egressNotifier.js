@@ -19,9 +19,10 @@
 function createEgressNotifier({ NotificationClass, onClick }) {
   const pending = new Set()
 
-  function notify({ title, body }) {
+  function notify({ title, body, icon, sound }) {
     if (!NotificationClass || (typeof NotificationClass.isSupported === 'function' && !NotificationClass.isSupported())) return
-    const notification = new NotificationClass({ title, body })
+    // icon / sound 可选：会话状态用右边彩色小图 + 两种提示音区分完成与等你确认
+    const notification = new NotificationClass({ title, body, ...(icon ? { icon } : {}), ...(sound ? { sound } : {}) })
     pending.add(notification)
     notification.on('click', () => {
       pending.delete(notification)

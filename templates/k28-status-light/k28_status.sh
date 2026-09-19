@@ -1,16 +1,18 @@
 #!/bin/bash
-# K28 多项目状态灯 + 语音：写本窗口状态 → 渲染所有窗口 → 播报。后台执行，不阻塞。
+# CodePal「会话状态」钩子：把本会话的状态写进 states/，CodePal 读它显示列表、发系统通知。
 # 全局工具，对所有项目生效。用法: k28_status.sh <busy|done|attention|idle|clear>
+# （目录名 k28-status-light 是旧状态灯留下的，为兼容已装的钩子不改名；K28 亮灯和语音播报已停用、代码已删）
 #
-# 来源标记：环境变量 K28_SRC（默认 Claude）。Codex 路径在 codex-hook.sh / codex-notify.sh
-#   里设 K28_SRC=Codex，于是播报会说"Claude 的 X"还是"Codex 的 X"，多窗口并行时能分辨是谁。
+# 来源标记：环境变量 K28_SRC（默认 Claude）。Codex 路径在 codex-hook.sh / codex-notify.sh 里设 K28_SRC=Codex。
 #
 # hook 从 stdin 传入 JSON：
 #   - session_id 作窗口唯一标识（一个窗口=一盏灯，bash 切目录不影响）；cwd 文件夹名作项目名
-#   - busy(UserPromptSubmit) 带 prompt → 取"在干嘛"摘要；attention(AskUserQuestion) 带 tool_input → 取"问什么"
-#   - 任务摘要在 busy 时存进 <key>.task，done 时复用，精准对应"做完了啥"，无需解析对话/调模型
+#   - busy(UserPromptSubmit) 带 prompt → 取前 30 字作「在干嘛」存进 <key>.task（本地截断，不调模型），done 时保留
+#   - attention(AskUserQuestion) 带 tool_input → 取「问什么」存进 <key>.ask，回到 busy / done / clear 时删掉
 DIR="$HOME/.claude/k28-status-light"
 PYBIN="$DIR/.venv/bin/python"
+# 旧状态灯装过 venv 就用它；新安装不再建 venv，退回系统 python3（只用来解析钩子传进来的 JSON）
+[ -x "$PYBIN" ] || PYBIN="$(command -v python3 || echo /usr/bin/python3)"
 STATES="$DIR/states"
 CONF="$DIR/tts.conf"
 mkdir -p "$STATES"
@@ -21,9 +23,8 @@ conf_value() {
   awk -F= -v k="$1" '$1 == k {print substr($0, index($0, "=") + 1); exit}' "$CONF" 2>/dev/null
 }
 
-# CodePal 控制台会写入这两个开关。总开关关闭时保留 clear 能力，便于撤掉旧状态。
+# 总闸：CodePal「会话状态」打开时写 1；为 0 时只保留 clear 能力，便于撤掉旧状态。
 STATUS_LIGHT_ENABLED="$(conf_value STATUS_LIGHT_ENABLED)"
-VOICE_ENABLED="$(conf_value VOICE_ENABLED)"
 [ "$STATUS_LIGHT_ENABLED" = "0" ] && [ "$STATE" != "clear" ] && exit 0
 
 INPUT=""
@@ -44,7 +45,7 @@ q = ''
 ti = d.get('tool_input') or {}
 qs = ti.get('questions') if isinstance(ti, dict) else None
 if isinstance(qs, list) and qs and isinstance(qs[0], dict):
-    q = clip(qs[0].get('header') or qs[0].get('question'), 18)
+    q = clip(qs[0].get('question') or qs[0].get('header'), 60)
 print('\t'.join([sid, cwd, prompt, q]))
 " 2>/dev/null)
 SID=$(printf '%s' "$META" | cut -f1)
@@ -57,6 +58,7 @@ NAME=$(basename "$CWD")
 KEY=$(printf '%s' "$SID" | tr -c 'A-Za-z0-9' '_')
 FILE="$STATES/$KEY.txt"
 TASKFILE="$STATES/$KEY.task"
+ASKFILE="$STATES/$KEY.ask"
 
 # 防幽灵：项目名取成 "/"、"." 或空（cwd 异常）时，非 clear 一律忽略，不写灯。
 if [ "$STATE" != "clear" ]; then
@@ -80,55 +82,33 @@ fi
 
 # 写/清本窗口状态。
 # Codex 的 SessionStart 常代表 subagent/新工作线程已开始运行；视觉上应按 busy 处理，但保留 idle 事件本身不播报。
+# Claude 的 SessionStart（打开 / 恢复 / 压缩上下文）不代表开始干活，也不代表做完：不写，保持原状态。
 WSTATE="$STATE"
 if [ "$STATE" = "idle" ]; then
   if [ "$SRC" = "Codex" ]; then
     WSTATE="busy"
   else
-    WSTATE="done"
+    exit 0
   fi
 fi
 if [ "$STATE" = "clear" ]; then
-  rm -f "$FILE" "$TASKFILE"
+  rm -f "$FILE" "$TASKFILE" "$ASKFILE"
 else
   printf '%s\t%s\t%s\t%s\n' "$WSTATE" "$(date +%s)" "$NAME" "${K28_SRC:-Claude}" > "$FILE"
 fi
 
-# busy 时把任务摘要存起来（仅在拿到 prompt 时覆盖；PostToolUse 恢复的 busy 无 prompt，保留原摘要）
-GIST=""
+# busy 时把「在干嘛」存起来：取你这句话的前 30 字（本地截断，不调模型）。
+# 仅在拿到 prompt 时覆盖；PostToolUse 恢复的 busy 没有 prompt，保留原句。done 时保留，给列表和通知用。
 if [ "$STATE" = "busy" ] && [ -n "$PROMPT" ]; then
-  GIST=$(printf '%s' "$PROMPT" | "$PYBIN" "$DIR/summarize_task.py" 2>/dev/null)
-  [ -z "$GIST" ] && GIST=$(printf '%s' "$PROMPT" | "$PYBIN" -c "import sys; print(' '.join(sys.stdin.read().split())[:18])" 2>/dev/null)
+  GIST=$(printf '%s' "$PROMPT" | "$PYBIN" -c "import sys; print(' '.join(sys.stdin.read().split())[:30])" 2>/dev/null)
   [ -n "$GIST" ] && printf '%s' "$GIST" > "$TASKFILE"
-elif [ -f "$TASKFILE" ]; then
-  GIST=$(cat "$TASKFILE" 2>/dev/null)
 fi
 
-# 渲染所有在跑窗口（后台，内部文件锁串行）
-nohup "$PYBIN" "$DIR/k28_render.py" >/dev/null 2>&1 &
-
-# 语音播报：来源 + 项目名 + 具体内容（豆包柔美女友；失败静默跳过，不回退系统原声；clear/idle 不播）
-VOICE=""
-case "$STATE" in
-  busy)
-    if [ -n "$GIST" ]; then VOICE="${SRC} 的 ${NAME}，开始 ${GIST}"; else VOICE="${SRC} 的 ${NAME} 开始干活"; fi ;;
-  done)
-    TASK=""; [ -f "$TASKFILE" ] && TASK=$(cat "$TASKFILE" 2>/dev/null); rm -f "$TASKFILE"
-    if [ -n "$TASK" ]; then VOICE="${SRC} 的 ${NAME}，${TASK} 完成啦"; else VOICE="${SRC} 的 ${NAME} 完成啦"; fi ;;
-  attention)
-    if [ -n "$QUES" ]; then VOICE="${SRC} 的 ${NAME} 想问你，${QUES}"; else VOICE="${SRC} 的 ${NAME} 需要你做个选择"; fi ;;
-esac
-if [ -n "$VOICE" ] && [ "$VOICE_ENABLED" != "0" ]; then
-  # Codex/Claude hooks may reap background children after the hook exits.
-  # Submit TTS to the per-user launchd instead, so long first-time synth can finish.
-  # launchctl mangles non-ASCII argv on this system, so pass voice text via a UTF-8 file.
-  JOBDIR="$DIR/tts_jobs"
-  mkdir -p "$JOBDIR"
-  VOICEFILE="$JOBDIR/$(date +%s).$$.$RANDOM.txt"
-  printf '%s' "$VOICE" > "$VOICEFILE"
-  LABEL="com.yunshu.k28.tts.$(date +%s).$$.$RANDOM"
-  launchctl submit -l "$LABEL" -- /bin/bash "$DIR/tts_launchd_job.sh" "$LABEL" "$PYBIN" "$DIR/tts_say.py" "$VOICEFILE" >/dev/null 2>&1 ||
-    nohup "$PYBIN" "$DIR/tts_say.py" --file "$VOICEFILE" >/dev/null 2>&1 &
+# 「问什么」：attention 时存，离开 attention 时删
+if [ "$STATE" = "attention" ]; then
+  if [ -n "$QUES" ]; then printf '%s' "$QUES" > "$ASKFILE"; else rm -f "$ASKFILE"; fi
+else
+  rm -f "$ASKFILE"
 fi
 
 exit 0

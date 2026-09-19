@@ -4,6 +4,7 @@
 # Codex 外部 notify 只有 agent-turn-complete（一轮结束）→ 映射为 done(绿)。无 busy/attention。
 DIR="$HOME/.claude/k28-status-light"
 PYBIN="$DIR/.venv/bin/python"
+[ -x "$PYBIN" ] || PYBIN="$(command -v python3 || echo /usr/bin/python3)"
 JSON="$1"
 SKY="/Users/yunshu/.codex-switcher/shared/.codex/computer-use/Codex Computer Use.app/Contents/SharedSupport/SkyComputerUseClient.app/Contents/MacOS/SkyComputerUseClient"
 

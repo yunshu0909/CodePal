@@ -24,7 +24,7 @@ import PluginControlPage from './pages/PluginControlPage'
 import NetworkDiagnosticsPage from './pages/NetworkDiagnosticsPage'
 import SessionBrowserPage from './pages/SessionBrowserPage'
 import DocBrowserPage from './pages/DocBrowserPage'
-import K28StatusLightPage from './pages/K28StatusLightPage'
+import SessionStatusPage from './pages/SessionStatusPage'
 import { toast } from './components/Toast'
 import { dataStore } from './store/data'
 import { setPricingOverride } from './store/costCalculator'
@@ -33,7 +33,7 @@ import useMainNavigation from './hooks/useMainNavigation'
 const AUTO_INCREMENTAL_REFRESH_INTERVAL_MS = 5 * 60 * 1000
 // 首次打开、或记住的页面已下线时进侧栏第一项（2026-09-19 用户定）
 const DEFAULT_ACTIVE_MODULE = 'usage'
-const VALID_ACTIVE_MODULES = new Set(['skills', 'plugins', 'mcp', 'usage', 'claude-usage', 'project-init', 'permission', 'network', 'k28-status-light', 'sessions', 'doc-browser'])
+const VALID_ACTIVE_MODULES = new Set(['skills', 'plugins', 'mcp', 'usage', 'claude-usage', 'project-init', 'permission', 'network', 'session-status', 'sessions', 'doc-browser'])
 const INITIAL_APP_UPDATE_STATE = Object.freeze({
   checked: false,
   checking: false,
@@ -48,10 +48,13 @@ const INITIAL_APP_UPDATE_STATE = Object.freeze({
 
 /**
  * 读取上次访问的模块，并过滤已下线模块
- * @returns {'skills'|'plugins'|'mcp'|'usage'|'claude-usage'|'project-init'|'permission'|'network'|'k28-status-light'|'sessions'|'doc-browser'}
+ * @returns {'skills'|'plugins'|'mcp'|'usage'|'claude-usage'|'project-init'|'permission'|'network'|'session-status'|'sessions'|'doc-browser'}
  */
 function getInitialActiveModule() {
-  const storedModule = localStorage.getItem('codepal-active-module')
+  // 原「状态灯」已改名为「会话状态」（#41），记住的旧模块直接带过去
+  const storedModule = localStorage.getItem('codepal-active-module') === 'k28-status-light'
+    ? 'session-status'
+    : localStorage.getItem('codepal-active-module')
   return VALID_ACTIVE_MODULES.has(storedModule) ? storedModule : DEFAULT_ACTIVE_MODULE
 }
 
@@ -323,7 +326,7 @@ export default function App() {
         {activeModule === 'project-init' && <ProjectInitPage />}
         {activeModule === 'permission' && <PermissionModePage />}
         {activeModule === 'network' && <NetworkDiagnosticsPage />}
-        {activeModule === 'k28-status-light' && <K28StatusLightPage />}
+        {activeModule === 'session-status' && <SessionStatusPage />}
         {activeModule === 'sessions' && <SessionBrowserPage />}
         {activeModule === 'doc-browser' && <DocBrowserPage />}
       </WorkbenchLayout>

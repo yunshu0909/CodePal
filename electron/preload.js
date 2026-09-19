@@ -377,58 +377,44 @@ contextBridge.exposeInMainWorld('electronAPI', {
    */
   getPricingRegistry: () => ipcRenderer.invoke('pricing-registry:get'),
 
-  // K28 状态灯 APIs
+  // 会话状态 APIs（#41，取代 K28 状态灯）
 
   /**
-   * 获取 K28 状态灯配置与运行状态
-   * @returns {Promise<{success: boolean, data?: object, error?: string|null}>}
+   * 读会话状态：开关、检测到的工具、钩子是否已装、装失败原因、可见会话
+   * @returns {Promise<{success: boolean, data?: object, error?: string}>}
    */
-  getK28StatusLightState: () => ipcRenderer.invoke('k28-status-light:get-state'),
+  getSessionStatus: () => ipcRenderer.invoke('session-status:get'),
 
   /**
-   * 一键安装或修复 K28 状态灯底层脚本、Python 依赖和 hooks
-   * @returns {Promise<{success: boolean, steps?: Array, state?: object|null, error?: string|null}>}
+   * 打开 / 关掉会话状态：打开 = 装钩子，关掉 = 删钩子并清空
+   * @param {boolean} enabled
+   * @returns {Promise<{success: boolean, data?: object, error?: string}>}
    */
-  installK28StatusLight: () => ipcRenderer.invoke('k28-status-light:install'),
+  setSessionStatusEnabled: (enabled) => ipcRenderer.invoke('session-status:set-enabled', enabled),
 
   /**
-   * 保存 K28 状态灯配置；API Key 空值表示保留旧值
-   * @param {Object} updates - 配置更新
-   * @returns {Promise<{success: boolean, data?: object, backupPath?: string|null, error?: string|null}>}
+   * 某一边钩子没装上时重试
+   * @returns {Promise<{success: boolean, data?: object, error?: string}>}
    */
-  saveK28StatusLightConfig: (updates) => ipcRenderer.invoke('k28-status-light:save-config', updates),
+  retrySessionStatus: () => ipcRenderer.invoke('session-status:retry'),
 
   /**
-   * 测试 K28 豆包语音播报
-   * @param {string} text - 测试文本
-   * @returns {Promise<{success: boolean, error?: string|null}>}
+   * 告诉主进程会话状态页是否正在前台显示（在前台时不弹通知）
+   * @param {boolean} visible
+   * @returns {Promise<{success: boolean}>}
    */
-  testK28Voice: (text) => ipcRenderer.invoke('k28-status-light:test-voice', text),
+  setSessionStatusPageVisible: (visible) => ipcRenderer.invoke('session-status:set-page-visible', visible),
 
   /**
-   * 测试 K28 状态灯颜色
-   * @param {'busy'|'done'|'attention'|'idle'} state - 状态
-   * @returns {Promise<{success: boolean, error?: string|null}>}
+   * 订阅会话列表变化（状态文件一变就推）
+   * @param {(payload: {sessions: Array<object>, total: number, error: string|null}) => void} callback
+   * @returns {() => void} 取消订阅
    */
-  testK28Light: (state) => ipcRenderer.invoke('k28-status-light:test-light', state),
-
-  /**
-   * 清空 K28 状态文件并回到待机图案
-   * @returns {Promise<{success: boolean, error?: string|null}>}
-   */
-  clearK28States: () => ipcRenderer.invoke('k28-status-light:clear-states'),
-
-  /**
-   * 立即修复 K28 抢占系统音频输出
-   * @returns {Promise<{success: boolean, data?: object|null, error?: string|null}>}
-   */
-  fixK28AudioOutput: () => ipcRenderer.invoke('k28-status-light:fix-audio-output'),
-
-  /**
-   * 打开 K28 全局工具目录
-   * @returns {Promise<{success: boolean, error?: string|null}>}
-   */
-  openK28Directory: () => ipcRenderer.invoke('k28-status-light:open-directory'),
+  onSessionStatusChanged: (callback) => {
+    const handler = (_event, payload) => callback(payload)
+    ipcRenderer.on('session-status:changed', handler)
+    return () => ipcRenderer.removeListener('session-status:changed', handler)
+  },
 
   // Claude Code 会员额度状态 APIs
 

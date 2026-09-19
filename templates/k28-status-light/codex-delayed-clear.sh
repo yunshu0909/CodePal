@@ -25,4 +25,3 @@ if [ -f "$FILE" ]; then
 fi
 
 rm -f "$MARK" "$PIDFILE"
-"$PYBIN" "$DIR/k28_render.py" >/dev/null 2>&1

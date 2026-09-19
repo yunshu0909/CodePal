@@ -79,7 +79,7 @@ const { registerNetworkDiagnosticsHandlers } = require('./handlers/registerNetwo
 const { registerSessionBrowserHandlers } = require('./handlers/registerSessionBrowserHandlers')
 const { registerSessionResumeHandlers } = require('./handlers/registerSessionResumeHandlers')
 const { registerDocBrowserHandlers } = require('./handlers/registerDocBrowserHandlers')
-const { registerK28StatusLightHandlers } = require('./handlers/registerK28StatusLightHandlers')
+const { registerSessionStatusHandlers } = require('./handlers/registerSessionStatusHandlers')
 const { initDocBrowserStore } = require('./services/docBrowserService')
 const { initializeIpMonitor, setIpMonitorFastMode } = require('./services/networkDiagnosticsService')
 const { createEgressNotifier } = require('./services/egressNotifier')
@@ -93,6 +93,8 @@ const PROVIDER_REGISTRY_FILE_PATH = resolveProviderRegistryFilePath()
 const PROVIDER_REGISTRY_MCP_SCRIPT_PATH = path.resolve(__dirname, '..', 'mcp', 'provider_registry_mcp.js')
 
 const store = new Store()
+// 会话状态监听（启动后赋值，退出时停）
+let sessionStatus = null
 // usageStatistics 在下方创建；earliestFn 只在读取账本时才调用，届时已就绪
 const planLedger = createPlanStoreService({ store, metadataFn: readPlanMetadata, earliestFn: id => usageStatistics.getSourceEarliestDate(id) })
 const usageStatistics = createSharedUsageStatistics()
@@ -262,7 +264,6 @@ app.whenReady().then(async () => {
 
   registerModelRegistryHandlers({ ipcMain })
   registerPricingRegistryHandlers({ ipcMain })
-  registerK28StatusLightHandlers({ ipcMain, shell })
 
   createWindow()
   // The sampling clock belongs to the app process, including when macOS has no window.
@@ -298,6 +299,14 @@ app.whenReady().then(async () => {
   })
   initializeIpMonitor({ store, getWindow: () => mainWindow, notify: egressNotifier.notify })
 
+  // 会话状态（#41）：默认开着，启动时静默装好钩子并监听状态；完成 / 等你确认时发系统通知，点通知切到会话状态页
+  const sessionNotifier = createEgressNotifier({
+    NotificationClass: Notification,
+    onClick: () => navigationBridge.requestNavigate('session-status'),
+  })
+  sessionStatus = registerSessionStatusHandlers({ ipcMain, store, getWindow: () => mainWindow, notify: sessionNotifier.notify })
+  sessionStatus.start().catch((error) => console.warn('[session-status] start failed:', error?.message || error))
+
   // 启动中央仓库文件监听（方向 1：中央→工具自动推送）
   let initialRepoPath = '~/Documents/SkillManager/'
   try {
@@ -326,6 +335,7 @@ app.on('window-all-closed', () => {
 
 app.on('before-quit', () => {
   usageScheduler.stop()
+  sessionStatus?.stop()
 })
 
 app.on('activate', () => {
