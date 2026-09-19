@@ -20,8 +20,8 @@ export default function GoalPopover({goal,month,onSave,onClose}) {
     document.addEventListener('keydown',escape);return()=>document.removeEventListener('keydown',escape)
   },[onClose])
   const parsed=parseGoalInput(text),tokens=parsed?parsed.value*(parsed.unit==='B'?1e9:1e6):0
-  return <div className="uc-popover" ref={element} role="dialog" aria-label="用量目标">
-    <b>用量目标</b><label>每天<input autoFocus aria-label="每日目标" aria-invalid={Boolean(error)} disabled={saving} value={text} placeholder="300M" onChange={e=>{setText(e.target.value);setError('')}} onKeyDown={e=>{if(e.key==='Enter'){e.preventDefault();commit()}}} onBlur={commit}/></label>
+  return <div className="uc-popover np-pop" ref={element} role="dialog" aria-label="用量目标">
+    <b>用量目标</b><label>每天<input className="np-in" autoFocus aria-label="每日目标" aria-invalid={Boolean(error)} disabled={saving} value={text} placeholder="300M" onChange={e=>{setText(e.target.value);setError('')}} onKeyDown={e=>{if(e.key==='Enter'){e.preventDefault();commit()}}} onBlur={commit}/></label>
     {error&&<span role="alert">{error}</span>}
     <small>每月目标 = 每天 × 当月天数（{getMonthDays(month)}天{tokens?` = ${formatToken(tokens*getMonthDays(month))}`:''}）· 回车保存</small>
   </div>

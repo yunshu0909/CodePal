@@ -8,6 +8,10 @@
  * - 支持头部分隔线（divider）
  * - 所有标准页面通过此组件保持视觉一致
  *
+ * 变体：
+ * - native：新样式（Native+）页面外壳——工具栏 52 高、页名在工具栏里、内容区白底贴边撑满；
+ *   内容放进 .np-scroll（内边距 14 / 20 / 20，自己滚动）。旧样式页面不传。
+ *
  * className 变体：
  * - 默认：白卡 + 32px padding，适合普通页面
  * - page-shell--no-padding：无内边距，适合内部自带 padding 的复杂布局（双栏、表格页）
@@ -16,6 +20,7 @@
  */
 
 import './PageShell.css'
+import '../styles/native.css'
 
 /**
  * 页面外壳 — 白卡容器 + 标准页面头
@@ -25,11 +30,12 @@ import './PageShell.css'
  * @param {boolean} [divider=false] - 是否在头部下方显示分隔线（--no-padding 布局常用）
  * @param {React.ReactNode} children - 页面内容
  * @param {string} [className] - 附加 class，用于特殊布局场景的样式覆盖
+ * @param {boolean} [native=false] - 新样式页面外壳（见文件头）
  * @returns {JSX.Element}
  */
-export default function PageShell({ title, subtitle, actions, divider = false, children, className = '' }) {
+export default function PageShell({ title, subtitle, actions, divider = false, children, className = '', native = false }) {
   return (
-    <div className={`page-shell${className ? ` ${className}` : ''}`}>
+    <div className={`page-shell${native ? ' page-shell--native' : ''}${className ? ` ${className}` : ''}`}>
       <header className={`page-shell__header${divider ? ' page-shell__header--divider' : ''}`}>
         <div className="page-shell__header-main">
           <h1 className="page-shell__title">{title}</h1>

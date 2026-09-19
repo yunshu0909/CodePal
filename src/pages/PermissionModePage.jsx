@@ -142,37 +142,37 @@ export default function PermissionModePage() {
   else modeDesc = descLine('未配置 · 由 Claude 决定')
 
   return (
-    <PageShell title="Claude Code 设置" className="cc-page">
-      <div className="cc-scroll">
+    <PageShell title="Claude Code 设置" native className="cc-page">
+      <div className="cc-scroll np-scroll">
         {loading ? (
           <div data-testid="cc-skeleton">
-            <div className="cc-card"><div className="cc-row"><span className="cc-sk" style={{ width: 110 }} /><span className="cc-sk" style={{ width: 128, height: 24 }} /></div></div>
-            <div className="cc-gl">状态栏</div>
-            <div className="cc-card">{[70, 80].map((w) => <div className="cc-row" key={w}><span className="cc-sk" style={{ width: w }} /><span className="cc-sk" style={{ width: 64, height: 20 }} /></div>)}</div>
-            <div className="cc-gl">终端预览</div>
+            <div className="cc-card np-card np-card--form"><div className="cc-row np-row"><span className="cc-sk np-sk" style={{ width: 110 }} /><span className="cc-sk np-sk" style={{ width: 128, height: 24 }} /></div></div>
+            <div className="cc-gl np-glabel">状态栏</div>
+            <div className="cc-card np-card np-card--form">{[70, 80].map((w) => <div className="cc-row np-row" key={w}><span className="cc-sk np-sk" style={{ width: w }} /><span className="cc-sk np-sk" style={{ width: 64, height: 20 }} /></div>)}</div>
+            <div className="cc-gl np-glabel">终端预览</div>
             <div className="cc-term sk" />
           </div>
         ) : (
           <>
-            <div className="cc-card">
-              <div className="cc-row">
+            <div className="cc-card np-card np-card--form">
+              <div className="cc-row np-row">
                 <div className="lf"><div className="lb">默认权限模式</div>{modeDesc}</div>
                 {perm.error
-                  ? <Button size="sm" className="cc-btn" onClick={reloadPerm}>重试</Button>
+                  ? <Button size="sm" className="cc-btn np-btn" onClick={reloadPerm}>重试</Button>
                   : <PermissionModeSelect mode={perm.mode} disabled={switching} onSelect={select} />}
               </div>
             </div>
-            <div className="cc-gl">状态栏</div>
-            <div className="cc-card">
-              <div className="cc-row">
+            <div className="cc-gl np-glabel">状态栏</div>
+            <div className="cc-card np-card np-card--form">
+              <div className="cc-row np-row">
                 <div className="lb">接入状态</div>
                 <span className="cc-acts">
-                  <span className={`cc-st ${view.tone}`}><i />{view.text}</span>
+                  <span className={`cc-st np-st ${view.tone}`}><i />{view.text}</span>
                   {view.action && (
                     <Button
                       size="sm"
                       variant={view.action.primary ? 'primary' : 'secondary'}
-                      className="cc-btn"
+                      className="cc-btn np-btn"
                       disabled={installing}
                       onClick={() => onAction(view.action.kind)}
                     >
@@ -181,12 +181,12 @@ export default function PermissionModePage() {
                   )}
                 </span>
               </div>
-              <div className={`cc-row${connected ? '' : ' dis'}`}>
+              <div className={`cc-row np-row${connected ? '' : ' dis'}`}>
                 <div className="lb">显示状态栏</div>
                 <Toggle checked={shown} disabled={!connected || saving} onChange={onToggle} />
               </div>
             </div>
-            <div className="cc-gl">终端预览</div>
+            <div className="cc-gl np-glabel">终端预览</div>
             <TerminalPreview mode={perm.error ? null : perm.mode} showStatusLine={shown} />
           </>
         )}

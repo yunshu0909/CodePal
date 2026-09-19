@@ -37,14 +37,14 @@ export default function CyclePricePopover({
     } else setSaving(false);
   }
   const hint = invalid ? '订阅费要大于 0。' : saving ? '保存中…' : '只改这一期，其他期不变。回车保存。';
-  return <div className="plan-pop" ref={root} role="dialog" aria-label={`${monthDay(cycle.start)} – ${monthDay(cycle.end)} 这一期`} data-testid="plan-cycle-price-popover" onKeyDown={e => {
+  return <div className="plan-pop np-pop" ref={root} role="dialog" aria-label={`${monthDay(cycle.start)} – ${monthDay(cycle.end)} 这一期`} data-testid="plan-cycle-price-popover" onKeyDown={e => {
     if (e.key === 'Enter') {
       e.preventDefault();
       void submit();
     }
   }}>
   <div className="plan-pop-title">{monthDay(cycle.start)} – {monthDay(cycle.end)} 这一期</div>
-  <label className="plan-pop-row"><span>订阅费</span><div className={`plan-in ${saving ? 'plan-busy' : ''}`}><span>$</span><input aria-label="订阅费" inputMode="decimal" autoFocus value={value} disabled={saving} aria-invalid={invalid} onChange={e => setValue(e.target.value)} /></div></label>
+  <label className="plan-pop-row"><span>订阅费</span><div className={`plan-in np-in ${saving ? 'plan-busy' : ''}`}><span>$</span><input aria-label="订阅费" inputMode="decimal" autoFocus value={value} disabled={saving} aria-invalid={invalid} onChange={e => setValue(e.target.value)} /></div></label>
   <div className={`plan-hint ${invalid ? 'plan-warn' : ''}`}>{hint}</div>
  </div>;
 }

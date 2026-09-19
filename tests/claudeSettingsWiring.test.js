@@ -74,7 +74,11 @@ describe('删减与保留', () => {
     expect(css).toMatch(/\.cc-pop:focus\s*\{\s*outline:\s*none;?\s*\}/)
     expect(css).toContain('.cc-pop:focus-visible')
     expect(css).toMatch(/\.cc-term div\s*\{[^}]*white-space:\s*nowrap;[^}]*text-overflow:\s*ellipsis/)
-    expect(css).toMatch(/\.cc-btn:focus\s*\{\s*outline:\s*none;?\s*\}/)
+    // 按钮已改用共用组件 np-btn（#35 回流），焦点规则随组件移到 styles/native.css
+    const native = read('src/styles/native.css')
+    expect(native).toMatch(/\.np-btn:focus\s*\{\s*outline:\s*none;?\s*\}/)
+    expect(native).toContain('.np-btn:focus-visible')
+    expect(read('src/pages/PermissionModePage.jsx')).toContain('cc-btn np-btn')
     const modal = read('src/pages/usage/components/ClaudeStatusLineTakeoverModal.jsx')
     expect(modal).toContain("import './ClaudeStatusLineTakeoverModal.css'")
     expect(read('src/pages/usage/components/ClaudeStatusLineTakeoverModal.css')).toContain('.claude-takeover-copy')

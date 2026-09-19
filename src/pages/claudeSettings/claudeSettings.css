@@ -1,79 +1,40 @@
 /**
- * Claude Code 设置页样式（本页局部设计例外：零阴影子卡、0.5px 控件，token 限定 --cc-*）
+ * Claude Code 设置页样式（Native+ 新样式页面；颜色与字体只用 design-tokens.css 的全局变量）
  *
- * 来源：specs/redesign-CodePal视觉重做/Claude设置-定稿/ 前端设计定稿 §11.2–§11.4（@export:form 段），
- * 选择器统一加 .cc-page 作用域；按钮沿用 Button 组件 + cc-btn 覆盖（Plan 页同法）；开关用现有 Toggle 自带样式。
+ * 来源：specs/redesign-CodePal视觉重做/Claude设置-定稿/。卡片、表单行、分组小标题、按钮、状态点、骨架、菜单外观
+ * 由 styles/native.css 的 np- 共用组件提供；这里只留本页专属的弹出按钮、模式菜单和终端预览。
  */
-.cc-page {
-  --cc-chrome: #f2f2f5; --cc-card: #f2f2f7;
-  --cc-fg: #1d1d1f; --cc-fg-2: #6e6e73; --cc-fg-3: #8e8e93; --cc-fg-4: #aeaeb2;
-  --cc-blue: #2b7fff; --cc-blue-fg: #0a66e8; --cc-blue-bg: #e9f1ff; --cc-green: #30a14e;
-  --cc-orange-fg: #c46a00; --cc-orange-bg: #fff3e0; --cc-red-fg: #d93025; --cc-red-bg: #fdecec;
-  --cc-track: #e2e2e7; --cc-hair: rgba(0,0,0,.07);
-  --cc-num: ui-rounded, "SF Pro Rounded", -apple-system, BlinkMacSystemFont, sans-serif;
-  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Hiragino Sans GB", sans-serif; font-size: 13px; line-height: 16px; color: var(--cc-fg); font-variant-numeric: tabular-nums; -webkit-font-smoothing: antialiased;
-  margin: -32px; width: calc(100% + 64px); padding: 0; border-radius: 0; box-shadow: none; display: flex; flex-direction: column; overflow: hidden; min-height: 0; background: #fff;
-}
-.cc-page *, .cc-page *::before, .cc-page *::after { box-sizing: border-box; }
-.cc-page > .page-shell__header { height: 52px; padding: 0 16px; margin: 0; background: var(--cc-chrome); box-shadow: inset 0 -.5px 0 rgba(0,0,0,.12); align-items: center; flex-shrink: 0; }
-.cc-page .page-shell__title { font-size: 15px; font-weight: 600; line-height: 20px; letter-spacing: -.01em; color: var(--cc-fg); }
-.cc-page .cc-scroll { flex: 1; min-height: 0; overflow: auto; padding: 14px 20px 20px; }
+/* 页面外壳、字体基线、滚动区由 PageShell native 与 styles/native.css 统一提供 */
 .cc-page .cc-select { position: static; }
-.cc-page .cc-unset { color: var(--cc-fg-2); }
-.cc-page .cc-btn:hover { background: var(--cc-card); transform: none; }
-.cc-page .cc-btn.btn--primary:hover { background: var(--cc-blue-fg); }
+.cc-page .cc-unset { color: var(--fg-2); }
 .cc-page .cc-menu:focus { outline: none; }
-.cc-page .cc-gl { display: flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 600; color: var(--cc-fg-3); margin: 16px 4px 6px; }
-.cc-page .cc-gl:first-child { margin-top: 0; }
-.cc-page .cc-card { background: var(--cc-card); border-radius: 12px; padding: 0 14px; }
-.cc-page .cc-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 40px; padding: 8px 0; box-shadow: inset 0 -.5px 0 var(--cc-hair); position: relative; }
-.cc-page .cc-row:last-child { box-shadow: none; }
-.cc-page .cc-row .lb { font-size: 13px; font-weight: 500; white-space: nowrap; }
-.cc-page .cc-row .ds { font-size: 11.5px; line-height: 15px; color: var(--cc-fg-2); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.cc-page .cc-row .lf { min-width: 0; }
-.cc-page .cc-row .ds.warn { color: var(--cc-orange-fg); }
-.cc-page .cc-row .ds.bad { color: var(--cc-red-fg); }
 .cc-page .cc-pop:disabled { opacity: .5; }
-.cc-page .cc-pop .raw { color: var(--cc-fg-2); font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 11.5px; }
+.cc-page .cc-pop .raw { color: var(--fg-2); font-family: var(--mono); font-size: 11.5px; }
 /* 模式色块：与侧栏图标同做法，16px 圆角 4.5 */
 .cc-page .cc-mi { width: 16px; height: 16px; border-radius: 4.5px; background: var(--c); display: grid; place-items: center; flex: none; box-shadow: inset 0 -.5px 0 rgba(0,0,0,.18); }
 .cc-page .cc-mi svg { width: 10px; height: 10px; fill: none; stroke: #fff; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 /* 弹出按钮（macOS pop-up button） */
-.cc-page .cc-pop { appearance: none; font: inherit; height: 24px; min-width: 128px; padding: 0 6px 0 5px; border: 0; border-radius: 6px; background: #fff; color: var(--cc-fg); box-shadow: 0 0 0 .5px rgba(0,0,0,.14), 0 1px 1px rgba(0,0,0,.06); display: inline-flex; align-items: center; gap: 7px; font-size: 12.5px; font-weight: 500; white-space: nowrap; }
+.cc-page .cc-pop { appearance: none; font: inherit; height: 24px; min-width: 128px; padding: 0 6px 0 5px; border: 0; border-radius: 6px; background: #fff; color: var(--fg); box-shadow: 0 0 0 .5px rgba(0,0,0,.14), 0 1px 1px rgba(0,0,0,.06); display: inline-flex; align-items: center; gap: 7px; font-size: 12.5px; font-weight: 500; white-space: nowrap; }
 .cc-page .cc-pop:focus { outline: none; }
-.cc-page .cc-pop:focus-visible { box-shadow: 0 0 0 3px rgba(43,127,255,.25), 0 0 0 .5px var(--cc-blue); }
-.cc-page .cc-pop .chev { margin-left: auto; width: 10px; height: 10px; fill: none; stroke: var(--cc-fg-3); stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
-.cc-page .cc-menu { position: absolute; right: 0; top: 36px; z-index: 5; width: 340px; background: #fff; border-radius: 10px; box-shadow: 0 0 0 .5px rgba(0,0,0,.14), 0 10px 30px rgba(0,0,0,.16); padding: 5px; }
+.cc-page .cc-pop:focus-visible { box-shadow: 0 0 0 3px rgba(43,127,255,.25), 0 0 0 .5px var(--blue); }
+.cc-page .cc-pop .chev { margin-left: auto; width: 10px; height: 10px; fill: none; stroke: var(--fg-3); stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.cc-page .cc-menu { position: absolute; right: 0; top: 36px; z-index: 5; width: 340px; padding: 5px; }
 .cc-page .cc-mitem { display: grid; grid-template-columns: 16px 1fr 12px; gap: 8px; align-items: start; padding: 6px 8px; border-radius: 6px; }
 .cc-page .cc-mitem .cc-mi { margin-top: 1px; }
 .cc-page .cc-mitem .tx { min-width: 0; }
 .cc-page .cc-mitem .tx span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .cc-page .cc-mitem .tx b { display: block; font-size: 12.5px; font-weight: 500; line-height: 18px; }
-.cc-page .cc-mitem .tx span { display: block; font-size: 11px; line-height: 14px; color: var(--cc-fg-3); }
-.cc-page .cc-mitem .ck { color: var(--cc-blue-fg); font-size: 12px; line-height: 18px; font-weight: 600; }
-.cc-page .cc-mitem.hl { background: var(--cc-blue); }
+.cc-page .cc-mitem .tx span { display: block; font-size: 11px; line-height: 14px; color: var(--fg-3); }
+.cc-page .cc-mitem .ck { color: var(--blue-fg); font-size: 12px; line-height: 18px; font-weight: 600; }
+.cc-page .cc-mitem.hl { background: var(--blue); }
 .cc-page .cc-mitem.hl .tx b, .cc-page .cc-mitem.hl .tx span, .cc-page .cc-mitem.hl .ck { color: #fff; }
-/* 接入状态：离散状态型，只有坏事用橙 / 红 */
-.cc-page .cc-st { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; white-space: nowrap; }
-.cc-page .cc-st i { width: 7px; height: 7px; border-radius: 50%; background: var(--cc-green); flex: none; }
-.cc-page .cc-st.off i { background: var(--cc-fg-4); } .cc-st.off { color: var(--cc-fg-2); }
-.cc-page .cc-st.warn i { background: var(--cc-orange-fg); } .cc-st.warn { color: var(--cc-orange-fg); }
-.cc-page .cc-st.bad i { background: var(--cc-red-fg); } .cc-st.bad { color: var(--cc-red-fg); }
-/* 按钮：样式包原样（Plan 定稿 @export:card 的 .btn / .btn.pri），组件依赖它，必须一起移植 */
-.cc-page .cc-btn { appearance: none; font: inherit; font-size: 11.5px; font-weight: 500; height: 24px; padding: 0 10px; border-radius: 6px; border: 0; background: #fff; color: var(--cc-fg); box-shadow: 0 0 0 .5px rgba(0,0,0,.14), 0 1px 1px rgba(0,0,0,.06); display: inline-flex; align-items: center; }
-.cc-page .cc-btn.btn--primary { background: var(--cc-blue); color: #fff; box-shadow: 0 0 0 .5px rgba(0,0,0,.1), 0 1px 1px rgba(0,0,0,.08); }
-.cc-page .cc-btn { cursor: default; white-space: nowrap; flex: none; }
-.cc-page .cc-btn:focus { outline: none; }
-.cc-page .cc-btn:focus-visible { box-shadow: 0 0 0 3px rgba(43,127,255,.25), 0 0 0 .5px var(--cc-blue); }
 .cc-page .cc-acts { display: inline-flex; align-items: center; gap: 10px; }
-.cc-page .cc-row.dis .lb { opacity: .4; }
 /* 终端预览（对比板 29 选定第 4 版：与卡片同底）：按 Claude Code 底部真实顺序——输入框、状态栏两行、权限模式行；三档色取样式包语义色 */
-.cc-page .cc-term { background: var(--cc-card); border-radius: 10px; padding: 8px 12px 10px; font: 12px/18px ui-monospace, "SF Mono", Menlo, monospace; color: var(--cc-fg); font-variant-numeric: tabular-nums; }
+.cc-page .cc-term { background: var(--card); border-radius: 10px; padding: 8px 12px 10px; font: 12px/18px var(--mono); color: var(--fg); font-variant-numeric: tabular-nums; }
 .cc-page .cc-term div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .cc-page .cc-term .rule { height: 0; border-top: 1px solid #d8d8de; margin: 4px 0; }
-.cc-page .cc-term .cur { display: inline-block; width: 7px; height: 14px; background: var(--cc-fg); opacity: .8; vertical-align: -2px; margin-left: 2px; }
-.cc-page .cc-term .g { color: var(--cc-green); } .cc-term .y { color: var(--cc-orange-fg); } .cc-term .r { color: var(--cc-red-fg); } .cc-term .d { color: var(--cc-fg-3); } .cc-term .b { font-weight: 700; }
-.cc-page .cc-term .m-bypass { color: var(--cc-red-fg); } .cc-term .m-edit { color: #6a2fc4; } .cc-term .m-plan { color: var(--cc-blue-fg); } .cc-term .m-auto { color: var(--cc-orange-fg); }
+.cc-page .cc-term .cur { display: inline-block; width: 7px; height: 14px; background: var(--fg); opacity: .8; vertical-align: -2px; margin-left: 2px; }
+.cc-page .cc-term .g { color: var(--green); } .cc-term .y { color: var(--orange-fg); } .cc-term .r { color: var(--red-fg); } .cc-term .d { color: var(--fg-3); } .cc-term .b { font-weight: 700; }
+.cc-page .cc-term .m-bypass { color: var(--red-fg); } .cc-term .m-edit { color: var(--purple-fg); } .cc-term .m-plan { color: var(--blue-fg); } .cc-term .m-auto { color: var(--orange-fg); }
 /* 骨架 */
-.cc-page .cc-sk { display: inline-block; height: 12px; border-radius: 4px; background: rgba(0,0,0,.07); }
 .cc-page .cc-term.sk { height: 94px; background: rgba(0,0,0,.05); }

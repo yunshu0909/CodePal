@@ -1,0 +1,284 @@
+/**
+ * Native+ 新样式的共用样式
+ *
+ * 负责：
+ * - PageShell native 变体：工具栏 52 高、页名在工具栏里、内容区白底贴边撑满
+ * - 新样式页面的字体基线与滚动区（.np-scroll）
+ * - 新样式页面共用的小组件：按钮、状态标签、状态点、弹层、灰底卡、条形行、骨架
+ * - 规则与数值来源：docs/design-operating-system.md 第 3 章、docs/design-stylepack.html
+ *
+ * 只作用于新样式页面（.page-shell--native）和 .np-scope 区块，不改旧样式页面的外观。
+ *
+ * @module styles/native
+ */
+
+/* ── 页面外壳 ─────────────────────────────────────────── */
+
+/* 负边距抵掉内容区给旧白卡留的 32px 内边距，让新页面贴边撑满；窗口外壳落地后这里改掉 */
+.page-shell--native {
+  font-family: var(--font-np);
+  font-size: 13px;
+  line-height: 16px;
+  color: var(--fg);
+  font-variant-numeric: tabular-nums;
+  -webkit-font-smoothing: antialiased;
+  margin: -32px;
+  width: calc(100% + 64px);
+  min-height: 0;
+  padding: 0;
+  border-radius: 0;
+  box-shadow: none;
+  background: #fff;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.page-shell--native *,
+.page-shell--native *::before,
+.page-shell--native *::after {
+  box-sizing: border-box;
+}
+
+.page-shell--native > .page-shell__header {
+  height: 52px;
+  padding: 0 16px;
+  margin: 0;
+  background: var(--chrome);
+  box-shadow: inset 0 -.5px 0 rgba(0, 0, 0, .12);
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.page-shell--native > .page-shell__header .page-shell__title {
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 20px;
+  letter-spacing: -.01em;
+  color: var(--fg);
+}
+
+/* 新样式区块的独立作用域：组件预览这类不在新样式页面里、又要按新样式显示的地方加 .np-scope */
+.np-scope {
+  font-family: var(--font-np);
+  font-size: 13px;
+  line-height: 16px;
+  color: var(--fg);
+  font-variant-numeric: tabular-nums;
+  -webkit-font-smoothing: antialiased;
+}
+
+.np-scope *,
+.np-scope *::before,
+.np-scope *::after {
+  box-sizing: border-box;
+}
+
+/* 内容滚动区：内边距上 14、左右 20、下 20 */
+.np-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 14px 20px 20px;
+}
+
+/* 开关：沿用 Toggle 组件，新样式页面里开启色用规范绿（旧页面仍是旧绿） */
+:is(.page-shell--native, .np-scope) .toggle.on {
+  background: var(--green);
+}
+
+/* ── 共用小组件（前缀 np-，都限定在新样式页面里，权重压过旧 Button 等默认样式）── */
+
+/* 灰底卡：不画线不加阴影，靠底色分区；表单型卡一行一项 */
+:is(.page-shell--native, .np-scope) .np-card {
+  position: relative;
+  min-width: 0;
+  padding: 14px 16px;
+  border-radius: 12px;
+  background: var(--card);
+}
+
+:is(.page-shell--native, .np-scope) .np-card--form {
+  padding: 0 14px;
+}
+
+/* 表单行：左名称（可带一行描述），右状态 / 按钮 / 开关；行间 0.5px 线 */
+:is(.page-shell--native, .np-scope) .np-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 40px;
+  padding: 8px 0;
+  box-shadow: inset 0 -.5px 0 var(--hair);
+}
+
+:is(.page-shell--native, .np-scope) .np-row:last-child {
+  box-shadow: none;
+}
+
+:is(.page-shell--native, .np-scope) .np-row .lf {
+  min-width: 0;
+}
+
+:is(.page-shell--native, .np-scope) .np-row .lb {
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+:is(.page-shell--native, .np-scope) .np-row .ds {
+  margin-top: 2px;
+  font-size: 11.5px;
+  line-height: 15px;
+  color: var(--fg-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+:is(.page-shell--native, .np-scope) .np-row .ds.warn { color: var(--orange-fg); }
+:is(.page-shell--native, .np-scope) .np-row .ds.bad { color: var(--red-fg); }
+
+/* 禁用一律 .5，名称和说明一起变淡 */
+:is(.page-shell--native, .np-scope) .np-row.dis .lb,
+:is(.page-shell--native, .np-scope) .np-row.dis .ds {
+  opacity: .5;
+}
+
+/* 分组小标题：比卡内文字往里缩 4，上 16 下 6 */
+:is(.page-shell--native, .np-scope) .np-glabel {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 16px 4px 6px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--fg-3);
+}
+
+:is(.page-shell--native, .np-scope) .np-glabel:first-child {
+  margin-top: 0;
+}
+
+/* 小号按钮：套在 Button 组件上用；高 24、圆角 6、白底 0.5px 描边一层投影 */
+:is(.page-shell--native, .np-scope) .np-btn {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  height: 24px;
+  min-height: 0;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 6px;
+  background: #fff;
+  color: var(--fg);
+  box-shadow: 0 0 0 .5px rgba(0, 0, 0, .14), 0 1px 1px rgba(0, 0, 0, .06);
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: default;
+  transform: none;
+}
+
+:is(.page-shell--native, .np-scope) .np-btn:hover { background: var(--card); transform: none; }
+:is(.page-shell--native, .np-scope) .np-btn.btn--primary { background: var(--blue); color: #fff; box-shadow: 0 0 0 .5px rgba(0, 0, 0, .1), 0 1px 1px rgba(0, 0, 0, .08); }
+:is(.page-shell--native, .np-scope) .np-btn.btn--primary:hover { background: var(--blue-fg); }
+:is(.page-shell--native, .np-scope) .np-btn.np-btn--danger { color: var(--red-fg); }
+:is(.page-shell--native, .np-scope) .np-btn:focus { outline: none; }
+:is(.page-shell--native, .np-scope) .np-btn:focus-visible { box-shadow: 0 0 0 3px rgba(43, 127, 255, .25), 0 0 0 .5px var(--blue); }
+
+/* 状态标签：胶囊，文字色配同色浅底 */
+:is(.page-shell--native, .np-scope) .np-tag {
+  display: inline-block;
+  flex: none;
+  padding: 0 6px;
+  border-radius: 999px;
+  font-size: 10.5px;
+  font-weight: 500;
+  line-height: 16px;
+  white-space: nowrap;
+}
+
+:is(.page-shell--native, .np-scope) .np-tag.np-tag--blue { color: var(--blue-fg); background: var(--blue-bg); }
+:is(.page-shell--native, .np-scope) .np-tag.np-tag--green { color: var(--green); background: var(--green-bg); }
+:is(.page-shell--native, .np-scope) .np-tag.np-tag--purple { color: var(--purple-fg); background: var(--purple-bg); }
+:is(.page-shell--native, .np-scope) .np-tag.np-tag--orange { color: var(--orange-fg); background: var(--orange-bg); }
+:is(.page-shell--native, .np-scope) .np-tag.np-tag--red { color: var(--red-fg); background: var(--red-bg); }
+:is(.page-shell--native, .np-scope) .np-tag.np-tag--gray { color: var(--fg-2); background: rgba(0, 0, 0, .06); }
+
+/* 状态点：7px 圆点 + 文字；绿（默认）/ off 灰 / warn 橙 / bad 红 */
+:is(.page-shell--native, .np-scope) .np-st {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  white-space: nowrap;
+}
+
+:is(.page-shell--native, .np-scope) .np-st i { flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--green); }
+:is(.page-shell--native, .np-scope) .np-st.off { color: var(--fg-2); }
+:is(.page-shell--native, .np-scope) .np-st.off i { background: var(--fg-4); }
+:is(.page-shell--native, .np-scope) .np-st.warn { color: var(--orange-fg); }
+:is(.page-shell--native, .np-scope) .np-st.warn i { background: var(--orange-fg); }
+:is(.page-shell--native, .np-scope) .np-st.bad { color: var(--red-fg); }
+:is(.page-shell--native, .np-scope) .np-st.bad i { background: var(--red-fg); }
+
+/* 弹层与菜单的外观；锚定位置、宽度由各页自己定 */
+:is(.page-shell--native, .np-scope) .np-pop {
+  border-radius: 10px;
+  background: #fff;
+  color: var(--fg);
+  box-shadow: 0 0 0 .5px rgba(0, 0, 0, .14), 0 10px 30px rgba(0, 0, 0, .16);
+  font-size: 12px;
+}
+
+/* 输入框：高 24、圆角 6、0.5px 内描边，数字用圆体；可以直接用在 input 上，也可以用在包着 input 的容器上 */
+:is(.page-shell--native, .np-scope) .np-in {
+  display: flex;
+  align-items: center;
+  height: 24px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 6px;
+  background: #fff;
+  color: var(--fg);
+  box-shadow: inset 0 0 0 .5px rgba(0, 0, 0, .2);
+  font-family: var(--num);
+  font-weight: 600;
+  outline: none;
+}
+
+:is(.page-shell--native, .np-scope) .np-in:focus,
+:is(.page-shell--native, .np-scope) .np-in:focus-within { box-shadow: 0 0 0 3px rgba(43, 127, 255, .25), inset 0 0 0 .5px var(--blue); }
+:is(.page-shell--native, .np-scope) .np-in[aria-invalid="true"],
+:is(.page-shell--native, .np-scope) .np-in:has(input[aria-invalid="true"]) { box-shadow: inset 0 0 0 .5px var(--red-fg); }
+
+/* 条形行：行高 22、字 12、条高 5；列宽由各页定，颜色用 --mc 传 */
+:is(.page-shell--native, .np-scope) .np-meter {
+  display: grid;
+  align-items: center;
+  gap: 10px;
+  height: 22px;
+  font-size: 12px;
+}
+
+:is(.page-shell--native, .np-scope) .np-meter-bar { display: block; height: 5px; border-radius: 3px; background: var(--track); overflow: hidden; }
+:is(.page-shell--native, .np-scope) .np-meter-bar i { display: block; height: 100%; border-radius: 3px; background: var(--mc, var(--blue)); }
+
+/* 骨架：占在真实内容的位置上 */
+:is(.page-shell--native, .np-scope) .np-sk {
+  display: inline-block;
+  height: 12px;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, .07);
+}
+
+:is(.page-shell--native, .np-scope) .np-sk--pulse { animation: np-pulse 1.4s ease-in-out infinite; }
+
+@keyframes np-pulse {
+  50% { opacity: .35; }
+}

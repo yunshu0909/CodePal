@@ -1,9 +1,10 @@
 /**
- * Design Tokens — Cool Steel 主题
+ * Design Tokens — 新样式 Native+ 与旧样式 Cool Steel
  *
  * 负责：
- * - 定义全局 CSS 变量（颜色、字号、间距、圆角、阴影、过渡）
- * - 作为唯一的 Token 来源，所有页面 CSS 禁止重复声明 :root
+ * - 定义全局 CSS 变量；所有页面 CSS 禁止重复声明 :root，也不许自带颜色 / 字体变量
+ * - 前半段是 Native+（新样式页面用），值与 docs/design-stylepack.html 的 @export:tokens 逐值一致
+ * - 后半段是 Cool Steel（legacy，只给还没重做的旧样式页面用），最后一个旧页面重做完后删除
  *
  * 使用方式：在 main.jsx 顶部 import，全局生效
  *
@@ -11,6 +12,23 @@
  */
 
 :root {
+  /* ══ Native+（新样式）══════════════════════════════════
+     规则见 docs/design-operating-system.md 第 3 章 */
+  --chrome: #f2f2f5; --card: #f2f2f7;
+  --fg: #1d1d1f; --fg-2: #6e6e73; --fg-3: #8e8e93; --fg-4: #aeaeb2;
+  --blue: #2b7fff; --blue-fg: #0a66e8; --blue-bg: #e9f1ff;
+  --green: #30a14e; --green-bg: #e8f6eb;
+  --purple: #8e4ee6; --purple-fg: #6a2fc4; --purple-bg: #f1e8fd;
+  --orange-fg: #c46a00; --orange-bg: #fff3e0; --red-fg: #d93025; --red-bg: #fdecec;
+  --track: #e2e2e7; --hair: rgba(0, 0, 0, .07);
+  --m0: #2b7fff; --m1: #8e4ee6; --m2: #30a14e; --m3: #ff9500; --m4: #32ade6; --m5: #ff2d55;
+  --tool-claude: #d97757; --tool-codex: #10a37f;
+  --ic-blue: #2b7fff; --ic-green: #30a14e; --ic-purple: #af52de; --ic-orange: #ff9500; --ic-teal: #32ade6; --ic-brown: #a2845e; --ic-gray: #8e8e93; --ic-red: #ff3b30;
+  --num: ui-rounded, "SF Pro Rounded", -apple-system, BlinkMacSystemFont, sans-serif;
+  --mono: ui-monospace, "SF Mono", Menlo, monospace;
+  --font-np: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Hiragino Sans GB", sans-serif;
+
+  /* ══ Cool Steel（legacy，旧样式页面用）════════════════ */
   /* ── Color: Primary ─────────────────────────────────── */
   --color-primary: #2563eb;
   --color-primary-hover: #1d4ed8;

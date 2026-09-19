@@ -62,18 +62,18 @@ export default function ModelPricePopover({
   }
   const refreshHint = refresh === 'none' ? '云端也还没有这个模型的价格，可以先自己填。' : refresh === 'fail' ? '刷新失败，检查网络后再试。' : '';
   const hint = invalid.length ? '四个价都要填，不能是负数。' : busy === 'save' ? '保存中…' : '回车保存。所有页面、所有周期都按这个价算。';
-  return <div className="plan-pop plan-pop-up" ref={root} role="dialog" aria-label={own ? `${model.name} 的价格` : `${model.name} 还没有价格`} data-testid="plan-model-price-popover" onKeyDown={e => {
+  return <div className="plan-pop np-pop plan-pop-up" ref={root} role="dialog" aria-label={own ? `${model.name} 的价格` : `${model.name} 还没有价格`} data-testid="plan-model-price-popover" onKeyDown={e => {
     if (e.key === 'Enter' && e.target.tagName === 'INPUT') {
       e.preventDefault();
       void save();
     }
   }}>
   <div className="plan-pop-title">{own ? `${model.name} 的价格` : `${model.name} 还没有价格`}</div>
-  {!own && <><div className="plan-pop-act"><Button size="sm" className="plan-action" disabled={Boolean(busy)} onClick={refreshNow}>{busy === 'refresh' ? '刷新中…' : '从云端刷新'}</Button></div>
+  {!own && <><div className="plan-pop-act"><Button size="sm" className="plan-action np-btn" disabled={Boolean(busy)} onClick={refreshNow}>{busy === 'refresh' ? '刷新中…' : '从云端刷新'}</Button></div>
    {refreshHint && <div className={`plan-hint ${refresh === 'fail' ? 'plan-bad' : ''}`}>{refreshHint}</div>}
    <div className="plan-pop-sep" /></>}
   <div className="plan-pop-lab">{own ? '自己填的（美元 / 百万 token）' : '或者自己填（美元 / 百万 token）'}</div>
-  <div className="plan-pop-grid">{FIELDS.map(([k, label]) => <label className="plan-pop-row" key={k}><span>{label}</span><div className={`plan-in ${busy === 'save' ? 'plan-busy' : ''}`}><input aria-label={label} inputMode="decimal" value={draft[k]} disabled={busy === 'save'} aria-invalid={invalid.includes(k)} onChange={e => setDraft(old => ({
+  <div className="plan-pop-grid">{FIELDS.map(([k, label]) => <label className="plan-pop-row" key={k}><span>{label}</span><div className={`plan-in np-in ${busy === 'save' ? 'plan-busy' : ''}`}><input aria-label={label} inputMode="decimal" value={draft[k]} disabled={busy === 'save'} aria-invalid={invalid.includes(k)} onChange={e => setDraft(old => ({
           ...old,
           [k]: e.target.value
         }))} /></div></label>)}</div>

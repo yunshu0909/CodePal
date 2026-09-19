@@ -13,12 +13,12 @@
 
 /** 模式顺序固定：全自动排第一 */
 export const PERMISSION_MODES = [
-  { id: 'bypassPermissions', name: '全自动', desc: '自动执行所有操作，无需确认', color: '#2b7fff', icon: 'M9 1.5 3.5 9H8l-1 5.5L12.5 7H8z' },
-  { id: 'auto', name: '自动审批', desc: '由审批模型判断操作；可用性取决于客户端和账户', color: '#8e4ee6', icon: 'M8 2v3M8 11v3M2 8h3M11 8h3M4 4l2 2M10 10l2 2M12 4l-2 2M6 10l-2 2' },
-  { id: 'acceptEdits', name: '自动编辑', desc: '自动接受文件改动，命令执行和网络访问仍需确认', color: '#ff9500', icon: 'M10.5 2.5 13.5 5.5 6 13H3v-3z' },
-  { id: 'default', name: '每次询问', desc: '每次执行操作前都会征求你的确认', color: '#30a14e', icon: 'M2.5 3.5h11v7h-6l-3 2.5v-2.5h-2z' },
-  { id: 'dontAsk', name: '仅预先授权', desc: '只执行已允许的操作；遇到未授权操作时不再询问', color: '#8e8e93', icon: 'M8 1.5 13 3.5v4c0 3-2.2 5.3-5 6.5-2.8-1.2-5-3.5-5-6.5v-4z' },
-  { id: 'plan', name: '只读规划', desc: '只读文件并给出规划，不执行任何操作', color: '#32ade6', icon: 'M1.5 8S4 3.5 8 3.5 14.5 8 14.5 8 12 12.5 8 12.5 1.5 8 1.5 8z', circle: true },
+  { id: 'bypassPermissions', name: '全自动', desc: '自动执行所有操作，无需确认', color: 'var(--ic-blue)', icon: 'M9 1.5 3.5 9H8l-1 5.5L12.5 7H8z' },
+  { id: 'auto', name: '自动审批', desc: '由审批模型判断操作；可用性取决于客户端和账户', color: 'var(--ic-purple)', icon: 'M8 2v3M8 11v3M2 8h3M11 8h3M4 4l2 2M10 10l2 2M12 4l-2 2M6 10l-2 2' },
+  { id: 'acceptEdits', name: '自动编辑', desc: '自动接受文件改动，命令执行和网络访问仍需确认', color: 'var(--ic-orange)', icon: 'M10.5 2.5 13.5 5.5 6 13H3v-3z' },
+  { id: 'default', name: '每次询问', desc: '每次执行操作前都会征求你的确认', color: 'var(--ic-green)', icon: 'M2.5 3.5h11v7h-6l-3 2.5v-2.5h-2z' },
+  { id: 'dontAsk', name: '仅预先授权', desc: '只执行已允许的操作；遇到未授权操作时不再询问', color: 'var(--ic-gray)', icon: 'M8 1.5 13 3.5v4c0 3-2.2 5.3-5 6.5-2.8-1.2-5-3.5-5-6.5v-4z' },
+  { id: 'plan', name: '只读规划', desc: '只读文件并给出规划，不执行任何操作', color: 'var(--ic-teal)', icon: 'M1.5 8S4 3.5 8 3.5 14.5 8 14.5 8 12 12.5 8 12.5 1.5 8 1.5 8z', circle: true },
 ]
 
 /**

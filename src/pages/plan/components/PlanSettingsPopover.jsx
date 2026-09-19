@@ -132,19 +132,19 @@ export default function PlanSettingsPopover({
   }
   const current = plan.cycles?.at(-1);
   const warn = current && !plan.stopped && current.end > today && Number.isFinite(parsed.price) && parsed.price > 0 && parsed.price !== plan.price;
-  return <div className="plan-pop" ref={root} role="dialog" aria-label={`${name} 订阅`} data-testid="plan-settings-popover" onKeyDown={e => {
+  return <div className="plan-pop np-pop" ref={root} role="dialog" aria-label={`${name} 订阅`} data-testid="plan-settings-popover" onKeyDown={e => {
     if (e.key === 'Enter') {
       e.preventDefault();
       void submit(true);
     }
   }}>
   <div className="plan-pop-title">{name} 订阅</div>
-  <div className="plan-pop-row"><span>类型</span><div className="plan-in plan-readonly" title={metadata?.type}>{metadata?.type && metadata.type !== '未知' ? `${metadata.type} · 本机读到` : '未知'}</div></div>
-  <label className="plan-pop-row"><span>订阅费</span><div className="plan-in"><span>$</span><input aria-label="订阅费" inputMode="decimal" autoFocus value={draft.price} aria-invalid={Boolean(touched.price && (!Number.isFinite(parsed.price) || parsed.price <= 0))} onChange={e => setDraft(old => ({
+  <div className="plan-pop-row"><span>类型</span><div className="plan-in np-in plan-readonly" title={metadata?.type}>{metadata?.type && metadata.type !== '未知' ? `${metadata.type} · 本机读到` : '未知'}</div></div>
+  <label className="plan-pop-row"><span>订阅费</span><div className="plan-in np-in"><span>$</span><input aria-label="订阅费" inputMode="decimal" autoFocus value={draft.price} aria-invalid={Boolean(touched.price && (!Number.isFinite(parsed.price) || parsed.price <= 0))} onChange={e => setDraft(old => ({
           ...old,
           price: e.target.value
         }))} onBlur={e => blur('price', e)} /></div></label>
-  <label className="plan-pop-row"><span>账单日</span><div className="plan-in"><span>每月</span><input aria-label="账单日" className="plan-day-input" inputMode="numeric" value={draft.billingDay} aria-invalid={Boolean(touched.billingDay && (!Number.isInteger(parsed.billingDay) || parsed.billingDay < 1 || parsed.billingDay > 31))} onChange={e => setDraft(old => ({
+  <label className="plan-pop-row"><span>账单日</span><div className="plan-in np-in"><span>每月</span><input aria-label="账单日" className="plan-day-input" inputMode="numeric" value={draft.billingDay} aria-invalid={Boolean(touched.billingDay && (!Number.isInteger(parsed.billingDay) || parsed.billingDay < 1 || parsed.billingDay > 31))} onChange={e => setDraft(old => ({
           ...old,
           billingDay: e.target.value
         }))} onBlur={e => blur('billingDay', e)} /><span>号</span></div></label>

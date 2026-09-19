@@ -12,5 +12,5 @@ export default function PlanManagementPage() {
   const {
     cards
   } = usePlanData(setToast);
-  return <PageShell title="订阅管理" className="page-shell--no-padding plan-page"><div className="plan-scroll" data-testid="plan-content-scroll-container"><div className="plan-cards" data-testid="plan-page-content">{cards.map(card => <PlanCard key={card.planId} {...card} />)}</div></div>{toast && <Toast key={toast.message} {...toast} onClose={close} />}</PageShell>;
+  return <PageShell title="订阅管理" native className="plan-page"><div className="plan-scroll np-scroll" data-testid="plan-content-scroll-container"><div className="plan-cards" data-testid="plan-page-content">{cards.map(card => <PlanCard key={card.planId} {...card} />)}</div></div>{toast && <Toast key={toast.message} {...toast} onClose={close} />}</PageShell>;
 }

@@ -29,7 +29,7 @@ export default function UsageCalendar({month,today,data,selected,onSelect,onMont
       </div>
     </div>
     {error&&<div className="uc-error" role="alert">{error}<Button size="sm" onClick={()=>onRetry()}>重试</Button></div>}
-    <section className={`uc-card uc-calendar ${cells.length===42?'uc-six':''}`} aria-label="用量月历">
+    <section className={`uc-card np-card uc-calendar ${cells.length===42?'uc-six':''}`} aria-label="用量月历">
       <div className="uc-weekdays">{['一','二','三','四','五','六','日'].map(d=><span key={d}>{d}</span>)}</div>
       <div className="uc-days">{cells.map((key,i)=>{
         if(!key)return <span className="uc-day uc-day-spacer" key={`blank-${i}`}/>

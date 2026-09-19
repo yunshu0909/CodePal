@@ -14,8 +14,8 @@ export default function UsageMonitorPage({isActive=true}) {
   const clearToast=useCallback(()=>setToast(''),[])
   const saveGoal=async(value,unit)=>{await goal.saveGoal(value,unit);setToast(`目标已更新为 ${formatToken(value*(unit==='B'?1e9:1e6))} / 天`)}
   const hasRecords=Object.values(calendar.data?.days||{}).some(d=>d.status==='ready'&&d.total>0)
-  return <PageShell title="用量监测" className="uc-page">
-    <div className={`uc-body ${getMonthCells(calendar.month).length===42?'uc-six-detail':''}`}>
+  return <PageShell title="用量监测" native className="uc-page">
+    <div className={`uc-body np-scroll ${getMonthCells(calendar.month).length===42?'uc-six-detail':''}`}>
       <UsageCalendar {...calendar} target={goal.dailyTarget} goal={goal.goal} onSaveGoal={saveGoal} onSelect={calendar.setSelected} onMonthChange={calendar.setMonth} onRetry={calendar.retry}/>
       {hasRecords&&calendar.selected&&<DayDetail date={calendar.selected} day={calendar.data?.days[calendar.selected]} today={calendar.today} target={goal.dailyTarget}/>}
     </div>

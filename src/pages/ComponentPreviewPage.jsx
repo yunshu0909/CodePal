@@ -83,7 +83,57 @@ export default function ComponentPreviewPage() {
   return (
     <PageShell title="组件库预览" subtitle="所有基础组件的变体与状态一览">
 
-      <Section title="订阅管理 · 定稿卡片"><div className="plan-page plan-preview"><PlanCard planId="claude" plan={{version:1,price:20,billingDay:20,autoRenew:false,stopped:false,cycles:[{id:'preview',start:'2026-08-20',end:'2026-09-20',price:20}]}} cycle={{id:'preview',start:'2026-08-20',end:'2026-09-20',price:20}} metadata={{type:'Pro'}} today="2026-09-16" usage={{total:751,models:[{name:'Claude Opus 5',cost:562},{name:'Claude Fable 5.1',cost:183},{name:'Claude Sonnet 5',cost:6}]}} onSave={async()=>({success:false})} onAction={()=>{}} onNavigate={()=>{}}/></div></Section>
+      <Section title="订阅管理 · 定稿卡片"><div className="plan-page plan-preview np-scope"><PlanCard planId="claude" plan={{version:1,price:20,billingDay:20,autoRenew:false,stopped:false,cycles:[{id:'preview',start:'2026-08-20',end:'2026-09-20',price:20}]}} cycle={{id:'preview',start:'2026-08-20',end:'2026-09-20',price:20}} metadata={{type:'Pro'}} today="2026-09-16" usage={{total:751,models:[{name:'Claude Opus 5',cost:562},{name:'Claude Fable 5.1',cost:183},{name:'Claude Sonnet 5',cost:6}]}} onSave={async()=>({success:false})} onAction={()=>{}} onNavigate={()=>{}}/></div></Section>
+      {/* ── Native+ 共用组件（styles/native.css，前缀 np-）──── */}
+      <Section title="Native+ 共用组件">
+        <div className="np-scope cp-native">
+          <Row label="灰底卡 / 表单型卡 / 分组小标题">
+            <div className="cp-native__col">
+              <div className="np-card">普通灰底卡：内边距 14 16，圆角 12，不画线不加阴影</div>
+              <div className="np-glabel">分组小标题</div>
+              <div className="np-card np-card--form">
+                <div className="np-row"><div className="lf"><div className="lb">表单行</div><div className="ds">一行描述，放不下单行省略</div></div><span className="np-st"><i />已接入</span></div>
+                <div className="np-row"><div className="lb">带开关</div><Toggle checked onChange={() => {}} /></div>
+                <div className="np-row dis"><div className="lf"><div className="lb">禁用行</div><div className="ds">名称和说明一起 .5</div></div><Toggle checked={false} disabled onChange={() => {}} /></div>
+              </div>
+            </div>
+          </Row>
+          <Row label="小号按钮">
+            <Button size="sm" className="np-btn">重试</Button>
+            <Button size="sm" variant="primary" className="np-btn">立即接入</Button>
+            <Button size="sm" className="np-btn np-btn--danger">从工具移除</Button>
+            <Button size="sm" className="np-btn" disabled>禁用</Button>
+          </Row>
+          <Row label="状态标签">
+            {['blue', 'green', 'purple', 'orange', 'red', 'gray'].map((c) => <span key={c} className={`np-tag np-tag--${c}`}>{{ blue: '还差 180M', green: '已达成', purple: '优秀', orange: '快到期', red: '已到期 · 待确认', gray: '已停' }[c]}</span>)}
+          </Row>
+          <Row label="状态点">
+            <span className="np-st"><i />已接入</span>
+            <span className="np-st off"><i />未接入</span>
+            <span className="np-st warn"><i />检测到已有自定义 statusLine</span>
+            <span className="np-st bad"><i />无法读取额度状态</span>
+          </Row>
+          <Row label="弹层与输入框">
+            <div className="np-pop cp-native__pop">
+              <b>订阅设置</b>
+              <input className="np-in" defaultValue="$100" aria-label="正常输入框" />
+              <input className="np-in" defaultValue="每月 32 号" aria-invalid="true" aria-label="非法输入框" />
+            </div>
+          </Row>
+          <Row label="条形行">
+            <div className="cp-native__col">
+              {[['Claude Opus 5', 72, '$562', 'var(--m0)'], ['Claude Fable 5.1', 31, '$183', 'var(--m1)'], ['其他 2 个', 4, '$6', 'var(--fg-4)']].map(([n, w, v, c]) => (
+                <div key={n} className="np-meter cp-native__meter" style={{ '--mc': c }}><span>{n}</span><span className="np-meter-bar"><i style={{ width: `${w}%` }} /></span><b>{v}</b></div>
+              ))}
+            </div>
+          </Row>
+          <Row label="骨架">
+            <span className="np-sk" style={{ width: 96 }} />
+            <span className="np-sk np-sk--pulse" style={{ width: 64 }} />
+          </Row>
+        </div>
+      </Section>
+
       {/* ── Tokens ─────────────────────────────────────── */}
       <Section title="Design Tokens">
         <Row label="颜色">
@@ -280,7 +330,7 @@ export default function ComponentPreviewPage() {
       </Modal>
 
       <Section title="用量月历（本页样式）">
-        <div className="uc-page" style={{margin:0,width:'100%',minHeight:0,padding:16}}>
+        <div className="uc-page np-scope" style={{margin:0,width:'100%',minHeight:0,padding:16}}>
           <div className="uc-body">
             <Row label="目标三档"><DayRing total={150e6} target={300e6}/><DayRing total={300e6} target={300e6}/><DayRing total={600e6} target={300e6}/></Row>
             <UsageCalendar month="2026-09" today="2026-09-16" data={{earliestDate:'2026-09-01',total:150e6,days:{'2026-09-16':{status:'ready',total:150e6,models:{a:{total:150e6}}}}}} selected="2026-09-16" target={300e6} goal={{value:300,unit:'M'}} progress={{processedDays:1,totalDays:1}} onSelect={()=>{}} onMonthChange={()=>{}} onRetry={()=>{}} onSaveGoal={async()=>{}}/>

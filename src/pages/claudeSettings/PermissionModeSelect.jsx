@@ -101,7 +101,7 @@ export default function PermissionModeSelect({ mode, disabled, onSelect }) {
         <svg className="chev" viewBox="0 0 10 10" aria-hidden="true"><path d="M3 4 5 2l2 2M3 6l2 2 2-2" /></svg>
       </button>
       {open && (
-        <div className="cc-menu" role="listbox" tabIndex={-1} ref={listRef} onKeyDown={onListKey}>
+        <div className="cc-menu np-pop" role="listbox" tabIndex={-1} ref={listRef} onKeyDown={onListKey}>
           {PERMISSION_MODES.map((m, i) => (
             <div
               key={m.id}

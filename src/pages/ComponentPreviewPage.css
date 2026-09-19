@@ -142,3 +142,10 @@
   display: flex;
   align-items: stretch;
 }
+
+/* Native+ 共用组件预览：只做摆放，组件外观来自 styles/native.css */
+.cp-native__col { display: flex; flex-direction: column; width: 360px; }
+.cp-native__col > .np-card + .np-glabel { margin-top: 16px; }
+.cp-native__pop { display: flex; flex-direction: column; gap: 8px; width: 250px; padding: 10px 12px 12px; }
+.cp-native__meter { grid-template-columns: 120px 1fr 64px; }
+.cp-native__meter b { text-align: right; font-family: var(--num); font-weight: 600; }
