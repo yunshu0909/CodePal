@@ -340,6 +340,8 @@ describe('打开 / 关掉：临时 HOME 下的往返', () => {
     }
     expect(cfg).toContain('codex-hook.sh busy')
     expect(cfg).toContain('codex-hook.sh clear')
+    // 旧的 4 个钩子内容与旧安装逐字一致，Codex 已信任的 trusted_hash 才不会失效
+    expect(cfg).toContain(`command = "bash ${home}/.claude/k28-status-light/codex-hook.sh busy"\ntimeout = 10\nstatusMessage = "K28 busy"`)
     expect(cfg).not.toContain('K28 status light')
     expect(cfg).toContain('model = "gpt-5"')
     const backups = async () => (await readdir(path.join(home, '.codex'))).filter((f) => f.endsWith('.bak')).length

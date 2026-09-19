@@ -196,6 +196,8 @@ async function installCodexHooks() {
   }
 
   // 每次都先删掉我们旧的一套再追加最新的：旧安装只有 4 个时机，这样能升级到 6 个；内容没变就不写
+  // 钩子内容（command / timeout / statusMessage / matcher）必须和旧安装逐字一致：Codex 按内容算 trusted_hash，
+  // 任何一处变了，用户已信任的钩子就会被判为未信任而停用（statusMessage 因此保留旧的「K28 …」）
   nextContent = stripCodexHooks(nextContent)
   const hook = (event, state, matcher) => `
 [[hooks.${event}]]
@@ -204,7 +206,7 @@ ${matcher ? `matcher = "${matcher}"\n` : ''}
 type = "command"
 command = "bash ${path.join(HOOK_DIR, 'codex-hook.sh')} ${state}"
 timeout = 10
-statusMessage = "CodePal ${state}"
+statusMessage = "K28 ${state}"
 `
   nextContent = `${nextContent.trimEnd()}
 
