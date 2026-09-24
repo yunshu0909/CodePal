@@ -17,6 +17,9 @@ const os = require('os')
 // settings.json 写入统一走唯一 broker（V1.9.8 收口）；本模块 atomicWriteText 只用于 Codex config / 本目录的 conf
 const { mutateClaudeSettingsFile, detectUnsupportedCustomRoot } = require('./claudeSettingsService')
 const { trustCodePalCodexHooks } = require('./codexHookTrust')
+const { withConfigLock, commitConfigUnlocked, finalizeBackup } = require('./codexConfigOwner')
+const { parseToml } = require('./tomlSafeEdit')
+const { recordFootprint, removeFootprint } = require('./footprintRegistry')
 
 const HOOK_DIR = path.join(os.homedir(), '.claude', 'k28-status-light')
 const TEMPLATE_DIR = path.resolve(__dirname, '..', '..', 'templates', 'k28-status-light')
@@ -173,14 +176,7 @@ async function installClaudeHooks() {
  * 给 Codex config.toml 追加 K28 hooks；已有 K28 hooks 时只确保 features.hooks=true
  * @returns {Promise<void>}
  */
-async function installCodexHooks() {
-  let content = ''
-  try {
-    content = await fs.readFile(CODEX_CONFIG_PATH, 'utf-8')
-  } catch (error) {
-    if (error.code !== 'ENOENT') throw error
-  }
-
+function buildCodexHooksContent(content) {
   // 不再改顶层 notify：「完成了」由 Stop 钩子负责；旧逻辑认不出多行写法的 notify，会插出重复的键让 Codex 读配置失败
   let nextContent = content
 
@@ -224,13 +220,33 @@ statusMessage = "K28 ${state}"
     hook('Interrupt', 'stopped'),
   ].join('')}`
 
-  if (`${nextContent.trimEnd()}\n` === content) return
+  return `${nextContent.trimEnd()}\n`
+}
 
-  if (content) {
-    const backupPath = `${CODEX_CONFIG_PATH}.k28.${Date.now()}.bak`
-    await fs.writeFile(backupPath, content, 'utf-8')
-  }
-  await atomicWriteText(CODEX_CONFIG_PATH, `${nextContent.trimEnd()}\n`)
+/**
+ * 按文字规则改 Codex 配置，经 Codex 配置负责人提交（同一把锁、提交前后复验、只留一份滚动备份）
+ * 钩子文本必须逐字不变（Codex 按内容算 trusted_hash），所以沿用原有文字编辑；提交前确认原文和结果都是合法 TOML，
+ * 原文已损坏就不写（写进去 Codex 也读不了）
+ * @param {(content: string) => string} transform
+ * @returns {Promise<void>}（须在锁内调用）
+ */
+async function commitCodexHooksUnlocked(transform) {
+  const committed = await commitConfigUnlocked(CODEX_CONFIG_PATH, (content) => {
+    if (content) parseToml(content, 'CODEX_CONFIG_INVALID')
+    const next = transform(content)
+    if (next === content) return { text: content, changed: false }
+    parseToml(next, 'CODEX_CONFIG_UNSUPPORTED')
+    return { text: next, changed: true }
+  })
+  await finalizeBackup(committed)
+}
+
+/**
+ * 给 Codex config.toml 追加 CodePal 会话状态钩子（须在锁内调用）
+ * @returns {Promise<void>}
+ */
+async function installCodexHooks() {
+  await commitCodexHooksUnlocked(buildCodexHooksContent)
 }
 
 /**
@@ -651,17 +667,8 @@ function stripCodexHooks(content) {
  * @returns {Promise<void>}
  */
 async function uninstallCodexHooks() {
-  let content
-  try {
-    content = await fs.readFile(CODEX_CONFIG_PATH, 'utf-8')
-  } catch (error) {
-    if (error.code === 'ENOENT') return
-    throw error
-  }
-  const next = stripCodexHooks(content)
-  if (next === content) return
-  await fs.writeFile(`${CODEX_CONFIG_PATH}.session-status.${Date.now()}.bak`, content, 'utf-8')
-  await atomicWriteText(CODEX_CONFIG_PATH, next)
+  await withConfigLock(() => commitCodexHooksUnlocked((content) => (content ? stripCodexHooks(content) : content)))
+  removeFootprint('session-status:codex-hooks')
 }
 
 /**
@@ -717,6 +724,7 @@ async function installSessionStatus({ trustHooks = trustCodePalCodexHooks } = {}
   try {
     await installTemplateFiles()
     await setConfSwitch('1')
+    recordFootprint({ id: 'session-status:scripts', tool: 'claude', kind: 'scripts', location: HOOK_DIR })
   } catch (error) {
     return { success: false, tools, failures: [{ tool: 'all', error: error.message }] }
   }
@@ -726,6 +734,7 @@ async function installSessionStatus({ trustHooks = trustCodePalCodexHooks } = {}
     else {
       try {
         await installClaudeHooks()
+        recordFootprint({ id: 'session-status:claude-hooks', tool: 'claude', kind: 'hooks', location: 'settings.json' })
       } catch (error) {
         failures.push({ tool: 'claude', error: error.message })
       }
@@ -733,13 +742,17 @@ async function installSessionStatus({ trustHooks = trustCodePalCodexHooks } = {}
   }
   if (tools.codex) {
     try {
-      await installCodexHooks()
-      // 钩子装好后替用户在 Codex 里信任 CodePal 自己的钩子（走官方接口），否则新钩子不会运行
-      try {
-        await trustHooks({ configPath: CODEX_CONFIG_PATH })
-      } catch (error) {
-        failures.push({ tool: 'codex-trust', error: error.message })
-      }
+      // 装钩子与信任都会写 config.toml（信任由 Codex 自己的 app-server 写）：放进同一把锁，不和别的写入交错
+      await withConfigLock(async () => {
+        await installCodexHooks()
+        recordFootprint({ id: 'session-status:codex-hooks', tool: 'codex', kind: 'hooks', location: CODEX_CONFIG_PATH })
+        // 钩子装好后替用户在 Codex 里信任 CodePal 自己的钩子（走官方接口），否则新钩子不会运行
+        try {
+          await trustHooks({ configPath: CODEX_CONFIG_PATH })
+        } catch (error) {
+          failures.push({ tool: 'codex-trust', error: error.message })
+        }
+      })
     } catch (error) {
       failures.push({ tool: 'codex', error: error.message })
     }
@@ -758,6 +771,7 @@ async function uninstallSessionStatus() {
   const failures = []
   try {
     await uninstallClaudeHooks()
+    removeFootprint('session-status:claude-hooks')
   } catch (error) {
     failures.push({ tool: 'claude', error: error.message })
   }

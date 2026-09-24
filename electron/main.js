@@ -88,6 +88,7 @@ const { attachNavigationGuard, registerNavigationGuardHandlers } = require('./se
 const genericFileGuards = require('./services/genericFileGuards')
 const { runLegacyProviderRegistryCleanup } = require('./services/legacyMcpCleanup')
 const { createShutdownRegistry } = require('./services/appLifecycle')
+const { configureFootprint } = require('./services/footprintRegistry')
 const { drainConfigQueue } = require('./services/codexConfigOwner')
 
 const store = new Store()
@@ -97,6 +98,8 @@ let sessionStatus = null
 const planLedger = createPlanStoreService({ store, metadataFn: readPlanMetadata, earliestFn: id => usageStatistics.getSourceEarliestDate(id) })
 const usageStatistics = createSharedUsageStatistics()
 configureSharedStatistics(usageStatistics)
+// 足迹清单落在 electron-store：记录 CodePal 装进别的工具里的钩子、脚本等
+configureFootprint(store)
 const planDaily = createPlanDailySummaryService({ statistics: usageStatistics })
 const planPriceOverrides = createPlanPriceOverrideService({ store })
 const planPricing = () => getEffectivePricing(undefined, undefined, planPriceOverrides.list())

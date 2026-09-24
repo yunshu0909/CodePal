@@ -18,6 +18,7 @@ const { execFile } = require('child_process')
 const { promisify } = require('util')
 // 服务层不再反向依赖 handler 层：atomicWriteText 用于脚本/config 等非 settings 文件（settings 写走注入的 claudeSettingsService）
 const { atomicWriteText } = require('./envFileService')
+const { recordFootprint } = require('./footprintRegistry')
 
 const execFileAsync = promisify(execFile)
 
@@ -532,6 +533,9 @@ function createClaudeUsageStatusService({ pathExists, claudeSettingsService }) {
         durability: settingsWriteResult.durability || null,
       }
     }
+
+    // 足迹清单：statusLine 脚本和 settings.json 里的 statusLine 字段都是 CodePal 装进 Claude Code 的
+    recordFootprint({ id: 'claude-statusline', tool: 'claude', kind: 'statusline', location: STATUS_SCRIPT_PATH })
 
     // 托管配置优先级更高：写入成功也可能不生效，必须如实带上，UI 不得宣称已接入
     const finalState = await getUsageStatusState()

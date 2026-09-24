@@ -418,10 +418,32 @@ function removeTable(text, tablePath, options = {}) {
   return { text: next, changed: next !== source, found: true, matched: true }
 }
 
+/**
+ * 校验「只改了一个键」：其他模块用自己的文字编辑方式改完后，用它确认语义上只有 keyPath 变成了 value
+ * @param {string} beforeText
+ * @param {string} afterText
+ * @param {string[]} keyPath - 如 ['plugins', 'docs@official', 'enabled']
+ * @param {*} value
+ * @param {{invalidCode?: string, unsupportedCode?: string}} [codes]
+ */
+function assertOnlyChanged(beforeText, afterText, keyPath, value, codes = {}) {
+  const before = parseToml(beforeText, codes.invalidCode || 'TOML_INVALID')
+  const after = parseToml(afterText, codes.unsupportedCode || 'TOML_UNSUPPORTED')
+  const expected = cloneTree(before)
+  let cursor = expected
+  for (const part of keyPath.slice(0, -1)) {
+    if (!cursor[part] || typeof cursor[part] !== 'object') cursor[part] = Object.create(null)
+    cursor = cursor[part]
+  }
+  cursor[keyPath.at(-1)] = value
+  if (!sameSemantics(after, expected)) throw codedError(codes.unsupportedCode || 'TOML_UNSUPPORTED')
+}
+
 module.exports = {
   parseToml,
   scanDocument,
   locateArrayTables,
   setArrayTableBoolean,
   removeTable,
+  assertOnlyChanged,
 }

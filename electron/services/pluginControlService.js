@@ -13,6 +13,8 @@
 const fs = require('fs/promises')
 const os = require('os')
 const path = require('path')
+const { withConfigLock, commitConfigUnlocked, finalizeBackup } = require('./codexConfigOwner')
+const { assertOnlyChanged } = require('./tomlSafeEdit')
 const { execFile } = require('child_process')
 const { promisify } = require('util')
 const { readPluginMetadata } = require('./skillMetadataService')
@@ -35,7 +37,6 @@ const SAFE_ERROR_CODES = new Set([
   'CLI_INVALID_JSON',
   'CLI_COMMAND_FAILED',
 ])
-let codexConfigWriteQueue = Promise.resolve()
 
 function codedError(code) {
   const error = new Error(code)
@@ -279,24 +280,27 @@ function updateCodexPluginConfig(text, pluginId, enabled) {
   return `${prefix}${prefix ? '\n\n' : ''}[plugins.${JSON.stringify(pluginId)}]\nenabled = ${value}\n`
 }
 
-/** 保留式、原子更新一个 Codex Plugin 的 enabled 字段。 */
+/**
+ * 保留式、原子更新一个 Codex Plugin 的 enabled 字段：经 Codex 配置负责人（同一把锁、提交前后复验、滚动备份），
+ * 改完校验语义上只有这一个字段变了
+ * @param {string} configPath
+ * @param {string} pluginId
+ * @param {boolean} enabled
+ * @param {object} [deps] - beforeConfigCommit 等仅测试用
+ */
 async function setCodexPluginEnabled(configPath, pluginId, enabled, deps = {}) {
   if (!SAFE_PLUGIN_ID.test(pluginId)) throw codedError('INVALID_PLUGIN_ID')
-  const operation = codexConfigWriteQueue.then(async () => {
-    let text = ''
-    try { text = await (deps.readFile || fs.readFile)(configPath, 'utf8') } catch (error) {
-      if (error.code !== 'ENOENT') throw error
-    }
-    const next = updateCodexPluginConfig(text, pluginId, enabled)
-    await (deps.mkdir || fs.mkdir)(path.dirname(configPath), { recursive: true })
-    const tempPath = `${configPath}.codepal-${process.pid}-${Date.now()}.tmp`
-    await (deps.writeFile || fs.writeFile)(tempPath, next, { mode: 0o600 })
-    await (deps.rename || fs.rename)(tempPath, configPath)
-    return { success: true, enabled: Boolean(enabled) }
+  const value = Boolean(enabled)
+  await withConfigLock(async () => {
+    const committed = await commitConfigUnlocked(configPath, (text) => {
+      const next = updateCodexPluginConfig(text, pluginId, value)
+      if (next === text) return { text, changed: false }
+      assertOnlyChanged(text, next, ['plugins', pluginId, 'enabled'], value, { invalidCode: 'CODEX_CONFIG_INVALID', unsupportedCode: 'CODEX_CONFIG_UNSUPPORTED' })
+      return { text: next, changed: true }
+    }, deps)
+    await finalizeBackup(committed, deps)
   })
-  // 单次失败不能让后续写入永远挂在 rejected promise 上。
-  codexConfigWriteQueue = operation.catch(() => {})
-  return operation
+  return { success: true, enabled: value }
 }
 
 function validateCommand(params) {
@@ -319,7 +323,8 @@ async function executePluginCommand(params = {}, deps = {}) {
       result = await setCodexPluginEnabled(path.join(homeDir, '.codex', 'config.toml'), params.pluginId, params.action === 'enable', deps)
     } else {
       const verb = params.action === 'install' ? 'add' : 'remove'
-      result = await runPluginCli(runCommand, 'codex', ['plugin', verb, params.pluginId, '--json'], options)
+      // Codex 官方 CLI 也会写 config.toml：拿到同一把锁再调，避免和 CodePal 自己的写入交错
+      result = await withConfigLock(() => runPluginCli(runCommand, 'codex', ['plugin', verb, params.pluginId, '--json'], options))
     }
   } else {
     const scope = params.scope || 'user'
