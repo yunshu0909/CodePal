@@ -182,7 +182,7 @@ const TERMINAL = new Set(['removed', 'absent', 'not-owned'])
  */
 async function runLegacyProviderRegistryCleanup({ homeDir, store }, deps = {}) {
   if (store.get(STORE_KEY)?.done) return { skipped: 'already-done' }
-  // 备份文件名带时间戳：迁移可能重试多次，每次的原文都要留着，不互相覆盖
+  // 备份文件名带本次迁移的时间戳：不覆盖任何旧备份；同一次迁移内的冲突重试写同一个名字，留下的是实际修改前的原文
   const suffix = deps.backupSuffix ? deps.backupSuffix() : new Date().toISOString().replace(/[:.]/g, '-')
   const codex = await cleanupCodex(homeDir, suffix)
   const claude = await cleanupClaudeJson(homeDir, deps, suffix)

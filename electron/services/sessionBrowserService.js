@@ -226,6 +226,14 @@ async function listRecent({ projectsDir } = {}) {
   return { projectsDirExists: true, sessions }
 }
 
+// 单页上限：条数封顶 + 字节预算（行原文长度）。超了先停，剩下的由页面「加载更早」接着读（B2-4）
+const MAX_PAGE_LIMIT = 500
+const PAGE_BYTE_BUDGET = 8 * 1024 * 1024
+
+function cancelledError() {
+  return Object.assign(new Error('CANCELLED'), { code: 'CANCELLED' })
+}
+
 function sessionFile(root, projectId, sessionId) {
   if (!SAFE_ID.test(String(projectId)) || !SAFE_ID.test(String(sessionId))) throw new Error('INVALID_ID')
   return path.join(root, projectId, `${sessionId}.jsonl`)
@@ -241,11 +249,16 @@ function sessionFile(root, projectId, sessionId) {
 async function readSessionPage(projectId, sessionId, { limit = 200, before, projectsDir } = {}) {
   const file = sessionFile(getProjectsDir(projectsDir), projectId, sessionId)
   await fsp.access(file)
+  const pageLimit = Math.min(Math.max(1, Math.floor(Number(limit)) || 200), MAX_PAGE_LIMIT)
   const collected = []
+  let bytes = 0
   const { earliestOffset } = await scanBackward(file, { before }, (text, offset) => {
     const m = toMessage(parse(text))
-    if (m) collected.push({ offset, ...m })
-    return collected.length < limit
+    if (m) {
+      collected.push({ offset, ...m })
+      bytes += text.length
+    }
+    return collected.length < pageLimit && bytes < PAGE_BYTE_BUDGET
   })
   const cursor = earliestOffset ?? 0
   return { messages: collected.reverse(), hasMore: cursor > 0, cursor }
@@ -254,10 +267,12 @@ async function readSessionPage(projectId, sessionId, { limit = 200, before, proj
 /**
  * 在当前范围里搜对话正文（提问与回答的文字）
  * @param {string} keyword - 关键词
- * @param {{projectPath?: string|null, includeAuto?: boolean, maxResults?: number, projectsDir?: string}} [options]
+ * @param {{projectPath?: string|null, includeAuto?: boolean, maxResults?: number, projectsDir?: string, signal?: AbortSignal}} [options]
+ *   signal：被取消（同一窗口发起了新搜索）就停止扫描，抛 code=CANCELLED
  * @returns {Promise<Array<{projectId: string, sessionId: string, snippet: string, offset: number}>>}
  */
-async function searchSessions(keyword, { projectPath = null, includeAuto = false, maxResults = 50, projectsDir } = {}) {
+async function searchSessions(keyword, { projectPath = null, includeAuto = false, maxResults = 50, projectsDir, signal } = {}) {
+  if (signal?.aborted) throw cancelledError()
   const kw = String(keyword || '').trim().toLowerCase()
   if (!kw) return []
   const root = getProjectsDir(projectsDir)
@@ -268,10 +283,12 @@ async function searchSessions(keyword, { projectPath = null, includeAuto = false
   const caseless = kw.toLowerCase() === kw.toUpperCase()
   const lineHas = caseless ? (text) => text.includes(kw) : (text) => text.toLowerCase().includes(kw)
   for (const s of scope) {
+    if (signal?.aborted) throw cancelledError()
     if (results.length >= maxResults) break
     let hit = null
     try {
       await scanForward(path.join(root, s.projectId, `${s.sessionId}.jsonl`), (text, offset) => {
+        if (signal?.aborted) return false
         if (!lineHas(text)) return true
         if (text.includes('"media_type"') && text.includes('"data"')) return true // 跳过图片等大块编码
         const m = toMessage(parse(text))
@@ -287,6 +304,7 @@ async function searchSessions(keyword, { projectPath = null, includeAuto = false
     } catch {
       continue
     }
+    if (signal?.aborted) throw cancelledError()
     if (hit) results.push(hit)
   }
   return results

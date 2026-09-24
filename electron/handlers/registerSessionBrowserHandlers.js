@@ -8,8 +8,8 @@
  * @module electron/handlers/registerSessionBrowserHandlers
  */
 
-// 通过模块对象调用（不解构），测试可以替换其中的函数
-const service = require('../services/sessionBrowserService')
+// 通过模块对象调用（不解构），测试可以替换其中的函数；也可在注册时注入
+const defaultService = require('../services/sessionBrowserService')
 
 /**
  * 包一层统一返回结构
@@ -28,8 +28,12 @@ async function wrap(fn) {
  * 注册对话回顾 IPC handlers
  * @param {Object} deps
  * @param {import('electron').IpcMain} deps.ipcMain
+ * @param {object} [deps.service] - 对话服务（测试注入）
  */
-function registerSessionBrowserHandlers({ ipcMain }) {
+function registerSessionBrowserHandlers({ ipcMain, service = defaultService }) {
+  // 每个窗口只保留一个进行中的搜索：新搜索来了就取消上一个，主进程不再白扫
+  const searches = new Map()
+
   ipcMain.handle('session:listRecent', () => wrap(() => service.listRecent()))
 
   ipcMain.handle('session:readSession', (_event, projectId, sessionId, options = {}) =>
@@ -38,11 +42,19 @@ function registerSessionBrowserHandlers({ ipcMain }) {
       ...(options.before != null ? { before: options.before } : {}),
     })))
 
-  ipcMain.handle('session:search', (_event, keyword, options = {}) =>
-    wrap(() => service.searchSessions(keyword, {
+  ipcMain.handle('session:search', (event, keyword, options = {}) => {
+    const senderId = event?.sender?.id ?? 'default'
+    searches.get(senderId)?.abort()
+    const controller = new AbortController()
+    searches.set(senderId, controller)
+    return wrap(() => service.searchSessions(keyword, {
       projectPath: options.projectPath ?? null,
       includeAuto: Boolean(options.includeAuto),
-    })))
+      signal: controller.signal,
+    })).finally(() => {
+      if (searches.get(senderId) === controller) searches.delete(senderId)
+    })
+  })
 }
 
 module.exports = { registerSessionBrowserHandlers }

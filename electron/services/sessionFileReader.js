@@ -17,11 +17,13 @@ const fsp = require('fs/promises')
 const NEWLINE = 0x0a
 const DEFAULT_CHUNK = 64 * 1024
 
-const stats = { bytesRead: 0 }
+// bytesCopied：为拼接跨块的行而复制的字节数（B2-4：超长行不能每读一块就整段复制一次）
+const stats = { bytesRead: 0, bytesCopied: 0 }
 
 /** 清零读取统计（测试用） */
 function resetReaderStats() {
   stats.bytesRead = 0
+  stats.bytesCopied = 0
 }
 
 /**
@@ -29,7 +31,7 @@ function resetReaderStats() {
  * @returns {{bytesRead: number}}
  */
 function getReaderStats() {
-  return { bytesRead: stats.bytesRead }
+  return { bytesRead: stats.bytesRead, bytesCopied: stats.bytesCopied }
 }
 
 /**
@@ -63,6 +65,18 @@ async function readHeadLines(filePath, maxBytes) {
 }
 
 /**
+ * 拼接若干块并记下复制量；只有一块时不复制
+ * @param {Buffer[]} parts
+ * @returns {Buffer}
+ */
+function joinParts(parts) {
+  if (parts.length === 1) return parts[0]
+  const joined = Buffer.concat(parts)
+  stats.bytesCopied += joined.length
+  return joined
+}
+
+/**
  * 从 before（默认文件尾）往前倒着读，逐行回调（由后往前）
  * 步骤：每次往前读一块，拼上上一块开头那段不完整的行，从后往前找换行切出完整行；回调返回 false 即停
  * @param {string} filePath - 文件路径
@@ -76,7 +90,8 @@ async function scanBackward(filePath, { before, maxBytes = Infinity, chunkSize =
     const { size } = await fh.stat()
     let pos = before == null ? size : Math.min(before, size)
     let budget = maxBytes
-    let carry = Buffer.alloc(0)
+    // 还没遇到换行的块先攒着（文件顺序），遇到换行时才一次拼起来：超长行不会被反复整段复制
+    let carryParts = []
     let earliestOffset = null
 
     while (pos > 0 && budget > 0) {
@@ -86,7 +101,11 @@ async function scanBackward(filePath, { before, maxBytes = Infinity, chunkSize =
       await fh.read(buf, 0, len, pos)
       stats.bytesRead += len
       budget -= len
-      const data = carry.length ? Buffer.concat([buf, carry]) : buf
+      if (buf.indexOf(NEWLINE) < 0) {
+        carryParts.unshift(buf)
+        continue
+      }
+      const data = joinParts([buf, ...carryParts])
       let lineEnd = data.length
       // 用原生 lastIndexOf 找换行：大文件上比逐字节循环快一个数量级
       for (let i = data.lastIndexOf(NEWLINE, lineEnd - 1); i >= 0; i = lineEnd > 0 ? data.lastIndexOf(NEWLINE, lineEnd - 1) : -1) {
@@ -100,12 +119,12 @@ async function scanBackward(filePath, { before, maxBytes = Infinity, chunkSize =
         lineEnd = i
         if (lineEnd === 0) break
       }
-      carry = data.subarray(0, lineEnd)
+      carryParts = lineEnd > 0 ? [data.subarray(0, lineEnd)] : []
     }
     // 读到了文件开头：剩下的就是第一行
-    if (pos === 0 && carry.length) {
+    if (pos === 0 && carryParts.length) {
       earliestOffset = 0
-      if (onLine(carry.toString('utf8'), 0) === false) return { earliestOffset, stopped: true }
+      if (onLine(joinParts(carryParts).toString('utf8'), 0) === false) return { earliestOffset, stopped: true }
     }
     return { earliestOffset, stopped: false }
   } finally {
@@ -124,25 +143,33 @@ async function scanForward(filePath, onLine, { chunkSize = DEFAULT_CHUNK } = {})
   const fh = await fsp.open(filePath, 'r')
   try {
     let pos = 0
-    let carry = Buffer.alloc(0)
-    let carryOffset = 0
+    // 还没遇到换行的块先攒着，遇到换行才一次拼起来（同 scanBackward）
+    let pending = []
+    let pendingOffset = 0
     for (;;) {
       const buf = Buffer.alloc(chunkSize)
       const { bytesRead } = await fh.read(buf, 0, chunkSize, pos)
       if (bytesRead === 0) break
       stats.bytesRead += bytesRead
-      const data = carry.length ? Buffer.concat([carry, buf.subarray(0, bytesRead)]) : buf.subarray(0, bytesRead)
-      const base = carry.length ? carryOffset : pos
+      const slice = buf.subarray(0, bytesRead)
+      if (slice.indexOf(NEWLINE) < 0) {
+        if (pending.length === 0) pendingOffset = pos
+        pending.push(slice)
+        pos += bytesRead
+        continue
+      }
+      const data = pending.length ? joinParts([...pending, slice]) : slice
+      const base = pending.length ? pendingOffset : pos
       pos += bytesRead
       let start = 0
       for (let i = data.indexOf(NEWLINE, start); i >= 0; i = data.indexOf(NEWLINE, start)) {
         if (i > start && onLine(data.subarray(start, i).toString('utf8'), base + start) === false) return
         start = i + 1
       }
-      carry = data.subarray(start)
-      carryOffset = base + start
+      pending = start < data.length ? [data.subarray(start)] : []
+      pendingOffset = base + start
     }
-    if (carry.length) onLine(carry.toString('utf8'), carryOffset)
+    if (pending.length) onLine(joinParts(pending).toString('utf8'), pendingOffset)
   } finally {
     await fh.close()
   }
