@@ -14,7 +14,7 @@ import react from 'eslint-plugin-react'
 
 export default [
   { linterOptions: { reportUnusedDisableDirectives: 'off' } },
-  { ignores: ['dist/**', 'release/**', 'node_modules/**', 'coverage/**', 'tests/report/**', '_disabled/**', 'templates/**', 'references/**'] },
+  { ignores: ['dist/**', 'release/**', 'node_modules/**', 'coverage/**', 'tests/report/**', 'tests/coverage/**', '_disabled/**', 'templates/**', 'references/**'] },
   {
     files: ['**/*.{js,jsx,mjs,cjs}'],
     languageOptions: {

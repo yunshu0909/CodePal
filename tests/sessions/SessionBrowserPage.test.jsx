@@ -16,8 +16,9 @@ import { resetSessionCacheForTests } from '../../src/hooks/useSessionBrowser'
 
 const HOUR = 3600_000
 const MIN = 60_000
-// 造数据和断言共用同一个基准时刻：各自取 Date.now() 时，跨整分钟就会差一分钟（TC-36 偶发失败）
-const BASE = Date.now()
+// 造数据和断言共用同一个基准时刻（各自取 Date.now() 时跨整分钟会差一分钟，TC-36 偶发失败）；
+// 基准固定在某天中午，并把页面里的 Date 也钉到这里，避免午夜前后「今天 / 昨天」判断翻转
+const BASE = new Date(2026, 8, 17, 12, 0, 0).getTime()
 const iso = (msAgo) => new Date(BASE - msAgo).toISOString()
 const pad = (n) => String(n).padStart(2, '0')
 const hm = (msAgo) => { const d = new Date(BASE - msAgo); return `${pad(d.getHours())}:${pad(d.getMinutes())}` }
@@ -72,6 +73,7 @@ async function openFirst() {
 }
 
 beforeEach(() => {
+  vi.useFakeTimers({ toFake: ['Date'], now: BASE, shouldAdvanceTime: true })
   resetSessionCacheForTests()
   localStorage.clear()
   clipboard = { writeText: vi.fn(async () => {}) }
