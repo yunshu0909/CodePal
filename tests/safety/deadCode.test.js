@@ -71,3 +71,25 @@ describe('B2-2 死代码清理', () => {
     expect(exposed).toEqual([])
   })
 })
+
+// B2-7：统计引擎基线实测后不搬进程（见 specs/arch-b2-7-统计引擎基线），只清掉已没有渲染层入口的旧用量接口
+const LEGACY_USAGE_CHANNELS = ['scan-log-files', 'aggregate-usage-range', 'aggregate-usage-period', 'scan-dsh-usage', 'get-earliest-log-date', 'usage-aggregate:progress']
+const LEGACY_USAGE_FILES = ['electron/aggregateUsagePeriodHandler.js', 'electron/aggregateUsageRangeHandler.js', 'electron/scanLogFilesHandler.js']
+
+describe('B2-7 旧用量接口下线', () => {
+  it('D-4 主进程与 preload 不再注册 / 暴露旧用量通道；日历通道保留', () => {
+    const sources = ['electron/main.js', 'electron/preload.js', 'electron/handlers/registerUsageAggregationHandlers.js']
+      .map((rel) => readFileSync(path.join(root, rel), 'utf-8')).join('\n')
+    expect(LEGACY_USAGE_CHANNELS.filter((ch) => sources.includes(`'${ch}'`))).toEqual([])
+    expect(sources).toContain("'aggregate-usage-calendar'")
+    expect(sources).toContain("'usage-calendar:progress'")
+  })
+
+  it('D-5 旧用量 handler 文件与渲染层包装已删除', () => {
+    expect(LEGACY_USAGE_FILES.filter((rel) => existsSync(path.join(root, rel)))).toEqual([])
+    const fsStore = readFileSync(path.join(root, 'src', 'store', 'fs.js'), 'utf-8')
+    expect(fsStore).not.toMatch(/scanLogFiles/)
+    const preload = readFileSync(path.join(root, 'electron', 'preload.js'), 'utf-8')
+    expect(preload).not.toMatch(/^\s{2}(scanLogFiles|onUsageAggregationProgress)\s*:/m)
+  })
+})

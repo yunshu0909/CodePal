@@ -17,7 +17,6 @@ import { describe, it, expect, vi } from 'vitest'
 import { createRequire } from 'node:module'
 
 const require = createRequire(import.meta.url)
-const { handleAggregateUsagePeriod } = require('../electron/aggregateUsagePeriodHandler')
 const {
   DAILY_SUMMARY_SCHEMA_VERSION,
   normalizeDailySummary,
@@ -57,33 +56,15 @@ function makeDeps({ dshRecords = [makeDshRecord()], dshExists = true } = {}) {
   }
 }
 
-describe('TC-01 今日与按天汇总的 DSH 口径一致（CG-001）', () => {
-  it('两条路径得到相同的 DSH 模型用量', async () => {
-    const deps = makeDeps()
-
-    const today = await handleAggregateUsagePeriod({ period: 'today', timezone: 'Asia/Shanghai' }, deps)
-    const summary = await recomputeDailySummary(DAY, deps)
-
-    expect(today.success).toBe(true)
-    // 视图层（today.data.models）按别名归一；日汇总缓存（summary.models）仍按原始 id 落盘
-    const todayModel = today.data.models.find(model => model.name === 'deepseek-v4.1-flash')
-    const summaryModel = summary.models['deepseek-v4-flash']
-
-    expect(todayModel).toBeTruthy()
-    expect(summaryModel).toBeTruthy()
-    // 四个分桶必须逐字段一致，否则同一区间会出现两个数字
-    for (const field of ['input', 'output', 'cacheRead', 'cacheCreate', 'total']) {
-      expect(todayModel[field]).toBe(summaryModel[field])
-    }
-    expect(todayModel.total).toBe(610)
-    expect(today.data.recordCount).toBe(1)
-  })
-
-  it('DSH 用量计入总 Token 与项目分布', async () => {
-    const result = await handleAggregateUsagePeriod({ period: 'today', timezone: 'Asia/Shanghai' }, makeDeps())
-
-    expect(result.data.total).toBe(610)
-    expect(result.data.projectDistribution.some(project => project.name === 'proj-a' && project.value === 610)).toBe(true)
+describe('TC-01 按天汇总计入 DSH（CG-001）', () => {
+  // 旧的「今日」通道已下线（B2-7），今日与按天都走共享统计；这里保留按天汇总的 DSH 口径
+  it('DSH 用量计入模型、总 Token 与项目分布', async () => {
+    const summary = await recomputeDailySummary(DAY, makeDeps())
+    const model = summary.models['deepseek-v4-flash']
+    expect(model).toBeTruthy()
+    expect(model.total).toBe(610)
+    expect(summary.summary.total).toBe(610)
+    expect(Object.entries(summary.projects).some(([name, value]) => name === 'proj-a' && (value?.value ?? value?.total ?? value) === 610)).toBe(true)
   })
 })
 
@@ -140,18 +121,9 @@ describe('TC-09 累计至今起点纳入 DSH', () => {
 
 describe('TC-10 DSH 无数据时不回归', () => {
   it('DSH 来源为空与 DSH 目录不存在的结果完全一致', async () => {
-    const withEmptyDsh = await handleAggregateUsagePeriod(
-      { period: 'today', timezone: 'Asia/Shanghai' },
-      makeDeps({ dshRecords: [] }),
-    )
-    const withoutDsh = await handleAggregateUsagePeriod(
-      { period: 'today', timezone: 'Asia/Shanghai' },
-      makeDeps({ dshExists: false }),
-    )
-
-    expect(withEmptyDsh.success).toBe(true)
-    expect(withoutDsh.success).toBe(true)
-    expect(withEmptyDsh.data.models).toEqual(withoutDsh.data.models)
-    expect(withEmptyDsh.data.total).toBe(withoutDsh.data.total)
+    const withEmptyDsh = await recomputeDailySummary(DAY, makeDeps({ dshRecords: [] }))
+    const withoutDsh = await recomputeDailySummary(DAY, makeDeps({ dshExists: false }))
+    expect(withEmptyDsh.models).toEqual(withoutDsh.models)
+    expect(withEmptyDsh.summary).toEqual(withoutDsh.summary)
   })
 })

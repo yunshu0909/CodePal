@@ -48,7 +48,7 @@ describe('模型事件归属', () => {
     const parts = aggregateByModel([...(await scan(lines)), ...(await scan(lines, end, next))])
     expect(parts).toEqual(all)
   })
-  it('长日志的开头模型与用量不会被截掉，备用 IPC 同样保留', async () => {
+  it('长日志的开头模型与用量不会被截掉', async () => {
     const home = await fs.mkdtemp(path.join(os.tmpdir(), 'model-cost-'))
     try {
       const dir = path.join(home, '.codex/sessions'); await fs.mkdir(dir, { recursive: true })
@@ -56,9 +56,6 @@ describe('模型事件归属', () => {
       await fs.writeFile(path.join(dir, 'session.jsonl'), lines.join('\n'))
       const modelMap = aggregateByModel(await scanCodexLogs(start, end, { homeDir: home }))
       expect(modelMap.get('gpt-6-astra')?.total).toBe(110)
-      const { handleScanLogFiles } = require('../electron/scanLogFilesHandler.js')
-      const response = await handleScanLogFiles({ basePath: '~/.codex/sessions', start: start.toISOString(), end: end.toISOString(), purpose: 'usage-model-attribution' }, { expandHomeFn: () => dir })
-      expect(response.files[0].lines.map(line => JSON.parse(line).type)).toEqual(['turn_context', 'event_msg', 'turn_context', 'event_msg'])
     } finally { await fs.rm(home, { recursive: true, force: true }) }
   })
   it('用量读取走流式且不留对话正文，普通扫描保留原输出', async () => {

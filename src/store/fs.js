@@ -146,21 +146,3 @@ export async function compareSkillContent(sourcePath, targetPath) {
   }
   return window.electronAPI.compareSkillContent({ sourcePath, targetPath })
 }
-
-/**
- * 扫描日志文件
- * 扫描指定目录下的 .jsonl 日志文件，返回文件路径和内容行
- * @param {Object} params - 扫描参数
- * @param {string} params.basePath - 基础目录路径（支持 ~ 展开）
- * @param {string} params.pattern - 文件匹配模式（如 star.star slash star.jsonl）
- * @param {string} params.start - 开始时间（ISO 字符串）
- * @param {string} params.end - 结束时间（ISO 字符串）
- * @returns {Promise<{success: boolean, files: Array<{path: string, lines: string[], mtime: string}>, error: string|null}>}
- *   files: 文件列表，每个文件包含路径、内容行数组和修改时间
- */
-export async function scanLogFiles(params) {
-  if (!window.electronAPI?.scanLogFiles) {
-    return { success: false, files: [], error: 'API_NOT_AVAILABLE' }
-  }
-  return window.electronAPI.scanLogFiles(params)
-}

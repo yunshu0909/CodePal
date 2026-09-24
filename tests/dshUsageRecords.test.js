@@ -17,7 +17,7 @@ import { createRequire } from 'node:module'
 import { collectDshUsageRecords, selectHighestGenerationFiles } from '../electron/services/dshUsageRecords.mjs'
 
 const require = createRequire(import.meta.url)
-const { getBeijingDayKey } = require('../electron/services/usageDateRangeAggregationService')
+const { dayKey: getBeijingDayKey } = require('../electron/services/sharedUsageStatistics')
 
 const WINDOW_START = new Date('2026-08-01T00:00:00+08:00')
 const WINDOW_END = new Date('2026-09-01T00:00:00+08:00')

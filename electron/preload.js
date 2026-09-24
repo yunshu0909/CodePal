@@ -194,18 +194,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // V0.6 Usage monitoring APIs
 
-  /**
-   * 扫描日志文件
-   * 扫描指定目录下的 .jsonl 日志文件
-   * @param {Object} params - 扫描参数
-   * @param {string} params.basePath - 基础目录路径
-   * @param {string} params.pattern - 文件匹配模式
-   * @param {string} params.start - 开始时间（ISO 字符串）
-   * @param {string} params.end - 结束时间（ISO 字符串）
-   * @returns {Promise<{success: boolean, files: Array, error: string|null}>} 扫描结果
-   */
-  scanLogFiles: (params) => ipcRenderer.invoke('scan-log-files', params),
-
   aggregateUsageCalendar: (params) => ipcRenderer.invoke('aggregate-usage-calendar', params),
   onUsageStatisticsChanged: (callback) => {
     const listener = (_event, snapshot) => callback(snapshot)
@@ -452,17 +440,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
     const handler = (_event, state) => callback(state)
     ipcRenderer.on('app-update:state', handler)
     return () => ipcRenderer.removeListener('app-update:state', handler)
-  },
-
-  /**
-   * 监听用量聚合真实进度
-   * @param {(progress: Object) => void} callback - 进度回调
-   * @returns {() => void}
-   */
-  onUsageAggregationProgress: (callback) => {
-    const handler = (_event, progress) => callback(progress)
-    ipcRenderer.on('usage-aggregate:progress', handler)
-    return () => ipcRenderer.removeListener('usage-aggregate:progress', handler)
   },
 
   // 网络诊断（出口 IP）APIs

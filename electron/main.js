@@ -741,8 +741,6 @@ setDshIsolatedRunner(dshRunner)
 
 registerUsageAggregationHandlers({
   ipcMain,
-  expandHome,
-  pathExists,
   homeDir: os.homedir(),
   statistics: usageStatistics,
   nowFn: () => new Date()
