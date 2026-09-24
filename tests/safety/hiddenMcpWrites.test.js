@@ -47,9 +47,11 @@ describe('Task 1 · 停止隐藏 MCP 的新增写入', () => {
     expect(app).not.toMatch(/McpPage/)
   })
 
-  it('TC-5 mcp/ 脚本仍随包发布（用户配置仍引用它）', () => {
+  it('TC-5 mcp/ 脚本只在「已写入条目被清理」的同时下线（B2-1 起：移入 _disabled，启动时一次性清理）', () => {
+    // Task 1 时用户配置仍引用 mcp/ 脚本，必须随包保留；B2-1 加了一次性清理后才整体搬进 _disabled
     const pkg = JSON.parse(read('package.json'))
-    expect(pkg.build.files).toContain('mcp/**/*')
-    expect(existsSync(resolve(root, 'mcp/provider_registry_mcp.js'))).toBe(true)
+    expect(pkg.build.files).not.toContain('mcp/**/*')
+    expect(existsSync(resolve(root, '_disabled/mcp-manager/mcp/provider_registry_mcp.js'))).toBe(true)
+    expect(code('electron/main.js')).toMatch(/runLegacyProviderRegistryCleanup\(/)
   })
 })

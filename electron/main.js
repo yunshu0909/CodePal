@@ -86,6 +86,7 @@ const { createNavigationBridge } = require('./services/appNavigation')
 const { registerRepoWatcherHandlers } = require('./handlers/registerRepoWatcherHandlers')
 const { attachNavigationGuard, registerNavigationGuardHandlers } = require('./services/navigationGuardService')
 const genericFileGuards = require('./services/genericFileGuards')
+const { runLegacyProviderRegistryCleanup } = require('./services/legacyMcpCleanup')
 
 const store = new Store()
 // 会话状态监听（启动后赋值，退出时停）
@@ -226,8 +227,11 @@ app.whenReady().then(async () => {
   installAppMenu({ app, getMainWindow: () => mainWindow })
   applyDevDockIcon(app)
 
-  // 不再启动时补写 provider_registry MCP：MCP 管理已隐藏，不能在用户看不到的地方改 Claude / Codex 配置
-  // （架构优化第一批 Task 1；已写入的条目等 TOML 安全编辑就绪后按归属清理）
+  // 一次性清理旧版本写进 Claude / Codex 配置的 provider_registry MCP（只动确认属于 CodePal 的条目；
+  // 保格式、先备份；冲突下次启动再试）。后台执行，不阻塞启动
+  runLegacyProviderRegistryCleanup({ homeDir: os.homedir(), store })
+    .then((result) => { if (!result.skipped) console.log('[legacy-mcp-cleanup]', JSON.stringify(result)) })
+    .catch((error) => console.warn('[legacy-mcp-cleanup] failed:', error?.message || error))
 
   const appUpdateHandlers = registerAppUpdateHandlers({
     ipcMain,

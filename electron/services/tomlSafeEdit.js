@@ -335,9 +335,83 @@ function setArrayTableBoolean(text, spec) {
   return { text: next, changed: next !== source }
 }
 
+/**
+ * 删除一张普通表（如 [mcp_servers.provider_registry]）及其所有子表（如 [….env]），其余字节原样
+ *
+ * 只支持用表头定义的写法；删完重新解析，确认语义上正好少了这张表（上级因此变空时，允许上级一并消失）。
+ * 做不到就拒绝，不回退成整份重写。
+ *
+ * @param {string} text - 原文
+ * @param {string[]} tablePath - 如 ['mcp_servers', 'provider_registry']
+ * @param {object} [options]
+ * @param {(table: object) => boolean} [options.match] - 只有表内容满足时才删（判断归属）；不满足返回 matched:false
+ * @param {string} [options.invalidCode='TOML_INVALID']
+ * @param {string} [options.unsupportedCode='TOML_UNSUPPORTED']
+ * @returns {{text: string, changed: boolean, found: boolean, matched: boolean}}
+ */
+function removeTable(text, tablePath, options = {}) {
+  const source = String(text || '')
+  const invalidCode = options.invalidCode || 'TOML_INVALID'
+  const unsupportedCode = options.unsupportedCode || 'TOML_UNSUPPORTED'
+  const doc = parseToml(source, invalidCode)
+  let parent = doc
+  for (const part of tablePath.slice(0, -1)) parent = parent?.[part]
+  const leaf = tablePath.at(-1)
+  const table = parent && Object.prototype.hasOwnProperty.call(parent, leaf) ? parent[leaf] : undefined
+  if (table === undefined) return { text: source, changed: false, found: false, matched: false }
+  if (!table || typeof table !== 'object' || Array.isArray(table) || table instanceof Date) throw codedError(unsupportedCode)
+  if (options.match && !options.match(table)) return { text: source, changed: false, found: true, matched: false }
+
+  let items
+  try {
+    items = scanDocument(source)
+  } catch {
+    throw codedError(unsupportedCode)
+  }
+  const isUnder = (parts) => parts.length >= tablePath.length && tablePath.every((part, index) => parts[index] === part)
+  // 目标表必须由表头定义（不是内联表 / 点号键），且出现在它自己的表头下
+  const ranges = []
+  let removing = null
+  for (const item of items) {
+    if (item.type === 'header') {
+      if (removing) { ranges.push([removing, item.lineStart]); removing = null }
+      if (!item.array && isUnder(item.parts)) removing = item.lineStart
+    } else if (!removing && item.parts.length >= 1) {
+      // 顶层或其他表里用点号键写到目标表 → 不支持
+      const headerless = items.filter((x) => x.type === 'header' && x.lineStart < item.lineStart).at(-1)
+      const full = [...(headerless ? headerless.parts : []), ...item.parts]
+      if (isUnder(full)) throw codedError(unsupportedCode)
+    }
+  }
+  if (removing !== null) ranges.push([removing, source.length])
+  if (ranges.length === 0) throw codedError(unsupportedCode)
+
+  let next = source
+  for (const [start, end] of [...ranges].reverse()) next = next.slice(0, start) + next.slice(end)
+
+  const expected = cloneTree(doc)
+  let expectedParent = expected
+  for (const part of tablePath.slice(0, -1)) expectedParent = expectedParent[part]
+  delete expectedParent[leaf]
+  const reparsed = parseToml(next, unsupportedCode)
+  // 上级只因这张表而存在时，删掉后上级会整个消失：两种结果都接受
+  const alternative = cloneTree(expected)
+  let cursor = alternative
+  const chain = []
+  for (const part of tablePath.slice(0, -1)) { chain.push([cursor, part]); cursor = cursor[part] }
+  for (let i = chain.length - 1; i >= 0; i--) {
+    const [holder, key] = chain[i]
+    if (holder[key] && typeof holder[key] === 'object' && ownKeys(holder[key]).length === 0) delete holder[key]
+    else break
+  }
+  if (!sameSemantics(reparsed, expected) && !sameSemantics(reparsed, alternative)) throw codedError(unsupportedCode)
+  return { text: next, changed: next !== source, found: true, matched: true }
+}
+
 module.exports = {
   parseToml,
   scanDocument,
   locateArrayTables,
   setArrayTableBoolean,
+  removeTable,
 }

@@ -20,5 +20,4 @@ export const SIDEBAR_ICONS = {
   'doc-browser': { color: 'var(--ic-brown)', path: 'M2.5 2.5h4a2 2 0 0 1 1.5.7 2 2 0 0 1 1.5-.7h4v10h-4a2 2 0 0 0-1.5.7 2 2 0 0 0-1.5-.7h-4zM8 3.2v10' },
   skills: { color: 'var(--ic-gray)', path: 'M10.5 2.5a3 3 0 0 0-3.6 3.6L2.5 10.5l3 3 4.4-4.4a3 3 0 0 0 3.6-3.6l-1.8 1.8-1.5-.4-.4-1.5z' },
   plugins: { color: 'var(--ic-gray)', path: 'M6 2.5h4v2a1.5 1.5 0 0 0 3 0v3.5h-2a1.5 1.5 0 0 0 0 3h2v2.5H6v-2a1.5 1.5 0 0 0-3 0v-3.5h2a1.5 1.5 0 0 0 0-3H3v-2.5z' },
-  mcp: { color: 'var(--ic-gray)', path: 'M6 2v3M10 2v3M4.5 5h7v3a3.5 3.5 0 0 1-7 0zM8 11.5V14' },
 }

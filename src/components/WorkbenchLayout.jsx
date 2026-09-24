@@ -28,7 +28,7 @@ const IS_MAC = typeof navigator !== 'undefined' && /Macintosh|Mac OS X/.test(nav
  * 工作台布局组件
  * @param {Object} props
  * @param {React.ReactNode} props.children - 内容区域要渲染的子元素
- * @param {'skills'|'mcp'|'usage'|'claude-usage'|'api'|'project-init'|'permission'|'network'|'session-status'|'sessions'|'doc-browser'} props.activeModule - 当前激活的模块
+ * @param {'skills'|'usage'|'claude-usage'|'api'|'project-init'|'permission'|'network'|'session-status'|'sessions'|'doc-browser'} props.activeModule - 当前激活的模块
  * @param {function} props.onModuleChange - 模块切换回调函数
  * @param {object} [props.appUpdate] - 应用更新状态（hasUpdate / latestVersion / releaseNotes / checked / error）
  * @param {function} [props.onDownloadUpdate] - 「下载新版」：打开发布页
@@ -75,8 +75,6 @@ function WorkbenchLayout({ children, activeModule, onModuleChange, appUpdate, on
       items: [
         { id: 'skills', label: 'Skills 管理', beta: true },
         { id: 'plugins', label: 'Plugins 管理', beta: true }
-        // 'mcp' 模块从侧栏隐藏：短期内不使用，代码和路由保留，未来需要时恢复此条即可
-        // { id: 'mcp', label: 'MCP 管理', beta: true }
       ]
     },
     {
