@@ -80,13 +80,15 @@ const { registerSessionResumeHandlers } = require('./handlers/registerSessionRes
 const { registerDocBrowserHandlers } = require('./handlers/registerDocBrowserHandlers')
 const { registerSessionStatusHandlers } = require('./handlers/registerSessionStatusHandlers')
 const { initDocBrowserStore } = require('./services/docBrowserService')
-const { initializeIpMonitor, setIpMonitorFastMode } = require('./services/networkDiagnosticsService')
+const { initializeIpMonitor, setIpMonitorFastMode, stopIpMonitor } = require('./services/networkDiagnosticsService')
 const { createEgressNotifier, withNetworkStyle } = require('./services/egressNotifier')
 const { createNavigationBridge } = require('./services/appNavigation')
 const { registerRepoWatcherHandlers } = require('./handlers/registerRepoWatcherHandlers')
 const { attachNavigationGuard, registerNavigationGuardHandlers } = require('./services/navigationGuardService')
 const genericFileGuards = require('./services/genericFileGuards')
 const { runLegacyProviderRegistryCleanup } = require('./services/legacyMcpCleanup')
+const { createShutdownRegistry } = require('./services/appLifecycle')
+const { drainConfigQueue } = require('./services/codexConfigOwner')
 
 const store = new Store()
 // 会话状态监听（启动后赋值，退出时停）
@@ -327,9 +329,29 @@ app.on('window-all-closed', () => {
   }
 })
 
-app.on('before-quit', () => {
-  usageScheduler.stop()
-  sessionStatus?.stop()
+// 退出前统一清理：各后台任务都在这里登记，整体最多等 3 秒，卡住的不阻塞退出
+const shutdownRegistry = createShutdownRegistry({ timeoutMs: 3000 })
+shutdownRegistry.register('usage-scheduler', () => usageScheduler.stop())
+shutdownRegistry.register('session-status', () => sessionStatus?.stop())
+shutdownRegistry.register('network-monitor', () => stopIpMonitor())
+shutdownRegistry.register('dsh-worker', () => dshRunner.dispose())
+shutdownRegistry.register('repo-watcher', () => repoWatcherCleanup?.stopWatching())
+// 正在写的 Codex 配置要等写完，不能写到一半被中断
+shutdownRegistry.register('codex-config-writes', () => drainConfigQueue())
+
+let shutdownFinished = false
+app.on('before-quit', (event) => {
+  if (shutdownFinished) return
+  event.preventDefault()
+  shutdownRegistry.shutdown()
+    .then((report) => {
+      const notDone = report.filter((item) => item.status !== 'done')
+      if (notDone.length) console.warn('[shutdown] not clean:', JSON.stringify(notDone))
+    })
+    .finally(() => {
+      shutdownFinished = true
+      app.quit()
+    })
 })
 
 app.on('activate', () => {
@@ -708,7 +730,8 @@ registerProjectInitHandlers({
 
 // DSH 用量扫描放到独立进程：原生 zstd 解压在本机会因内存状态触发 SIGTRAP，
 // 隔离后子进程崩溃不影响主进程，只降级为本次窗口没有 DSH 数据。
-setDshIsolatedRunner(createDshWorkerRunner({ homeDir: os.homedir() }))
+const dshRunner = createDshWorkerRunner({ homeDir: os.homedir() })
+setDshIsolatedRunner(dshRunner)
 
 registerUsageAggregationHandlers({
   ipcMain,

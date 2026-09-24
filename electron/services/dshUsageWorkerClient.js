@@ -102,7 +102,7 @@ function createDshWorkerRunner(options = {}) {
    * @param {Date} end - 窗口结束（不含）
    * @returns {Promise<Array<object>>} 用量记录；隔离进程不可用时为空数组
    */
-  return function runDshScanInWorker(start, end, {strictScan = false} = {}) {
+  function runDshScanInWorker(start, end, {strictScan = false} = {}) {
     return new Promise((resolve, reject) => {
       const fail = () => strictScan ? reject(new Error('DSH_WORKER_UNAVAILABLE')) : resolve([])
       let requestChild
@@ -147,6 +147,18 @@ function createDshWorkerRunner(options = {}) {
       }
     })
   }
+
+  /** 应用退出时释放：结束子进程，等待中的请求按原有降级规则了结 */
+  runDshScanInWorker.dispose = async () => {
+    const current = child
+    child = null
+    failAllPending(null)
+    if (current) {
+      try { current.kill() } catch { /* 已退出 */ }
+    }
+  }
+
+  return runDshScanInWorker
 }
 
 module.exports = { createDshWorkerRunner, DEFAULT_TIMEOUT_MS }

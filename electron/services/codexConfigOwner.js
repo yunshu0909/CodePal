@@ -190,8 +190,14 @@ async function restoreConfigUnlocked(committed, deps = {}) {
   }
 }
 
+/** 等排队中的 Codex 配置写入全部完成（应用退出时调用，避免写到一半被中断） */
+function drainConfigQueue() {
+  return configQueue
+}
+
 module.exports = {
   withConfigLock,
+  drainConfigQueue,
   commitConfigUnlocked,
   restoreConfigUnlocked,
   finalizeBackup,

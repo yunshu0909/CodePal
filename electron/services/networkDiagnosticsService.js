@@ -524,6 +524,11 @@ function initializeIpMonitor({ store, getWindow, notify }) {
   return defaultIpService.initialize()
 }
 
+/** 停掉默认实例的后台监控（应用退出时调用） */
+function stopIpMonitor() {
+  defaultIpService.dispose()
+}
+
 function getIpMonitorState() {
   return defaultIpService.getState()
 }
@@ -546,6 +551,7 @@ module.exports = {
   buildEgressNotification,
   createNetworkDiagnosticsService,
   initializeIpMonitor,
+  stopIpMonitor,
   getIpMonitorState,
   probeIpOnce,
   setIpMonitorFastMode,
