@@ -216,6 +216,9 @@ function createWindow() {
   } else {
     mainWindow.loadFile(path.join(__dirname, '../dist/index.html'))
   }
+
+  // macOS 关掉最后一个窗口会停中央仓库监听；再开窗口（Dock / 点通知）时恢复
+  repoWatcherCleanup?.ensureWatching().catch((error) => console.error('[repo-watcher] Ensure failed:', error))
 }
 
 app.whenReady().then(async () => {
