@@ -121,16 +121,29 @@ async function discardBackup(committed) {
  * @param {string} configPath
  * @param {(text: string) => {text: string, changed: boolean}} plan
  * @param {object} deps - beforeConfigCommit / beforeConfigRename / renameFn / afterConfigCommit 仅测试用
+ * @param {object} [options]
+ * @param {(target: string) => string} [options.durableBackupPath] - 给出则在改配置之前把备份可靠地写到这个路径（失败即放弃、配置不动），
+ *   不走「事务成功后才换上的滚动备份」；一次性迁移用它
  * @returns {Promise<{changed: boolean, before: object, text?: string, ino?: number, backupTemp?: string|null}>}
  */
-async function commitConfigUnlocked(configPath, plan, deps = {}) {
+async function commitConfigUnlocked(configPath, plan, deps = {}, options = {}) {
   const before = await snapshotConfig(configPath)
   const { text, changed } = plan(before.text)
   if (!changed) return { changed: false, before, backupTemp: null }
   if (deps.beforeConfigCommit) await deps.beforeConfigCommit(configPath)
   await assertUnchanged(before)
   await fs.mkdir(path.dirname(before.target), { recursive: true })
-  const backupTemp = before.exists ? await writeTemp(`${before.target}.codepal.bak`, before.text, before.mode) : null
+  if (before.exists && options.durableBackupPath) {
+    // 先把备份落稳：写临时文件 → rename 到最终路径，任何一步失败都直接放弃，配置还没动
+    const durableTemp = await writeTemp(options.durableBackupPath(before.target), before.text, before.mode)
+    try {
+      await fs.rename(durableTemp, options.durableBackupPath(before.target))
+    } catch (error) {
+      await fs.rm(durableTemp, { force: true }).catch(() => {})
+      throw error
+    }
+  }
+  const backupTemp = before.exists && !options.durableBackupPath ? await writeTemp(`${before.target}.codepal.bak`, before.text, before.mode) : null
   let newTemp = null
   try {
     newTemp = await writeTemp(before.target, text, before.mode)

@@ -87,8 +87,12 @@ describe('B2-1 清理已写入的 provider_registry', () => {
     expect(result).toMatchObject({ codex: 'removed', claude: 'removed', done: true })
     expect(await fs.readFile(tomlPath(), 'utf8')).toBe(EXPECTED_TOML)
     expect(await fs.readFile(jsonPath(), 'utf8')).toBe(expectedJson())
-    expect(await fs.readFile(`${tomlPath()}.codepal.bak`, 'utf8')).toBe(OWNED_TOML)
-    expect(await fs.readFile(`${jsonPath()}.codepal.bak`, 'utf8')).toBe(ownedJson())
+    // 审核后：迁移用单独的带时间戳备份，先写成功才改配置，不覆盖旧备份
+    const backups = async (file) => (await fs.readdir(path.dirname(file))).filter((n) => n.startsWith(`${path.basename(file)}.codepal-mcp-cleanup-`) && n.endsWith('.bak'))
+    const [tomlBak] = await backups(tomlPath())
+    const [jsonBak] = await backups(jsonPath())
+    expect(await fs.readFile(path.join(path.dirname(tomlPath()), tomlBak), 'utf8')).toBe(OWNED_TOML)
+    expect(await fs.readFile(path.join(path.dirname(jsonPath()), jsonBak), 'utf8')).toBe(ownedJson())
   })
 
   it('L-2 同名但不属于 CodePal（args 指向别处）→ 不动', async () => {
@@ -154,5 +158,52 @@ describe('B2-1 MCP 代码下线', () => {
   it('M-2 主进程启动时调用一次性清理', () => {
     const main = readFileSync(path.join(root, 'electron', 'main.js'), 'utf-8')
     expect(main).toMatch(/runLegacyProviderRegistryCleanup\(/)
+  })
+})
+
+// ── Codex 审核（NOT_ACK：P1×1 / P2×3）后补的用例 ──
+describe('B2-1 审核修复', () => {
+  it('R-1 目标表在文件第一行（旧安装器在配置不存在时生成的样子）也能清理', async () => {
+    const toml = `[mcp_servers.provider_registry]\ncommand = "node"\nargs = [ "${SCRIPT}" ]\n\n[mcp_servers.provider_registry.env]\nA = "1"\n`
+    await write(tomlPath(), toml)
+    const result = await runLegacyProviderRegistryCleanup({ homeDir, store })
+    expect(result.codex).toBe('removed')
+    expect((await fs.readFile(tomlPath(), 'utf8')).includes('provider_registry')).toBe(false)
+  })
+
+  it('R-2 紧贴在下一张表上方的用户注释保留', async () => {
+    const toml = `[mcp_servers.provider_registry]\ncommand = "node"\nargs = [ "${SCRIPT}" ]\n\n# Important instructions for other server\n[mcp_servers.other]\ncommand = "keep"\n`
+    await write(tomlPath(), toml)
+    await runLegacyProviderRegistryCleanup({ homeDir, store })
+    expect(await fs.readFile(tomlPath(), 'utf8')).toBe('# Important instructions for other server\n[mcp_servers.other]\ncommand = "keep"\n')
+  })
+
+  it('R-3 备份写不了 → 配置不动，不标记完成（下次再试）', async () => {
+    await write(tomlPath(), OWNED_TOML)
+    await write(jsonPath(), ownedJson())
+    const result = await runLegacyProviderRegistryCleanup({ homeDir, store }, { backupSuffix: () => 'fixed' })
+    expect(result.done).toBe(true)
+    // 第二次：备份路径被占成目录（写不进去）
+    const store2 = memoryStore()
+    await write(tomlPath(), OWNED_TOML)
+    await write(jsonPath(), ownedJson())
+    const bak = (file) => `${file}.codepal-mcp-cleanup-fixed.bak`
+    await fs.rm(bak(tomlPath()), { force: true }); await fs.mkdir(bak(tomlPath()))
+    await fs.rm(bak(jsonPath()), { force: true }); await fs.mkdir(bak(jsonPath()))
+    const again = await runLegacyProviderRegistryCleanup({ homeDir, store: store2 }, { backupSuffix: () => 'fixed' })
+    expect(again.done).toBe(false)
+    expect(await fs.readFile(tomlPath(), 'utf8')).toBe(OWNED_TOML)
+    expect(await fs.readFile(jsonPath(), 'utf8')).toBe(ownedJson())
+  })
+
+  it('R-4 ~/.claude.json 是软链接（dotfiles）→ 改真实文件，链接保留', async () => {
+    const real = path.join(sandbox, 'dotfiles', 'claude.json')
+    await write(real, ownedJson())
+    await fs.mkdir(homeDir, { recursive: true })
+    await fs.symlink(real, jsonPath())
+    const result = await runLegacyProviderRegistryCleanup({ homeDir, store })
+    expect(result.claude).toBe('removed')
+    expect((await fs.lstat(jsonPath())).isSymbolicLink()).toBe(true)
+    expect(await fs.readFile(real, 'utf8')).toBe(expectedJson())
   })
 })

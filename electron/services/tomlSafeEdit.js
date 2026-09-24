@@ -370,13 +370,23 @@ function removeTable(text, tablePath, options = {}) {
   }
   const isUnder = (parts) => parts.length >= tablePath.length && tablePath.every((part, index) => parts[index] === part)
   // 目标表必须由表头定义（不是内联表 / 点号键），且出现在它自己的表头下
+  // 删除范围的终点：下一张表头之前，但紧贴在它上方的注释属于那张表，要留下
+  const keepLeadingComments = (end) => {
+    let cut = end
+    for (;;) {
+      if (cut === 0) return cut
+      const prevLineStart = source.lastIndexOf('\n', cut - 2) + 1
+      if (!source.slice(prevLineStart, cut).trim().startsWith('#')) return cut
+      cut = prevLineStart
+    }
+  }
   const ranges = []
   let removing = null
   for (const item of items) {
     if (item.type === 'header') {
-      if (removing) { ranges.push([removing, item.lineStart]); removing = null }
+      if (removing !== null) { ranges.push([removing, keepLeadingComments(item.lineStart)]); removing = null }
       if (!item.array && isUnder(item.parts)) removing = item.lineStart
-    } else if (!removing && item.parts.length >= 1) {
+    } else if (removing === null && item.parts.length >= 1) {
       // 顶层或其他表里用点号键写到目标表 → 不支持
       const headerless = items.filter((x) => x.type === 'header' && x.lineStart < item.lineStart).at(-1)
       const full = [...(headerless ? headerless.parts : []), ...item.parts]
