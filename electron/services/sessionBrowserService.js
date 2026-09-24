@@ -192,7 +192,8 @@ async function readSessionMeta(projectId, file) {
  * @param {{projectsDir?: string}} [options]
  * @returns {Promise<{projectsDirExists: boolean, sessions: Array<object>}>} 按修改时间倒序
  */
-async function listRecent({ projectsDir } = {}) {
+async function listRecent({ projectsDir, signal } = {}) {
+  if (signal?.aborted) throw cancelledError()
   const root = getProjectsDir(projectsDir)
   let entries
   try {
@@ -214,6 +215,8 @@ async function listRecent({ projectsDir } = {}) {
     }
     for (const name of files) {
       if (!name.endsWith('.jsonl')) continue
+      // 搜索被取消时，搜索前的会话列表扫描也要停（B2-4 审核）
+      if (signal?.aborted) throw cancelledError()
       try {
         const meta = await readSessionMeta(entry.name, path.join(root, entry.name, name))
         if (meta) sessions.push(meta)
@@ -253,12 +256,14 @@ async function readSessionPage(projectId, sessionId, { limit = 200, before, proj
   const collected = []
   let bytes = 0
   const { earliestOffset } = await scanBackward(file, { before }, (text, offset) => {
+    // 预算按实际字节、按扫过的每一行计（被过滤的工具输出等也要计入，否则会为凑一页扫完整个文件）
+    bytes += Buffer.byteLength(text, 'utf8')
     const m = toMessage(parse(text))
-    if (m) {
-      collected.push({ offset, ...m })
-      bytes += text.length
-    }
-    return collected.length < pageLimit && bytes < PAGE_BYTE_BUDGET
+    if (m) collected.push({ offset, ...m })
+    if (collected.length >= pageLimit) return false
+    // 至少带回一条消息；一直没有消息时，扫到预算的 4 倍也先停（hasMore 仍为真，游标接着往前）
+    if (bytes >= PAGE_BYTE_BUDGET && (collected.length > 0 || bytes >= PAGE_BYTE_BUDGET * 4)) return false
+    return true
   })
   const cursor = earliestOffset ?? 0
   return { messages: collected.reverse(), hasMore: cursor > 0, cursor }
@@ -276,7 +281,7 @@ async function searchSessions(keyword, { projectPath = null, includeAuto = false
   const kw = String(keyword || '').trim().toLowerCase()
   if (!kw) return []
   const root = getProjectsDir(projectsDir)
-  const { sessions } = await listRecent({ projectsDir: root })
+  const { sessions } = await listRecent({ projectsDir: root, signal })
   const scope = sessions.filter((s) => (includeAuto || !s.auto) && (!projectPath || s.projectPath === projectPath))
   const results = []
   // 关键词没有大小写之分（中文、数字、符号）时省掉每行转小写；非 ASCII 的大小写字母（Ä / É）也要走转小写

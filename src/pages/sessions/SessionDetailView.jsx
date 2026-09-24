@@ -20,6 +20,8 @@ import { FOLDER } from './SessionListView'
 import { displayTitle, formatWhen, iconColor, resumeCommand } from './sessionView'
 
 const PAGE_SIZE = 200
+// 自动刷新最多往前补读几页来接上已有末条（每页有字节预算）
+const REFRESH_MAX_PAGES = 20
 const REFRESH_MS = 10_000
 // 离底部这么近就算「停在底部」
 const BOTTOM_SLACK = 24
@@ -119,15 +121,24 @@ export default function SessionDetailView({ session, hit, onBack }) {
     }
   }, [read])
 
-  // 补读新消息：只把比已有最后一条更晚的接在后面
+  // 补读新消息：只把比已有最后一条更晚的接在后面。
+  // 一页有字节预算（B2-4），新增的一页可能装不下：往前一页页补读，直到接上已有末条再合并；接不上就这次先不合并，避免中间漏消息
   const refreshTail = useCallback(async () => {
     const cur = pageRef.current
     if (cur.status !== 'ok') return
-    const res = await read({ limit: PAGE_SIZE }).catch(() => null)
-    if (!res?.success) return
     const last = cur.messages.length ? cur.messages[cur.messages.length - 1].offset : -1
-    const fresh = res.data.messages.filter((m) => m.offset > last)
-    if (!fresh.length) return
+    let fresh = []
+    let before
+    let reached = false
+    for (let round = 0; round < REFRESH_MAX_PAGES; round++) {
+      const res = await read({ limit: PAGE_SIZE, ...(before != null ? { before } : {}) }).catch(() => null)
+      if (!res?.success) return
+      const { messages, hasMore, cursor } = res.data
+      fresh = [...messages.filter((m) => m.offset > last), ...fresh]
+      if (!messages.length || messages[0].offset <= last || !hasMore) { reached = true; break }
+      before = cursor
+    }
+    if (!reached || !fresh.length) return
     const el = bodyRef.current
     const atBottom = !el || el.scrollHeight - el.scrollTop - el.clientHeight <= BOTTOM_SLACK
     if (atBottom) scrollIntent.current = { type: 'bottom' }

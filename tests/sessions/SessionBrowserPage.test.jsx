@@ -456,3 +456,26 @@ describe('B2-3 搜索失败如实显示', () => {
     expect(screen.queryByText('无匹配结果')).toBeNull()
   })
 })
+
+// ── B2-4 审核（P1）：加了单页字节预算后，详情页自动刷新必须接上已有末条，不能漏中间的消息 ──
+describe('B2-4 审核修复：刷新接续', () => {
+  it('R-A 新增消息一页装不下时，刷新会往前补读到已有末条，消息连续不漏', async () => {
+    const first = { messages: [msg(10, 'ask', 'M0 提问')], hasMore: false, cursor: 0 }
+    await renderPage({ readSession: vi.fn(async () => ({ success: true, data: first, error: null })) })
+    await waitFor(() => expect(rows()).toHaveLength(3))
+    fireEvent.click(rowByTitle('网络诊断页重做'))
+    await screen.findByText('M0 提问')
+    // 之后又来了 M1〜M4，最新一页只装得下 M2〜M4（字节预算）；往前一页才有 M1
+    api.readSession.mockImplementation(async (_p, _s, opts = {}) => {
+      if (opts.before == null) return { success: true, data: { messages: [msg(30, 'answer', 'M2 回答'), msg(40, 'ask', 'M3 提问'), msg(50, 'answer', 'M4 回答')], hasMore: true, cursor: 25 }, error: null }
+      if (opts.before === 25) return { success: true, data: { messages: [msg(10, 'ask', 'M0 提问'), msg(20, 'answer', 'M1 回答')], hasMore: false, cursor: 0 }, error: null }
+      return { success: true, data: { messages: [], hasMore: false, cursor: 0 }, error: null }
+    })
+    fireEvent.focus(window)
+    await screen.findByText('M4 回答', {}, { timeout: 2000 })
+    const texts = [...document.querySelectorAll('.np-detail-body')].map((el) => el.textContent).join('')
+    const order = ['M0 提问', 'M1 回答', 'M2 回答', 'M3 提问', 'M4 回答'].map((t) => texts.indexOf(t))
+    expect(order.every((i) => i >= 0)).toBe(true)
+    expect([...order].sort((a, b) => a - b)).toEqual(order)
+  })
+})

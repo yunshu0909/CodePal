@@ -90,3 +90,34 @@ describe('B2-4 搜索可取消', () => {
     expect(signals[1].aborted).toBe(false)
   })
 })
+
+// ── B2-4 审核（P2）：字节预算按实际字节、所有扫过的行都计入；取消覆盖元数据扫描 ──
+describe('B2-4 审核修复：预算与取消', () => {
+  it('R-B 中文按实际字节计：每条 3MiB（1Mi 个「中」），一页不会返回 8 条', async () => {
+    const zh = '中'.repeat(1024 * 1024)
+    const lines = []
+    for (let i = 0; i < 10; i++) lines.push(L.user(`${i}${zh}`))
+    p.write('-proj', 'cjk', stamp([L.mode(), ...lines], { cwd: CWD }))
+    const page = await service.readSessionPage('-proj', 'cjk', { projectsDir: p.dir })
+    expect(page.messages.length).toBeLessThanOrEqual(3)
+  })
+
+  it('R-C 被过滤掉的行（工具输出）也计入预算：不会为凑一页扫完 20MiB', async () => {
+    const lines = [L.user('开头')]
+    for (let i = 0; i < 20; i++) lines.push({ type: 'progress', data: 'q'.repeat(1024 * 1024) })
+    lines.push(L.user('结尾'))
+    p.write('-proj', 'tools', stamp([L.mode(), ...lines], { cwd: CWD }))
+    reader.resetReaderStats()
+    await service.readSessionPage('-proj', 'tools', { projectsDir: p.dir })
+    expect(reader.getReaderStats().bytesRead).toBeLessThan(12 * 1024 * 1024)
+  })
+
+  it('R-D 取消也覆盖搜索前的会话列表扫描', async () => {
+    for (let i = 0; i < 5; i++) p.write('-proj', `m${i}`, stamp([L.mode(), L.user(`关键词 ${i}`)], { cwd: CWD }))
+    const controller = new AbortController()
+    controller.abort()
+    reader.resetReaderStats()
+    await expect(service.listRecent({ projectsDir: p.dir, signal: controller.signal })).rejects.toMatchObject({ code: 'CANCELLED' })
+    expect(reader.getReaderStats().bytesRead).toBe(0)
+  })
+})

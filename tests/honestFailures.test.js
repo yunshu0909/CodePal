@@ -63,9 +63,12 @@ describe('B2-3 失败如实上报', () => {
 describe('B2-3 CI 与覆盖率接线', () => {
   it('H-5 CI 在 dev 的 push 与 PR 上跑测试', () => {
     const yml = readFileSync(path.join(root, '.github/workflows/release.yml'), 'utf-8')
+    // 分别截出 push 与 pull_request 两段（审核 note：原正则会从 push 跨进 pull_request，删掉 push 的 dev 也照样通过）
     const on = yml.slice(yml.indexOf('\non:'), yml.indexOf('\npermissions:'))
-    expect(on).toMatch(/push:[\s\S]*branches:\s*\[[^\]]*\bdev\b/)
-    expect(on).toMatch(/pull_request:[\s\S]*branches:\s*\[[^\]]*\bdev\b/)
+    const push = on.slice(on.indexOf('push:'), on.indexOf('pull_request:'))
+    const pr = on.slice(on.indexOf('pull_request:'))
+    expect(push).toMatch(/branches:\s*\[[^\]]*\bdev\b/)
+    expect(pr).toMatch(/branches:\s*\[[^\]]*\bdev\b/)
   })
 
   it('H-6 覆盖率统计包含主进程 electron/', () => {
