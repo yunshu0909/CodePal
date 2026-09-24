@@ -136,7 +136,8 @@ function SkillControlPage({ onNavigateToConfig, refreshSignal = 0 }) {
     const source = skill.origins?.find((item) => item.toolId === toolId && item.mutable)
     const result = await setActivation({ skillName: skill.name, toolId, enabled, source })
     if (!result.success) {
-      toast.error(result.error === 'PERMISSION_DENIED' ? '操作失败，请检查工具目录权限' : '操作失败，已保留原状态')
+      // 部分完成（配置已改、撤回也失败）时不能说「已保留原状态」
+      toast.error(result.error === 'PERMISSION_DENIED' ? '操作失败，请检查工具目录权限' : result.error === 'CODEX_ENABLE_PARTIAL' ? '操作失败' : '操作失败，已保留原状态')
       return
     }
 
@@ -177,7 +178,7 @@ function SkillControlPage({ onNavigateToConfig, refreshSignal = 0 }) {
     const result = await executeControl({ skillName: skill.name, toolId: command.toolId, action: command.action, source })
     notifyToast(result.success
       ? { message: command.action === 'remove-tool' ? '已从工具移除，中央资产已保留' : '启用状态已更新', type: 'success' }
-      : { message: result.error === 'ORIGIN_READ_ONLY' ? '该来源由项目或 Plugin 管理，CodePal 只读展示' : '操作失败，原状态已保留', type: 'error' })
+      : { message: result.error === 'ORIGIN_READ_ONLY' ? '该来源由项目或 Plugin 管理，CodePal 只读展示' : result.error === 'CODEX_ENABLE_PARTIAL' ? '操作失败' : '操作失败，原状态已保留', type: 'error' })
   }, [executeControl, loadCentralMetadata, refreshControl])
 
   const handleBatchAdopt = useCallback(async () => {

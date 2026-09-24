@@ -284,7 +284,8 @@ async function getSkillControlSnapshot(params = {}, overrides = {}) {
     for (const toolId of Object.keys(adapters)) {
       const sources = discovery[toolId].sources.filter((source) => source.name === name)
       origins.push(...sources.map((source) => publicOrigin({ toolId, ...source })))
-      if (discovery[toolId].errors.some((item) => item.origin === 'tool')) {
+      // 工具目录读不了、或配置读不出（开关状态无法确定）→ 都显示为不可用，不能按缺省当成已启用
+      if (discovery[toolId].errors.some((item) => item.origin === 'tool' || item.origin === 'config')) {
         toolStates[toolId] = { enabled: null, state: 'unavailable', mutable: false }
         continue
       }
