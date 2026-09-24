@@ -7,10 +7,8 @@ import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { createRequire } from 'node:module'
-import { aggregateUsage } from '../src/store/usageAggregator.js'
 import { calculateCosts, setPricingOverride } from '../src/store/costCalculator.js'
 import pricing from '../src/config/pricing.json'
-import { readUsageCache } from '../src/pages/usage/useUsageCache.js'
 const require = createRequire(import.meta.url)
 const { scanCodexLogs, scanClaudeLogs, aggregateByModel } = require('../electron/services/usageLogScanService.js')
 const { DAILY_SUMMARY_SCHEMA_VERSION } = require('../electron/services/dailySummaryService.js')
@@ -49,14 +47,6 @@ describe('模型事件归属', () => {
     const all = aggregateByModel(await scan(lines, start, next))
     const parts = aggregateByModel([...(await scan(lines)), ...(await scan(lines, end, next))])
     expect(parts).toEqual(all)
-  })
-  it('前端备用扫描与主进程按模型一致', async () => {
-    vi.useFakeTimers(); vi.setSystemTime(new Date('2026-09-08T08:00:00Z'))
-    window.electronAPI = { scanLogFiles: vi.fn(async ({ basePath }) => ({ success: true, files: basePath.includes('codex') ? files(mixed()) : [] })) }
-    const result = await aggregateUsage('today')
-    expect(result.success).toBe(true)
-    expect(result.data.models.find(x => x.name === 'gpt-6-astra')).toMatchObject({ input: 200, output: 25, cacheRead: 50 })
-    expect(result.data.models.find(x => x.name === 'gpt-5.6-sol').total).toBe(220)
   })
   it('长日志的开头模型与用量不会被截掉，备用 IPC 同样保留', async () => {
     const home = await fs.mkdtemp(path.join(os.tmpdir(), 'model-cost-'))
@@ -139,9 +129,8 @@ describe('新模型价格与拒旧缓存', () => {
   it('未知型号没有虚构价格', () => {
     expect(calculateCosts([{ name: 'unknown-model', input: 1e6 }]).totalCost).toBeNull()
   })
-  it('旧日汇总与旧页面缓存不再沿用', () => {
+  it('旧日汇总不再沿用', () => {
+    // 旧页面缓存（usage-monitor-cache-v3）随旧用量页一起删除（B2-2），这里只守日汇总的版本
     expect(DAILY_SUMMARY_SCHEMA_VERSION).toBeGreaterThan(4)
-    window.localStorage.setItem('usage-monitor-cache-v3', JSON.stringify({ today: { data: { total: 123 } } }))
-    expect(readUsageCache().today).toBeNull()
   })
 })

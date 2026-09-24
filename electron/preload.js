@@ -124,13 +124,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
   selectFolder: () => ipcRenderer.invoke('select-folder'),
 
   /**
-   * 扫描预设工具的 skills
-   * 返回4个固定工具（Claude Code、CodeX、Cursor、Trae）的技能数量
-   * @returns {Promise<{success: boolean, tools: Array, error: string|null}>} 扫描结果
-   */
-  scanPresetTools: () => ipcRenderer.invoke('scan-preset-tools'),
-
-  /**
    * 扫描自定义路径下的 skills 分布
    * 扫描 .claude/skills/、.codex/skills/、.cursor/skills/、.trae/skills/ 子目录
    * @param {string} customPath - 自定义路径
@@ -138,14 +131,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
    * skills 格式: { claude: 5, codex: 3, ... }
    */
   scanCustomPath: (customPath) => ipcRenderer.invoke('scan-custom-path', customPath),
-
-  /**
-   * 检查路径是否已存在于自定义路径列表中
-   * @param {string} checkPath - 要检查的路径
-   * @param {string[]} existingPaths - 现有路径列表
-   * @returns {Promise<{success: boolean, exists: boolean, error: string|null}>} 检查结果
-   */
-  checkPathExists: (checkPath, existingPaths) => ipcRenderer.invoke('check-path-exists', checkPath, existingPaths),
 
   /**
    * 执行导入操作
@@ -221,37 +206,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
    */
   scanLogFiles: (params) => ipcRenderer.invoke('scan-log-files', params),
 
-  /**
-   * 扫描 DSH 会话日志用量（zstd 多帧容器，独立通道）
-   * @param {Object} params - 扫描参数
-   * @param {string} params.start - 开始时间（ISO 字符串）
-   * @param {string} params.end - 结束时间（ISO 字符串）
-   * @returns {Promise<{success: boolean, records: Array, error?: string}>} 用量记录（timestamp 为 ISO 字符串）
-   */
-  scanDshUsage: (params) => ipcRenderer.invoke('scan-dsh-usage', params),
-
-  /**
-   * 聚合自定义日期范围用量
-   * @param {Object} params - 聚合参数
-   * @param {string} [params.taskId] - 前端任务 ID，用于关联进度事件
-   * @param {string} params.startDate - 开始日期（YYYY-MM-DD）
-   * @param {string} params.endDate - 结束日期（YYYY-MM-DD）
-   * @param {string} params.timezone - 时区（当前仅支持 Asia/Shanghai）
-   * @returns {Promise<{success: boolean, data?: object, meta?: {fromDailySummaryDays: number, cachedDays: number, recomputedDays: number, totalDays: number, failedDays: number}, error?: string}>}
-   */
-  aggregateUsageRange: (params) => ipcRenderer.invoke('aggregate-usage-range', params),
-
-  /**
-   * 聚合预设周期用量
-   * @param {Object} params - 聚合参数
-   * @param {string} [params.taskId] - 前端任务 ID，用于关联进度事件
-   * @param {'today'|'week'|'month'|'allTime'} params.period - 预设周期
-   * @param {string} params.timezone - 时区（当前仅支持 Asia/Shanghai）
-   * @returns {Promise<{success: boolean, data?: object, meta?: object, error?: string}>}
-   */
-  aggregateUsagePeriod: (params) => ipcRenderer.invoke('aggregate-usage-period', params),
   aggregateUsageCalendar: (params) => ipcRenderer.invoke('aggregate-usage-calendar', params),
-  getUsageStatisticsStatus: () => ipcRenderer.invoke('usage-statistics:status'),
   onUsageStatisticsChanged: (callback) => {
     const listener = (_event, snapshot) => callback(snapshot)
     ipcRenderer.on('usage-statistics:changed', listener)
@@ -272,18 +227,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Skill 控制中心：快照读取和统一命令。写操作由主进程重读原生状态后返回。
   getSkillControlSnapshot: (params) => ipcRenderer.invoke('skill-control:get-snapshot', params),
   executeSkillCommand: (params) => ipcRenderer.invoke('skill-control:execute', params),
-  deploySkillToTool: (params) => ipcRenderer.invoke('skill-control:deploy', params),
   adoptExternalSkill: (params) => ipcRenderer.invoke('skill-control:adopt', params),
 
   // Plugin 控制中心：通过官方 CLI 读取和执行，写后重读原生状态。
   getPluginControlSnapshot: (params) => ipcRenderer.invoke('plugin-control:get-snapshot', params),
   executePluginCommand: (params) => ipcRenderer.invoke('plugin-control:execute', params),
-
-  /**
-   * 获取 Claude/Codex 日志最早日期（北京时间），用于「累计至今」动态起点
-   * @returns {Promise<{success: boolean, earliestDate: string|null, error?: string}>}
-   */
-  getEarliestLogDate: () => ipcRenderer.invoke('get-earliest-log-date'),
 
   // V0.7 供应商切换 API 已断接线隔离（见 _disabled/api-config/），token 不再过渲染层
 
@@ -362,13 +310,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   /** 同一事务删除 model 与 effortLevel。 */
   resetModelConfig: () => ipcRenderer.invoke('reset-model-config'),
-
-  /**
-   * 获取当前生效的模型注册表（models + effortLevels）
-   * 来源优先级：userData cache（远程拉回的） > 打包 json > 硬编码兜底
-   * @returns {Promise<{success: boolean, registry: object, source: string}>}
-   */
-  getModelRegistry: () => ipcRenderer.invoke('model-registry:get'),
 
   /**
    * 获取当前生效的定价注册表（exchangeRate + models 定价表）
@@ -484,12 +425,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
    * @returns {Promise<{checked: boolean, checking: boolean, hasUpdate: boolean, currentVersion: string, latestVersion: string, releaseUrl: string, error: string|null, checkedAt: string|null}>}
    */
   getAppUpdateState: () => ipcRenderer.invoke('app-update:get-state'),
-
-  /**
-   * 手动检查是否存在新版
-   * @returns {Promise<{checked: boolean, checking: boolean, hasUpdate: boolean, currentVersion: string, latestVersion: string, releaseUrl: string, error: string|null, checkedAt: string|null}>}
-   */
-  checkAppUpdate: () => ipcRenderer.invoke('app-update:check'),
 
   /**
    * 打开新版下载页
