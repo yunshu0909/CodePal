@@ -16,9 +16,11 @@ import { resetSessionCacheForTests } from '../../src/hooks/useSessionBrowser'
 
 const HOUR = 3600_000
 const MIN = 60_000
-const iso = (msAgo) => new Date(Date.now() - msAgo).toISOString()
+// 造数据和断言共用同一个基准时刻：各自取 Date.now() 时，跨整分钟就会差一分钟（TC-36 偶发失败）
+const BASE = Date.now()
+const iso = (msAgo) => new Date(BASE - msAgo).toISOString()
 const pad = (n) => String(n).padStart(2, '0')
-const hm = (msAgo) => { const d = new Date(Date.now() - msAgo); return `${pad(d.getHours())}:${pad(d.getMinutes())}` }
+const hm = (msAgo) => { const d = new Date(BASE - msAgo); return `${pad(d.getHours())}:${pad(d.getMinutes())}` }
 
 const ID1 = '11111111-1111-4111-8111-111111111111'
 const ID2 = '22222222-2222-4222-8222-222222222222'

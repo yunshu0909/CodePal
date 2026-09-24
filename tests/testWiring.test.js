@@ -98,3 +98,25 @@ describe('测试链自检', () => {
     expect(collectTestFiles().length).toBeGreaterThan(15)
   })
 })
+
+// B2-8：lint 只开抓真 bug 的规则（未定义变量 / JSX 未定义组件 / Hooks 调用规则等），CI 测试门禁里先跑
+describe('lint 接入', () => {
+  it('L-1 有 lint 脚本，且用仓库里的 ESLint 配置', () => {
+    expect(pkg.scripts.lint).toMatch(/^eslint\b/)
+    expect(fs.existsSync(path.join(repoRoot, 'eslint.config.mjs'))).toBe(true)
+  })
+
+  it('L-2 CI 的 test job 先跑 lint 再跑测试', () => {
+    const ci = fs.readFileSync(path.join(repoRoot, '.github', 'workflows', 'release.yml'), 'utf8')
+    const job = ci.slice(ci.indexOf('\n  test:'), ci.indexOf('\n  build:'))
+    const lintAt = job.indexOf('run: npm run lint')
+    expect(lintAt).toBeGreaterThan(-1)
+    expect(lintAt).toBeLessThan(job.indexOf('run: npm test'))
+  })
+
+  it('L-3 配置里拦 JSX 未定义组件与 Hooks 条件调用', () => {
+    const config = fs.readFileSync(path.join(repoRoot, 'eslint.config.mjs'), 'utf8')
+    expect(config).toMatch(/'react\/jsx-no-undef': 'error'/)
+    expect(config).toMatch(/'react-hooks\/rules-of-hooks': 'error'/)
+  })
+})

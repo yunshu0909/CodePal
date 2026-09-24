@@ -9,6 +9,8 @@
     "dev:electron": "wait-on http://localhost:5173 && VITE_DEV_SERVER_URL=http://localhost:5173 electron .",
     "clean:release": "node scripts/release/cleanReleaseDir.js",
     "build": "vite build",
+    "lint": "eslint .",
+    "format": "prettier --write",
     "dist": "npm run dist:mac",
     "dist:mac": "npm run clean:release && npm run build && electron-builder --mac --arm64",
     "dist:win": "npm run clean:release && npm run build && electron-builder --win nsis --x64",
@@ -90,6 +92,7 @@
     "smol-toml": "1.9.0"
   },
   "devDependencies": {
+    "@eslint/js": "^9.39.5",
     "@playwright/test": "^1.58.2",
     "@testing-library/dom": "^10.4.1",
     "@testing-library/jest-dom": "^6.9.1",
@@ -101,9 +104,14 @@
     "electron": "^40.2.1",
     "electron-builder": "^26.8.1",
     "electron-mock": "^0.5.0",
+    "eslint": "^9.39.5",
+    "eslint-plugin-react": "^7.37.5",
+    "eslint-plugin-react-hooks": "^5.2.0",
+    "globals": "^17.12.0",
     "happy-dom": "^20.6.1",
     "jsdom": "^28.0.0",
     "playwright": "^1.58.2",
+    "prettier": "^3.9.9",
     "vite": "^7.3.1",
     "vitest": "^4.0.18",
     "wait-on": "^8.0.5"

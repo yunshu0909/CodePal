@@ -22,6 +22,7 @@ jobs:
         with:
           node-version: 20
       - run: npm ci
+      - run: npm run lint
       - run: npm test
 
   # build/release 只在 tag push 时跑（PR 只跑上面的 test）
