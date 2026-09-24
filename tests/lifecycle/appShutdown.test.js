@@ -77,6 +77,9 @@ describe('B2-5 各模块可停', () => {
     const quit = main.slice(main.indexOf("app.on('before-quit'"), main.indexOf("app.on('before-quit'") + 600)
     expect(quit).toMatch(/preventDefault\(\)/)
     expect(quit).toMatch(/shutdown\(\)/)
+    // 清理结束（无论成败）才放行并真正退出；清理进行中再次请求退出只拦下、不重复排队
+    expect(quit).toMatch(/\.finally\(\(\) => \{\s*shutdownFinished = true\s*app\.quit\(\)/)
+    expect(quit).toMatch(/if \(shutdownPromise\) return/)
     for (const name of ['usage-scheduler', 'session-status', 'network-monitor', 'dsh-worker', 'repo-watcher', 'codex-config-writes']) {
       expect(main).toMatch(new RegExp(`register\\('${name}'`))
     }

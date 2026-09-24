@@ -343,10 +343,13 @@ shutdownRegistry.register('repo-watcher', () => repoWatcherCleanup?.stopWatching
 shutdownRegistry.register('codex-config-writes', () => drainConfigQueue())
 
 let shutdownFinished = false
+let shutdownPromise = null
 app.on('before-quit', (event) => {
   if (shutdownFinished) return
   event.preventDefault()
-  shutdownRegistry.shutdown()
+  // 清理进行中又收到退出请求（连按 ⌘Q）：拦下即可，清理完会统一退出一次
+  if (shutdownPromise) return
+  shutdownPromise = shutdownRegistry.shutdown()
     .then((report) => {
       const notDone = report.filter((item) => item.status !== 'done')
       if (notDone.length) console.warn('[shutdown] not clean:', JSON.stringify(notDone))

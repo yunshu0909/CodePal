@@ -114,7 +114,9 @@ describe('B2-6 会话状态经网关写 Codex 配置', () => {
     const svc = loadSessionStatus(home)
     const result = await svc.installSessionStatus({ trustHooks: noTrust })
     expect(await readFile(path.join(home, '.codex', 'config.toml'), 'utf8')).toBe(broken)
-    expect(JSON.stringify(result)).toMatch(/codex/)
+    // Claude 那边装上了算部分成功（success 仍为 true），但 Codex 必须如实列进失败项
+    expect(result.failures.map((f) => f.tool)).toContain('codex')
+    expect(result.failures.map((f) => f.tool)).not.toContain('codex-trust')
   })
 })
 

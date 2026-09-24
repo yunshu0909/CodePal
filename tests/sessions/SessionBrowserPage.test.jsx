@@ -478,4 +478,54 @@ describe('B2-4 审核修复：刷新接续', () => {
     expect(order.every((i) => i >= 0)).toBe(true)
     expect([...order].sort((a, b) => a - b)).toEqual(order)
   })
+
+  it('R-E 刷新中途遇到空页（全是被过滤的大工具输出）仍继续往前读，不漏 M1', async () => {
+    const first = { messages: [msg(10, 'ask', 'M0 提问')], hasMore: false, cursor: 0 }
+    await renderPage({ readSession: vi.fn(async () => ({ success: true, data: first, error: null })) })
+    await waitFor(() => expect(rows()).toHaveLength(3))
+    fireEvent.click(rowByTitle('网络诊断页重做'))
+    await screen.findByText('M0 提问')
+    api.readSession.mockImplementation(async (_p, _s, opts = {}) => {
+      if (opts.before == null) return { success: true, data: { messages: [msg(90, 'answer', 'M2 回答')], hasMore: true, cursor: 80 }, error: null }
+      if (opts.before === 80) return { success: true, data: { messages: [], hasMore: true, cursor: 40 }, error: null }
+      if (opts.before === 40) return { success: true, data: { messages: [msg(10, 'ask', 'M0 提问'), msg(20, 'answer', 'M1 回答')], hasMore: false, cursor: 0 }, error: null }
+      return { success: true, data: { messages: [], hasMore: false, cursor: 0 }, error: null }
+    })
+    fireEvent.focus(window)
+    await screen.findByText('M2 回答', {}, { timeout: 2000 })
+    const texts = [...document.querySelectorAll('.np-detail-body')].map((el) => el.textContent).join('')
+    const order = ['M0 提问', 'M1 回答', 'M2 回答'].map((t) => texts.indexOf(t))
+    expect(order.every((i) => i >= 0)).toBe(true)
+    expect([...order].sort((a, b) => a - b)).toEqual(order)
+  })
+
+  it('R-F 打开时最新一页是空页：继续往前读到有消息为止，不显示空白', async () => {
+    const readSession = vi.fn(async (_p, _s, opts = {}) => {
+      if (opts.before == null) return { success: true, data: { messages: [], hasMore: true, cursor: 50 }, error: null }
+      if (opts.before === 50) return { success: true, data: { messages: [msg(10, 'ask', 'M0 提问')], hasMore: false, cursor: 0 }, error: null }
+      return { success: true, data: { messages: [], hasMore: false, cursor: 0 }, error: null }
+    })
+    await renderPage({ readSession })
+    await waitFor(() => expect(rows()).toHaveLength(3))
+    fireEvent.click(rowByTitle('网络诊断页重做'))
+    await screen.findByText('M0 提问', {}, { timeout: 2000 })
+  })
+
+  it('R-G 新增太多、20 页内接不上：直接换成最新一页（更早的留给上滑加载），不再原地重读', async () => {
+    const first = { messages: [msg(10, 'ask', 'M0 提问')], hasMore: false, cursor: 0 }
+    await renderPage({ readSession: vi.fn(async () => ({ success: true, data: first, error: null })) })
+    await waitFor(() => expect(rows()).toHaveLength(3))
+    fireEvent.click(rowByTitle('网络诊断页重做'))
+    await screen.findByText('M0 提问')
+    // 每页一条，从 offset 100000 往前，永远接不上 M0（offset 10）
+    api.readSession.mockImplementation(async (_p, _s, opts = {}) => {
+      const top = opts.before == null ? 100000 : opts.before
+      return { success: true, data: { messages: [msg(top - 1, 'answer', `N${top - 1}`)], hasMore: true, cursor: top - 1 }, error: null }
+    })
+    fireEvent.focus(window)
+    await screen.findByText('N99999', {}, { timeout: 2000 })
+    expect(screen.queryByText('M0 提问')).toBeNull()
+    const calls = api.readSession.mock.calls.length
+    expect(calls).toBeLessThanOrEqual(25)
+  })
 })

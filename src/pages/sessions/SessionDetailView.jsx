@@ -22,6 +22,8 @@ import { displayTitle, formatWhen, iconColor, resumeCommand } from './sessionVie
 const PAGE_SIZE = 200
 // 自动刷新最多往前补读几页来接上已有末条（每页有字节预算）
 const REFRESH_MAX_PAGES = 20
+// 连续空页（整页都是被过滤掉的大工具输出）最多跳过几页
+const EMPTY_PAGE_MAX = 20
 const REFRESH_MS = 10_000
 // 离底部这么近就算「停在底部」
 const BOTTOM_SLACK = 24
@@ -64,15 +66,27 @@ export default function SessionDetailView({ session, hit, onBack }) {
 
   const read = useCallback((opts) => window.electronAPI.readSession(projectId, sessionId, opts), [projectId, sessionId])
 
+  // 读一页，遇到空页但更早还有内容时沿游标接着读：否则首屏空白、上滑加载也无从触发
+  const readNonEmpty = useCallback(async (before) => {
+    let res = null
+    let cursor = before
+    for (let round = 0; round < EMPTY_PAGE_MAX; round++) {
+      res = await read({ limit: PAGE_SIZE, ...(cursor != null ? { before: cursor } : {}) })
+      if (!res?.success || res.data.messages.length || !res.data.hasMore) return res
+      cursor = res.data.cursor
+    }
+    return res
+  }, [read])
+
   const load = useCallback(async () => {
     setPage((p) => ({ ...p, status: 'loading', error: null }))
     try {
-      const res = await read({ limit: PAGE_SIZE })
+      const res = await readNonEmpty()
       if (!res?.success) throw new Error(res?.error || '读取失败')
       let { messages, hasMore, cursor } = res.data
       // 从搜索进来：往前读到包含命中那条为止
       while (hit && hasMore && cursor > hit.offset) {
-        const more = await read({ limit: PAGE_SIZE, before: cursor })
+        const more = await readNonEmpty(cursor)
         if (!more?.success) break
         messages = [...more.data.messages, ...messages]
         hasMore = more.data.hasMore
@@ -83,7 +97,7 @@ export default function SessionDetailView({ session, hit, onBack }) {
     } catch (err) {
       setPage((p) => ({ ...p, status: 'error', error: err.message }))
     }
-  }, [read, hit])
+  }, [readNonEmpty, hit])
 
   useEffect(() => { load() }, [load])
 
@@ -104,7 +118,7 @@ export default function SessionDetailView({ session, hit, onBack }) {
     olderInFlight.current = true
     setLoadingOlder(true)
     try {
-      const res = await read({ limit: PAGE_SIZE, before: cur.cursor })
+      const res = await readNonEmpty(cur.cursor)
       if (res?.success) {
         const el = bodyRef.current
         scrollIntent.current = { type: 'keep', fromBottom: el ? el.scrollHeight - el.scrollTop : 0 }
@@ -119,10 +133,11 @@ export default function SessionDetailView({ session, hit, onBack }) {
       olderInFlight.current = false
       setLoadingOlder(false)
     }
-  }, [read])
+  }, [readNonEmpty])
 
   // 补读新消息：只把比已有最后一条更晚的接在后面。
-  // 一页有字节预算（B2-4），新增的一页可能装不下：往前一页页补读，直到接上已有末条再合并；接不上就这次先不合并，避免中间漏消息
+  // 一页有字节预算（B2-4），新增的一页可能装不下：往前一页页补读（空页也接着读），直到接上已有末条再合并；
+  // 读满上限仍接不上，就换成最新这几页、更早的交给上滑加载——不拼出中间缺一截的列表，也不每次从头重读
   const refreshTail = useCallback(async () => {
     const cur = pageRef.current
     if (cur.status !== 'ok') return
@@ -135,10 +150,15 @@ export default function SessionDetailView({ session, hit, onBack }) {
       if (!res?.success) return
       const { messages, hasMore, cursor } = res.data
       fresh = [...messages.filter((m) => m.offset > last), ...fresh]
-      if (!messages.length || messages[0].offset <= last || !hasMore) { reached = true; break }
+      if (!hasMore || (messages.length && messages[0].offset <= last)) { reached = true; break }
       before = cursor
     }
-    if (!reached || !fresh.length) return
+    if (!fresh.length) return
+    if (!reached) {
+      scrollIntent.current = { type: 'bottom' }
+      setPage((p) => ({ ...p, messages: fresh, hasMore: true, cursor: before }))
+      return
+    }
     const el = bodyRef.current
     const atBottom = !el || el.scrollHeight - el.scrollTop - el.clientHeight <= BOTTOM_SLACK
     if (atBottom) scrollIntent.current = { type: 'bottom' }
