@@ -20,9 +20,9 @@ const { PRESET_TOOLS } = require('../services/skillScanService')
  * @param {(filepath: string) => string} deps.expandHome - 家目录展开函数
  * @param {(filepath: string) => Promise<boolean>} deps.pathExists - 路径存在检查
  * @param {(content: string) => {name: string, desc: string}} deps.parseSkillMd - SKILL.md 解析函数
- * @param {(targetPath: string) => boolean} deps.isPathInAllowedDirs - 删除白名单校验
+ * @param {(skillPath: string) => Promise<void>} deps.deleteSkillPath - 校验并删除一个 Skill（不通过抛 PATH_NOT_ALLOWED；软链接只删链接）
  */
-function registerSkillHandlers({ ipcMain, expandHome, pathExists, parseSkillMd, isPathInAllowedDirs }) {
+function registerSkillHandlers({ ipcMain, expandHome, pathExists, parseSkillMd, deleteSkillPath }) {
 /**
  * 执行导入操作
  * 将选中的来源 skills 去重合并到中央仓库
@@ -438,24 +438,15 @@ ipcMain.handle('unpush-skills', async (event, { skillNames, toolIds }) => {
         const skillPath = path.join(expandedToolPath, skillName)
 
         try {
-          // 检查技能是否存在
-          if (!(await pathExists(skillPath))) {
-            // 已不存在，视为成功
-            results.push({ skill: skillName, tool: toolId, success: true })
-            continue
-          }
-
-          // 安全校验：检查路径是否在允许的目录范围内
-          if (!isPathInAllowedDirs(expandedToolPath)) {
-            console.error('Security: Blocked unpush attempt for path:', expandedToolPath)
+          // 校验「要删的路径本身」并删除：skillName 来自页面，只校验工具目录挡不住 '..' 这类名字；不存在视为已删除
+          await deleteSkillPath(skillPath)
+          results.push({ skill: skillName, tool: toolId, success: true })
+        } catch (err) {
+          if (err.code === 'PATH_NOT_ALLOWED') {
+            console.error('Security: Blocked unpush attempt for path:', skillPath)
             errors.push({ skill: skillName, tool: toolId, error: 'UNSAFE_PATH' })
             continue
           }
-
-          // 删除技能目录
-          await fs.rm(skillPath, { recursive: true, force: true })
-          results.push({ skill: skillName, tool: toolId, success: true })
-        } catch (err) {
           const errorCode = err.code === 'EACCES' || err.code === 'EPERM' ? 'PERMISSION_DENIED' : err.message
           errors.push({ skill: skillName, tool: toolId, error: errorCode })
         }

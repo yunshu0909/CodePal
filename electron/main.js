@@ -85,6 +85,7 @@ const { createEgressNotifier, withNetworkStyle } = require('./services/egressNot
 const { createNavigationBridge } = require('./services/appNavigation')
 const { registerRepoWatcherHandlers } = require('./handlers/registerRepoWatcherHandlers')
 const { attachNavigationGuard, registerNavigationGuardHandlers } = require('./services/navigationGuardService')
+const genericFileGuards = require('./services/genericFileGuards')
 
 const store = new Store()
 // 会话状态监听（启动后赋值，退出时停）
@@ -198,6 +199,8 @@ function createWindow() {
   attachNavigationGuard(mainWindow.webContents, {
     shell,
     devServerUrl: process.env.VITE_DEV_SERVER_URL,
+    // 打包后只放行应用自己的入口页，其他本地 file: 地址一律拒绝
+    appEntryPath: path.join(__dirname, '../dist/index.html'),
   })
 
   // macOS 关闭最后窗口后主进程仍存活；不能只依赖 renderer cleanup 降频。
@@ -365,6 +368,8 @@ async function pathExists(filepath) {
  * @returns {any} 存储的值
  */
 ipcMain.handle('get-store', (event, key) => {
+  // 渲染层只能读写用量目标的两个键（唯一调用方）；其余 store 数据由主进程自己的模块管理
+  if (!genericFileGuards.isRendererStoreKey(key)) return undefined
   return store.get(key)
 })
 
@@ -376,7 +381,7 @@ ipcMain.handle('get-store', (event, key) => {
  * @returns {boolean} 是否成功
  */
 ipcMain.handle('set-store', (event, key, value) => {
-  if (isReservedPlanKey(key)) return false
+  if (!genericFileGuards.isRendererStoreKey(key) || isReservedPlanKey(key)) return false
   store.set(key, value)
   return true
 })
@@ -388,7 +393,7 @@ ipcMain.handle('set-store', (event, key, value) => {
  * @returns {boolean} 是否成功
  */
 ipcMain.handle('delete-store', (event, key) => {
-  if (isReservedPlanKey(key)) return false
+  if (!genericFileGuards.isRendererStoreKey(key) || isReservedPlanKey(key)) return false
   store.delete(key)
   return true
 })
@@ -467,23 +472,13 @@ ipcMain.handle('copy-skill', async (event, sourcePath, targetPath, options = {})
     const expandedSource = expandHome(sourcePath)
     const expandedTarget = expandHome(targetPath)
 
-    // Ensure source exists
-    if (!(await pathExists(expandedSource))) {
-      return { success: false, error: 'SOURCE_NOT_FOUND' }
-    }
-
-    // Ensure target parent directory exists
-    const targetParent = path.dirname(expandedTarget)
-    await fs.mkdir(targetParent, { recursive: true })
-
-    // Copy with force option (overwrite if exists)
-    await fs.cp(expandedSource, expandedTarget, {
-      recursive: true,
-      force: options.force !== false // default to true
-    })
-
+    // 只允许「一个 Skill 文件夹 → 另一处的同名 Skill 文件夹」；校验与复制在同一函数里用同一组规范化路径
+    await genericFileGuards.copySkillFolder(expandedSource, expandedTarget, { force: options.force !== false })
     return { success: true, error: null }
   } catch (error) {
+    if (error.code === 'COPY_NOT_ALLOWED' || error.code === 'SOURCE_NOT_FOUND') {
+      return { success: false, error: error.code }
+    }
     console.error('Error copying skill:', error)
     if (error.code === 'ENOSPC') {
       return { success: false, error: 'DISK_FULL' }
@@ -494,40 +489,6 @@ ipcMain.handle('copy-skill', async (event, sourcePath, targetPath, options = {})
     return { success: false, error: error.message }
   }
 })
-
-/**
- * 允许删除操作的目录白名单（用于安全校验）
- * 所有删除操作的目标路径必须位于这些目录之下
- */
-const ALLOWED_DELETE_DIRS = [
-  '.claude/skills',
-  '.codex/skills',
-  '.cursor/skills',
-  '.trae/skills',
-  'Documents/SkillManager'
-]
-
-/**
- * 安全校验：检查路径是否在允许的目录范围内
- * 使用严格前缀匹配，防止路径遍历攻击（如 ~/.claude-malicious/skills/xxx）
- * @param {string} targetPath - 要检查的目标路径（已展开）
- * @returns {boolean} 是否允许操作
- */
-function isPathInAllowedDirs(targetPath) {
-  const homeDir = os.homedir()
-  const normalized = path.normalize(targetPath)
-
-  // 构建完整允许的目录路径并进行前缀匹配
-  // 必须以允许目录路径 + 路径分隔符 开头，或者是允许目录本身
-  return ALLOWED_DELETE_DIRS.some(dir => {
-    const allowedFullPath = path.join(homeDir, dir)
-    const normalizedAllowed = path.normalize(allowedFullPath)
-
-    // 精确匹配或者是子目录（必须包含路径分隔符防止部分匹配）
-    return normalized === normalizedAllowed ||
-           normalized.startsWith(normalizedAllowed + path.sep)
-  })
-}
 
 /**
  * 删除技能文件夹（用于取消推送）
@@ -543,22 +504,15 @@ ipcMain.handle('delete-skill', async (event, skillPath) => {
 
   try {
     const expandedPath = expandHome(skillPath)
-
-    // Check if path exists
-    if (!(await pathExists(expandedPath))) {
-      // Already deleted, consider it success
-      return { success: true, error: null }
-    }
-
-    // 安全校验：检查路径是否在允许的目录范围内
-    if (!isPathInAllowedDirs(expandedPath)) {
-      console.error('Security: Blocked delete attempt for path:', expandedPath)
-      return { success: false, error: 'UNSAFE_PATH' }
-    }
-
-    await fs.rm(expandedPath, { recursive: true, force: true })
+    // 只能删已知 Skill 目录的直接子项（含 SKILL.md 的目录或软链接）；校验与删除用同一个规范化路径，
+    // 软链接只删链接本身。目标不存在视为已删除
+    await genericFileGuards.deleteSkillPath(expandedPath, os.homedir())
     return { success: true, error: null }
   } catch (error) {
+    if (error.code === 'PATH_NOT_ALLOWED') {
+      console.error('Security: Blocked delete attempt for path:', skillPath)
+      return { success: false, error: 'UNSAFE_PATH' }
+    }
     console.error('Error deleting skill:', error)
     if (error.code === 'EACCES' || error.code === 'EPERM') {
       return { success: false, error: 'PERMISSION_DENIED' }
@@ -576,6 +530,10 @@ ipcMain.handle('delete-skill', async (event, skillPath) => {
 ipcMain.handle('ensure-dir', async (event, dirPath) => {
   try {
     const expandedPath = expandHome(dirPath)
+    // 仓库路径可以手输，不做目录白名单（会误拒）；只拒绝相对路径——mkdir 不会破坏已有数据
+    if (typeof expandedPath !== 'string' || !path.isAbsolute(expandedPath)) {
+      return { success: false, error: 'INVALID_PATH' }
+    }
     await fs.mkdir(expandedPath, { recursive: true })
     return { success: true, error: null }
   } catch (error) {
@@ -599,21 +557,6 @@ ipcMain.handle('path-exists', async (event, checkPath) => {
     return { success: false, exists: false, error: error.message }
   }
 })
-
-/**
- * 备份损坏的配置文件
- * @param {string} configPath - 损坏的配置文件路径
- */
-async function backupCorruptedConfig(configPath) {
-  try {
-    const timestamp = Date.now()
-    const backupPath = `${configPath}.corrupted.${timestamp}.bak`
-    await fs.rename(configPath, backupPath)
-    console.log(`Corrupted config backed up to: ${backupPath}`)
-  } catch (err) {
-    console.error('Failed to backup corrupted config:', err)
-  }
-}
 
 /**
  * 原子写入文件：先写入临时文件，再重命名，避免写入中断导致文件损坏
@@ -649,34 +592,16 @@ ipcMain.handle('read-config', async (event, configPath) => {
   }
 
   try {
-    const expandedPath = expandHome(configPath)
-
-    if (!(await pathExists(expandedPath))) {
-      return {
-        success: true,
-        data: { version: '0.2', pushStatus: {} },
-        error: null
-      }
+    // 只读 .config.json；文件损坏时返回失败、原文件原地不动（以前会改名成备份，读操作不该改文件）
+    const result = await genericFileGuards.readConfigFile(expandHome(configPath))
+    if (!result.exists) {
+      return { success: true, data: { version: '0.2', pushStatus: {} }, error: null }
     }
-
-    const content = await fs.readFile(expandedPath, 'utf-8')
-    const data = JSON.parse(content)
-
-    return { success: true, data, error: null }
+    if (result.error) return { success: false, data: null, error: result.error }
+    return { success: true, data: result.data, error: null }
   } catch (error) {
     console.error('Error reading config:', error)
-    if (error instanceof SyntaxError) {
-      // 配置文件损坏，先备份原文件，再返回默认配置
-      const expandedPath = expandHome(configPath)
-      await backupCorruptedConfig(expandedPath)
-
-      return {
-        success: true,
-        data: { version: '0.2', pushStatus: {} },
-        error: 'CORRUPTED_CONFIG_BACKUP_CREATED'
-      }
-    }
-    return { success: false, error: error.message, data: null }
+    return { success: false, error: error.code || error.message, data: null }
   }
 })
 
@@ -698,6 +623,8 @@ ipcMain.handle('write-config', async (event, configPath, data) => {
 
   try {
     const expandedPath = expandHome(configPath)
+    // 只写 .config.json；原文件已损坏就拒绝覆盖（不静默丢掉用户的配置）
+    await genericFileGuards.assertConfigWritable(expandedPath)
 
     // Ensure parent directory exists
     const parentDir = path.dirname(expandedPath)
@@ -710,7 +637,7 @@ ipcMain.handle('write-config', async (event, configPath, data) => {
     return { success: true, error: null }
   } catch (error) {
     console.error('Error writing config:', error)
-    return { success: false, error: error.message }
+    return { success: false, error: error.code || error.message }
   }
 })
 
@@ -751,7 +678,7 @@ registerSkillHandlers({
   expandHome,
   pathExists,
   parseSkillMd,
-  isPathInAllowedDirs,
+  deleteSkillPath: (skillPath) => genericFileGuards.deleteSkillPath(skillPath, os.homedir()),
 })
 
 /**

@@ -13,6 +13,9 @@
  * @module electron/services/navigationGuardService
  */
 
+const path = require('path')
+const { fileURLToPath } = require('url')
+
 /** 允许转交系统浏览器的协议白名单 */
 const SAFE_EXTERNAL_PROTOCOLS = new Set(['https:', 'http:', 'mailto:'])
 
@@ -34,20 +37,23 @@ function isSafeExternalUrl(url) {
 }
 
 /**
- * 判定导航目标是否属于应用自身页面（dev server 同源 / 打包后的 file: dist）
+ * 判定导航目标是否属于应用自身页面（dev server 同源 / 打包后的应用入口页）
  * @param {string} url - 导航目标
  * @param {string|undefined} devServerUrl - VITE_DEV_SERVER_URL（dev 模式）
+ * @param {string|undefined} appEntryPath - 打包后应用入口页的绝对路径；不传则 file: 一律不放行
  * @returns {boolean}
  */
-function isAppInternalUrl(url, devServerUrl) {
+function isAppInternalUrl(url, devServerUrl, appEntryPath) {
   try {
     const target = new URL(url)
     if (devServerUrl) {
       const dev = new URL(devServerUrl)
       if (target.origin === dev.origin) return true
     }
-    // 打包模式：应用页面通过 loadFile 加载，自身导航是 file: 协议
-    if (!devServerUrl && target.protocol === 'file:') return true
+    // 打包模式：只有应用自己的入口页算自身页面；其他本地文件（如下载的 html）不能把窗口带走
+    if (!devServerUrl && appEntryPath && target.protocol === 'file:') {
+      return path.resolve(fileURLToPath(target)) === path.resolve(appEntryPath)
+    }
     return false
   } catch {
     return false
@@ -62,11 +68,12 @@ function isAppInternalUrl(url, devServerUrl) {
  * @param {Object} deps - 依赖注入
  * @param {{openExternal: (url: string) => Promise<void>}} deps.shell - Electron shell
  * @param {string} [deps.devServerUrl] - dev 模式的 Vite server 地址（同源放行）
+ * @param {string} [deps.appEntryPath] - 打包后应用入口页的绝对路径（唯一放行的 file: 地址）
  * @returns {void}
  */
-function attachNavigationGuard(webContents, { shell, devServerUrl } = {}) {
+function attachNavigationGuard(webContents, { shell, devServerUrl, appEntryPath } = {}) {
   webContents.on('will-navigate', (event, url) => {
-    if (isAppInternalUrl(url, devServerUrl)) return
+    if (isAppInternalUrl(url, devServerUrl, appEntryPath)) return
     event.preventDefault()
     if (isSafeExternalUrl(url)) {
       shell.openExternal(url).catch(() => {})

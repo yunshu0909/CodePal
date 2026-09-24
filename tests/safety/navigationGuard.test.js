@@ -91,10 +91,25 @@ describe('V1.9.8 导航防护', () => {
     expect(shell.openExternal).toHaveBeenCalledWith('https://example.com')
   })
 
-  it('NG-6: 打包模式（无 devServerUrl）file: 视为自身页面放行', () => {
-    attachNavigationGuard(webContents, { shell })
+  it('NG-6: 打包模式（无 devServerUrl）只放行应用入口页', () => {
+    attachNavigationGuard(webContents, { shell, appEntryPath: '/Applications/CodePal.app/dist/index.html' })
     const event = webContents.emitWillNavigate('file:///Applications/CodePal.app/dist/index.html')
     expect(event.preventDefault).not.toHaveBeenCalled()
+  })
+
+  it('NG-6b: 打包模式下其他本地 file: 地址一律拒绝（架构优化 Task 3）', () => {
+    attachNavigationGuard(webContents, { shell, appEntryPath: '/Applications/CodePal.app/dist/index.html' })
+    for (const url of ['file:///Users/me/Downloads/evil.html', 'file:///Applications/CodePal.app/dist/other.html']) {
+      const event = webContents.emitWillNavigate(url)
+      expect(event.preventDefault).toHaveBeenCalledTimes(1)
+    }
+    expect(shell.openExternal).not.toHaveBeenCalled()
+  })
+
+  it('NG-6c: 没有传入应用入口时，file: 一律拒绝', () => {
+    attachNavigationGuard(webContents, { shell })
+    const event = webContents.emitWillNavigate('file:///Applications/CodePal.app/dist/index.html')
+    expect(event.preventDefault).toHaveBeenCalledTimes(1)
   })
 
   it('NG-7: window.open 恒 deny——安全外链转系统浏览器，危险链接静默拒', () => {
