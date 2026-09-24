@@ -19,7 +19,6 @@ import UsageMonitorModule from './components/UsageMonitorModule'
 import PlanManagementPage from './pages/PlanManagementPage'
 import ProjectInitPage from './pages/ProjectInitPage'
 import PermissionModePage from './pages/PermissionModePage'
-import McpPage from './pages/McpPage'
 import PluginControlPage from './pages/PluginControlPage'
 import NetworkDiagnosticsPage from './pages/NetworkDiagnosticsPage'
 import SessionBrowserPage from './pages/SessionBrowserPage'
@@ -33,7 +32,7 @@ import useMainNavigation from './hooks/useMainNavigation'
 const AUTO_INCREMENTAL_REFRESH_INTERVAL_MS = 5 * 60 * 1000
 // 首次打开、或记住的页面已下线时进侧栏第一项（2026-09-19 用户定）
 const DEFAULT_ACTIVE_MODULE = 'usage'
-const VALID_ACTIVE_MODULES = new Set(['skills', 'plugins', 'mcp', 'usage', 'claude-usage', 'project-init', 'permission', 'network', 'session-status', 'sessions', 'doc-browser'])
+const VALID_ACTIVE_MODULES = new Set(['skills', 'plugins', 'usage', 'claude-usage', 'project-init', 'permission', 'network', 'session-status', 'sessions', 'doc-browser'])
 const INITIAL_APP_UPDATE_STATE = Object.freeze({
   checked: false,
   checking: false,
@@ -48,7 +47,7 @@ const INITIAL_APP_UPDATE_STATE = Object.freeze({
 
 /**
  * 读取上次访问的模块，并过滤已下线模块
- * @returns {'skills'|'plugins'|'mcp'|'usage'|'claude-usage'|'project-init'|'permission'|'network'|'session-status'|'sessions'|'doc-browser'}
+ * @returns {'skills'|'plugins'|'usage'|'claude-usage'|'project-init'|'permission'|'network'|'session-status'|'sessions'|'doc-browser'}
  */
 function getInitialActiveModule() {
   // 原「状态灯」已改名为「会话状态」（#41），记住的旧模块直接带过去
@@ -63,8 +62,6 @@ export default function App() {
   const [initialSkillManagerPage, setInitialSkillManagerPage] = useState(null)
   // 活跃模块：从 localStorage 恢复上次页面；已下线模块统一回落到启动模式
   const [activeModule, setActiveModule] = useState(getInitialActiveModule)
-  // MCP 页面是否已访问（已访问后保持挂载，支持切回时静默刷新）
-  const [hasVisitedMcp, setHasVisitedMcp] = useState(false)
   // Usage 页面是否已访问（已访问后保持挂载，支持后台继续汇总重周期）
   const [hasVisitedUsage, setHasVisitedUsage] = useState(false)
   // 技能模块刷新信号（自动增量导入新增 skill 后触发）
@@ -213,12 +210,6 @@ export default function App() {
   useMainNavigation((moduleId) => handleModuleChange(moduleId), VALID_ACTIVE_MODULES)
 
   useEffect(() => {
-    if (activeModule === 'mcp') {
-      setHasVisitedMcp(true)
-    }
-  }, [activeModule])
-
-  useEffect(() => {
     if (activeModule === 'usage') {
       setHasVisitedUsage(true)
     }
@@ -312,11 +303,6 @@ export default function App() {
               />
         )}
         {activeModule === 'plugins' && <PluginControlPage />}
-        {(activeModule === 'mcp' || hasVisitedMcp) && (
-          <div className="keep-alive-wrapper" hidden={activeModule !== 'mcp'}>
-            <McpPage isActive={activeModule === 'mcp'} />
-          </div>
-        )}
         {(activeModule === 'usage' || hasVisitedUsage) && (
           <div className="keep-alive-wrapper" hidden={activeModule !== 'usage'}>
             <UsageMonitorModule isActive={activeModule === 'usage'} />

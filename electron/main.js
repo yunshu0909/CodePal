@@ -74,7 +74,6 @@ const {
 const { modelRegistrySpec } = require('./services/registries/modelRegistry')
 const { pricingRegistrySpec } = require('./services/registries/pricingRegistry')
 const { registerClaudeUsageStatusHandlers } = require('./handlers/registerClaudeUsageStatusHandlers')
-const { registerMcpHandlers } = require('./handlers/registerMcpHandlers')
 const { registerNetworkDiagnosticsHandlers } = require('./handlers/registerNetworkDiagnosticsHandlers')
 const { registerSessionBrowserHandlers } = require('./handlers/registerSessionBrowserHandlers')
 const { registerSessionResumeHandlers } = require('./handlers/registerSessionResumeHandlers')
@@ -86,11 +85,6 @@ const { createEgressNotifier, withNetworkStyle } = require('./services/egressNot
 const { createNavigationBridge } = require('./services/appNavigation')
 const { registerRepoWatcherHandlers } = require('./handlers/registerRepoWatcherHandlers')
 const { attachNavigationGuard, registerNavigationGuardHandlers } = require('./services/navigationGuardService')
-const { resolveProviderRegistryFilePath } = require('./services/providerRegistryPathService')
-const { ensureBuiltinProviderRegistryInstalled } = require('./services/builtinMcpInstallerService')
-
-const PROVIDER_REGISTRY_FILE_PATH = resolveProviderRegistryFilePath()
-const PROVIDER_REGISTRY_MCP_SCRIPT_PATH = path.resolve(__dirname, '..', 'mcp', 'provider_registry_mcp.js')
 
 const store = new Store()
 // 会话状态监听（启动后赋值，退出时停）
@@ -226,20 +220,8 @@ app.whenReady().then(async () => {
   installAppMenu({ app, getMainWindow: () => mainWindow })
   applyDevDockIcon(app)
 
-  // 启动时自动 ensure 内置 provider_registry，避免用户先手动安装
-  try {
-    const ensureResult = await ensureBuiltinProviderRegistryInstalled({
-      providerRegistryScriptPath: PROVIDER_REGISTRY_MCP_SCRIPT_PATH,
-      providerRegistryFilePath: PROVIDER_REGISTRY_FILE_PATH,
-      logger: console
-    })
-
-    if (!ensureResult.success) {
-      console.warn('[builtin-mcp] ensure skipped:', ensureResult.error)
-    }
-  } catch (error) {
-    console.warn('[builtin-mcp] ensure unexpected failure:', error?.message || error)
-  }
+  // 不再启动时补写 provider_registry MCP：MCP 管理已隐藏，不能在用户看不到的地方改 Claude / Codex 配置
+  // （架构优化第一批 Task 1；已写入的条目等 TOML 安全编辑就绪后按归属清理）
 
   const appUpdateHandlers = registerAppUpdateHandlers({
     ipcMain,
@@ -848,13 +830,6 @@ registerModelConfigHandlers({
 registerClaudeUsageStatusHandlers({
   ipcMain,
   pathExists,
-})
-
-/**
- * 注册 MCP 管理相关 IPC handlers
- */
-registerMcpHandlers({
-  ipcMain,
 })
 
 ipcMain.handle('app:consumePendingNavigation', () => navigationBridge.consumePending())

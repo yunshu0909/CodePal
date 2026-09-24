@@ -530,34 +530,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
     return () => ipcRenderer.removeListener('usage-aggregate:progress', handler)
   },
 
-  // V0.11 MCP 管理 APIs
-
-  /**
-   * MCP 管理 API
-   */
-  mcp: {
-    /**
-     * 扫描两个工具的配置文件，返回 MCP 列表和工具安装状态
-     * @returns {Promise<{success: boolean, mcpList: Array, toolsInstalled: Object, error: string|null}>}
-     */
-    scanConfigs: () => ipcRenderer.invoke('mcp:scanConfigs'),
-
-    /**
-     * 启用/停用指定 MCP 到指定工具
-     * @param {string} mcpId - MCP 标识符（名称）
-     * @param {string} tool - 目标工具（claude/codex）
-     * @param {boolean} enable - 是否启用
-     * @returns {Promise<{success: boolean, error: string|null}>}
-     */
-    toggleMcp: (mcpId, tool, enable) => ipcRenderer.invoke('mcp:toggleMcp', mcpId, tool, enable),
-
-    /**
-     * 检查 Claude Code 和 Codex 是否安装
-     * @returns {Promise<{success: boolean, toolsInstalled: Object, error: string|null}>}
-     */
-    checkToolsInstalled: () => ipcRenderer.invoke('mcp:checkToolsInstalled')
-  },
-
   // 网络诊断（出口 IP）APIs
 
   /**
