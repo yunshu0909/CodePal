@@ -448,7 +448,11 @@ export function createImportService(deps) {
         }
       }
 
-      await deps.saveConfig(config)
+      // 配置保存失败要如实计入结果（自动任务按设计不弹提示，但不能报成功）
+      const saveResult = await deps.saveConfig(config)
+      if (saveResult && saveResult.success === false) {
+        errors.push(`save config: ${saveResult.error || 'SAVE_FAILED'}`)
+      }
 
       // 新增或更新后清空推送状态缓存，避免状态展示读取旧值
       if (added > 0 || updated > 0) {
@@ -456,7 +460,7 @@ export function createImportService(deps) {
       }
 
       return {
-        success: errors.length === 0 || added > 0 || updated > 0,
+        success: (errors.length === 0 || added > 0 || updated > 0) && !(saveResult && saveResult.success === false),
         added,
         updated,
         skipped,

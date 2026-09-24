@@ -434,3 +434,25 @@ describe('键盘', () => {
     await waitFor(() => expect(rows()).toHaveLength(3))
   })
 })
+
+// ── 架构优化 B2-3：搜索失败不能显示成「无匹配结果」（沿用 B3「列表读取失败」的整块状态与既有文案） ──
+describe('B2-3 搜索失败如实显示', () => {
+  it('H-1 搜索接口返回失败 → 显示「读取失败」+ 原因 + 重试，而不是「无匹配结果」；重试会重新搜索', async () => {
+    await renderPage({ searchSessions: vi.fn(async () => ({ success: false, data: null, error: 'EACCES: permission denied' })) })
+    await waitFor(() => expect(rows()).toHaveLength(3))
+    fireEvent.change(screen.getByPlaceholderText('搜索对话'), { target: { value: '通知' } })
+    expect(await screen.findByText('读取失败', {}, { timeout: 1000 })).toBeInTheDocument()
+    expect(screen.getByText('EACCES: permission denied')).toBeInTheDocument()
+    expect(screen.queryByText('无匹配结果')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: '重试' }))
+    await waitFor(() => expect(api.searchSessions).toHaveBeenCalledTimes(2), { timeout: 1000 })
+  })
+
+  it('H-2 搜索接口抛异常 → 同样显示读取失败', async () => {
+    await renderPage({ searchSessions: vi.fn(async () => { throw new Error('boom') }) })
+    await waitFor(() => expect(rows()).toHaveLength(3))
+    fireEvent.change(screen.getByPlaceholderText('搜索对话'), { target: { value: '通知' } })
+    expect(await screen.findByText('读取失败', {}, { timeout: 1000 })).toBeInTheDocument()
+    expect(screen.queryByText('无匹配结果')).toBeNull()
+  })
+})

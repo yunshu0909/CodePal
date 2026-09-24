@@ -111,7 +111,7 @@ export default function SessionListView({ state }) {
   const scrollRef = useRef(null)
   const inputRef = useRef(null)
   const now = Date.now()
-  const { loading, error, retry, projectsDirExists, sessions, visible, menu, filter, setFilter, query, setQuery, searching, searchStatus, results, hitCount, open, listScrollRef } = state
+  const { loading, error, retry, projectsDirExists, sessions, visible, menu, filter, setFilter, query, setQuery, searching, searchStatus, searchError, retrySearch, results, hitCount, open, listScrollRef } = state
 
   // 回到列表时恢复滚动位置
   useLayoutEffect(() => {
@@ -139,7 +139,9 @@ export default function SessionListView({ state }) {
   } else if (error) {
     body = <StateView error={error} onRetry={retry} />
   } else if (searching) {
-    if (searchStatus !== 'done') body = <div className="np-empty">搜索中...</div>
+    // 搜索失败：沿用状态清单 B3「列表读取失败」的整块状态（读取失败 + 原因 + 重试），不显示成无匹配
+    if (searchStatus === 'error') body = <StateView error={searchError} onRetry={retrySearch} />
+    else if (searchStatus !== 'done') body = <div className="np-empty">搜索中...</div>
     else if (results.length === 0) {
       body = (
         <div className="np-empty sr-empty-line">

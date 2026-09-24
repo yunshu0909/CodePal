@@ -24,7 +24,8 @@ export default defineConfig({
       provider: 'v8',
       reporter: ['text', 'json', 'html', 'lcov'],
       reportsDirectory: './tests/coverage',
-      include: ['src/**/*.{js,jsx}'],
+      // 主进程（文件读写、配置写入）才是风险集中处，覆盖率要算上
+      include: ['src/**/*.{js,jsx}', 'electron/**/*.{js,mjs}'],
       exclude: [
         'node_modules/',
         'tests/',

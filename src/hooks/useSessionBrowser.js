@@ -54,7 +54,9 @@ export default function useSessionBrowser() {
   const [filter, setFilterState] = useState(readFilter)
   const [query, setQuery] = useState('')
   // 搜索：idle / searching / done；results 已和列表元数据合并
-  const [search, setSearch] = useState({ status: 'idle', hits: [] })
+  const [search, setSearch] = useState({ status: 'idle', hits: [], error: null })
+  // 搜索失败后点「重试」：改这个数让搜索副作用重跑
+  const [searchAttempt, setSearchAttempt] = useState(0)
   const [view, setView] = useState({ page: 'list' })
   const listScrollRef = useRef(0)
   const searchSeq = useRef(0)
@@ -109,21 +111,25 @@ export default function useSessionBrowser() {
   useEffect(() => {
     const seq = ++searchSeq.current
     if (!trimmed) {
-      setSearch({ status: 'idle', hits: [] })
+      setSearch({ status: 'idle', hits: [], error: null })
       return undefined
     }
-    setSearch({ status: 'searching', hits: [] })
+    setSearch({ status: 'searching', hits: [], error: null })
     const timer = setTimeout(async () => {
       try {
         const res = await window.electronAPI.searchSessions(trimmed, { projectPath: effectiveFilter.projectPath, includeAuto: effectiveFilter.includeAuto })
         if (seq !== searchSeq.current) return
-        setSearch({ status: 'done', hits: res?.success ? res.data : [] })
-      } catch {
-        if (seq === searchSeq.current) setSearch({ status: 'done', hits: [] })
+        // 搜索失败不能显示成「无匹配结果」：单独一个 error 状态，页面沿用列表读取失败的整块状态
+        if (res?.success) setSearch({ status: 'done', hits: res.data, error: null })
+        else setSearch({ status: 'error', hits: [], error: res?.error || '读取失败' })
+      } catch (error) {
+        if (seq === searchSeq.current) setSearch({ status: 'error', hits: [], error: error?.message || '读取失败' })
       }
     }, SEARCH_DEBOUNCE_MS)
     return () => clearTimeout(timer)
-  }, [trimmed, effectiveFilter.projectPath, effectiveFilter.includeAuto])
+  }, [trimmed, effectiveFilter.projectPath, effectiveFilter.includeAuto, searchAttempt])
+
+  const retrySearch = useCallback(() => setSearchAttempt((n) => n + 1), [])
 
   // 搜索结果和列表元数据合并（标题、项目、时间都从列表来）
   const results = useMemo(() => {
@@ -156,6 +162,8 @@ export default function useSessionBrowser() {
     setQuery,
     searching: Boolean(trimmed),
     searchStatus: search.status,
+    searchError: search.error,
+    retrySearch,
     results,
     // 服务端返回的原始条数：到上限时提示缩小范围
     hitCount: search.hits.length,

@@ -107,9 +107,11 @@ function createSharedUsageStatistics({homeDir=os.homedir(),storage=createStatist
         if(!Array.isArray(raw))throw Error('INVALID_SCAN_RESULT')
         const records=raw.filter(r=>new Date(r.timestamp).getTime()>=midnight(key).getTime()&&new Date(r.timestamp).getTime()<end.getTime()).map(r=>({timestamp:new Date(r.timestamp).toISOString(),model:typeof r.model==='string'?r.model:'unknown',project:typeof r.project==='string'?r.project:'未知项目',...Object.fromEntries(FIELDS.map(f=>[f,typeof r[f]==='number'&&Number.isFinite(r[f])?Math.max(0,Math.floor(r[f])):0]))}))
         sources[id]={status:exists==='missing'?'missing':'ready',records,cutoff:end.toISOString(),complete:end.getTime()===midnight(nextDay(key)).getTime()}
-      }catch{
+      }catch(error){
+        // 记下失败原因（错误码优先），排查时能区分权限、格式、超时等
+        const reason=String(error?.code||error?.message||'UNKNOWN').slice(0,80)
         const previous=old?.sources[id]?.status==='ready'?old.sources[id]:old?.sources[id]?.lastSuccess
-        sources[id]={status:'failed',records:[],cutoff:end.toISOString(),complete:false,...(previous?{lastSuccess:previous}:{})}
+        sources[id]={status:'failed',reason,records:[],cutoff:end.toISOString(),complete:false,...(previous?{lastSuccess:previous}:{})}
       }
     }
     const entry={schemaVersion:SCHEMA,semantics:SEMANTICS,date:key,cutoff:end.toISOString(),revision:revision+1,sources}

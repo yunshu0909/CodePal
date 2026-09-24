@@ -3,9 +3,11 @@ name: Build & Release
 on:
   push:
     tags: ['v*']
-  # PR 门禁（branch-per-task + PR）：合并进主干前必须测试绿
+    # 日常开发在 dev：推到 dev 也跑测试（build / release 仍只在 v* tag 上跑）
+    branches: [dev]
+  # PR 门禁（branch-per-task + PR）：合并进主干 / dev 前必须测试绿
   pull_request:
-    branches: [master, main]
+    branches: [master, main, dev]
 
 permissions:
   contents: write

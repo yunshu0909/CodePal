@@ -4,7 +4,7 @@
  * 存在意义：2026-09-13 发现旧 `自动化测试/` 里 3 套 + 根目录 9 个测试文件从未被任何
  * npm script 跑到 —— 付了维护费却没拿到保护，而且没人发现。这个文件把那条规矩变成
  * 机器检查：
- *   1. `tests/**` 下每个测试文件都必须被某个 npm script 覆盖（直接列文件，或落在某个
+ *   1. `tests/**` 下每个测试文件都必须被**从 npm test 可达的** npm script 覆盖（直接列文件，或落在某个
  *      被 `--config` 引用的配置目录里）
  *   2. vitest 类 script 里显式写出的 `tests/...` 路径必须真实存在（防手写路径打错）
  *
@@ -21,7 +21,24 @@ import { fileURLToPath } from 'node:url'
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const pkg = JSON.parse(fs.readFileSync(path.join(repoRoot, 'package.json'), 'utf8'))
 const scripts = pkg.scripts || {}
-const scriptsText = Object.values(scripts).join(' ')
+
+/**
+ * 从 `npm test` 出发、顺着 `npm run X` 能走到的脚本（B2-3：原来只查「有脚本提到」，
+ * 被一个没人调用的脚本提到也算接上了，其实 npm test / CI 根本跑不到）
+ * @returns {string[]}
+ */
+function reachableFromNpmTest() {
+  const seen = new Set()
+  const stack = ['test']
+  while (stack.length) {
+    const name = stack.pop()
+    if (seen.has(name) || !scripts[name]) continue
+    seen.add(name)
+    for (const m of scripts[name].matchAll(/npm run ([\w:.-]+)/g)) stack.push(m[1])
+  }
+  return [...seen]
+}
+const scriptsText = reachableFromNpmTest().map((name) => scripts[name]).join(' ')
 
 /** 被 npm script 用 --config 引用的 vitest 配置的所在目录 */
 function configDirs() {
