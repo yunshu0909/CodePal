@@ -29,7 +29,8 @@ const CLAUDE_HOOK_MARK = 'k28-status-light/k28_status.sh'
 const CODEX_HOOK_MARK = 'k28-status-light/codex-hook.sh'
 // 我们写的钩子长这样：command = "bash <…>/k28-status-light/codex-hook.sh <状态>"、statusMessage = "K28 <状态>"
 // 归属按完整结构认，不按「包含路径」认：用户自己的命令里恰好出现这段路径时不能当成我们的
-const OUR_CODEX_COMMAND = /^bash .*\/k28-status-light\/codex-hook\.sh [a-z]+$/
+// 路径里不允许空格与 shell 符号：「用户操作 && 我们的脚本」这类组合命令不算我们的
+const OUR_CODEX_COMMAND = /^bash [^\s;&|<>`$()'"]+\/k28-status-light\/codex-hook\.sh [a-z]+$/
 const OUR_CODEX_STATUS = /^K28 [a-z]+$/
 
 /**
@@ -721,9 +722,10 @@ function stripCodexHooksLf(content) {
   segments.push(current)
 
   const isOurSegment = (seg) => {
-    if (!seg.lines.some((l) => /^\s*command\s*=\s*"bash .*\/k28-status-light\/codex-hook\.sh [a-z]+"\s*$/.test(l))) return false
+    // 与 isOurCodexHook 同一套判定；行尾允许注释
+    if (!seg.lines.some((l) => /^\s*command\s*=\s*"bash [^\s;&|<>`$()'"]+\/k28-status-light\/codex-hook\.sh [a-z]+"\s*(#.*)?$/.test(l))) return false
     const status = seg.lines.filter((l) => /^\s*statusMessage\s*=/.test(l))
-    return status.every((l) => /^\s*statusMessage\s*=\s*"K28 [a-z]+"\s*$/.test(l))
+    return status.every((l) => /^\s*statusMessage\s*=\s*"K28 [a-z]+"\s*(#.*)?$/.test(l))
   }
   const drop = new Set()
   segments.forEach((seg, index) => {

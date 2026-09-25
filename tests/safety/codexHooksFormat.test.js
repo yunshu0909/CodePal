@@ -145,6 +145,30 @@ describe('钩子归属按完整结构识别（Codex 审核反例）', () => {
     expect(stop).toEqual([{ matcher: 'x', hooks: [{ type: 'command', command: 'my-own-hook' }] }])
   })
 
+  it('H-13 组合命令（用户操作 && 我们的脚本）不算我们的钩子：装、卸都保留', async () => {
+    const cmd = 'bash /Users/x/audit.sh && bash /Users/x/.claude/k28-status-light/codex-hook.sh done'
+    const { home, file } = await codexHome(userHook(cmd))
+    const svc = loadSessionStatus(home)
+    await svc.installSessionStatus({ trustHooks: noTrust })
+    await svc.uninstallSessionStatus()
+    const stops = parse(await readFile(file, 'utf8')).hooks.Stop.flatMap((g) => g.hooks.map((h) => h.command))
+    expect(stops).toEqual([cmd])
+  })
+
+  it('H-14 我们的钩子行尾带注释：重装不重复，卸载删干净', async () => {
+    const { home, file } = await codexHome('')
+    const svc = loadSessionStatus(home)
+    await svc.installSessionStatus({ trustHooks: noTrust })
+    const commented = (await readFile(file, 'utf8'))
+      .replace(/(codex-hook\.sh done")/, '$1 # completion indicator')
+      .replace(/(statusMessage = "K28 busy")/, '$1 # note')
+    await writeFile(file, commented)
+    await svc.installSessionStatus({ trustHooks: noTrust })
+    expect(parse(await readFile(file, 'utf8')).hooks.Stop).toHaveLength(1)
+    await svc.uninstallSessionStatus()
+    expect(await readFile(file, 'utf8')).not.toMatch(/codex-hook\.sh/)
+  })
+
   it('H-12 用户有名为 __proto__ 的钩子表：卸载不改它的内容', async () => {
     const config = '[hooks.__proto__]\nnotes = """\n# CodePal session status hooks\nkeep\n"""\n'
     const { home, file } = await codexHome(config)
