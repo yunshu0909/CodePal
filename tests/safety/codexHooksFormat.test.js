@@ -120,6 +120,39 @@ describe('写入前整体语义校验（Codex 审核反例）', () => {
   })
 })
 
+describe('钩子归属按完整结构识别（Codex 审核反例）', () => {
+  const userHook = (cmd) => `[[hooks.Stop]]\n\n[[hooks.Stop.hooks]]\ntype = "command"\ncommand = "${cmd}"\n`
+
+  it('H-10 用户钩子命令里含我们脚本路径的子串：装、卸都不删它', async () => {
+    const config = userHook('echo k28-status-light/codex-hook.sh >> /tmp/my-audit.log')
+    const { home, file } = await codexHome(config)
+    const svc = loadSessionStatus(home)
+    await svc.installSessionStatus({ trustHooks: noTrust })
+    await svc.uninstallSessionStatus()
+    const stops = parse(await readFile(file, 'utf8')).hooks.Stop.flatMap((g) => g.hooks.map((h) => h.command))
+    expect(stops).toEqual(['echo k28-status-light/codex-hook.sh >> /tmp/my-audit.log'])
+  })
+
+  it('H-11 同一组里我们的钩子在前、用户钩子在后：卸载后用户钩子和 matcher 都还在', async () => {
+    const { home, file } = await codexHome('')
+    const svc = loadSessionStatus(home)
+    await svc.installSessionStatus({ trustHooks: noTrust })
+    const hookScript = path.join(home, '.claude', 'k28-status-light', 'codex-hook.sh')
+    await writeFile(file, `[[hooks.Stop]]\nmatcher = "x"\n\n[[hooks.Stop.hooks]]\ntype = "command"\ncommand = "bash ${hookScript} done"\ntimeout = 10\nstatusMessage = "K28 done"\n\n[[hooks.Stop.hooks]]\ntype = "command"\ncommand = "my-own-hook"\n`)
+    const result = await svc.uninstallSessionStatus()
+    expect(result.success).toBe(true)
+    const stop = parse(await readFile(file, 'utf8')).hooks.Stop
+    expect(stop).toEqual([{ matcher: 'x', hooks: [{ type: 'command', command: 'my-own-hook' }] }])
+  })
+
+  it('H-12 用户有名为 __proto__ 的钩子表：卸载不改它的内容', async () => {
+    const config = '[hooks.__proto__]\nnotes = """\n# CodePal session status hooks\nkeep\n"""\n'
+    const { home, file } = await codexHome(config)
+    await loadSessionStatus(home).uninstallSessionStatus()
+    expect(await readFile(file, 'utf8')).toBe(config)
+  })
+})
+
 describe('一次性 MCP 清理与只读文件', () => {
   it('H-5 带 BOM 的 config.toml 也能清掉 provider_registry，BOM 保留', async () => {
     const script = '/Apps/CodePal.app/Contents/Resources/app/mcp/provider_registry_mcp.js'

@@ -27,6 +27,21 @@ const CONF_PATH = path.join(HOOK_DIR, 'tts.conf')
 const STATES_DIR = path.join(HOOK_DIR, 'states')
 const CLAUDE_HOOK_MARK = 'k28-status-light/k28_status.sh'
 const CODEX_HOOK_MARK = 'k28-status-light/codex-hook.sh'
+// 我们写的钩子长这样：command = "bash <…>/k28-status-light/codex-hook.sh <状态>"、statusMessage = "K28 <状态>"
+// 归属按完整结构认，不按「包含路径」认：用户自己的命令里恰好出现这段路径时不能当成我们的
+const OUR_CODEX_COMMAND = /^bash .*\/k28-status-light\/codex-hook\.sh [a-z]+$/
+const OUR_CODEX_STATUS = /^K28 [a-z]+$/
+
+/**
+ * 这个钩子是不是 CodePal 装的
+ * @param {object} hook - 解析后的 [[hooks.X.hooks]] 一项
+ * @returns {boolean}
+ */
+function isOurCodexHook(hook) {
+  // 早期安装没有 statusMessage；有的话必须是我们的写法
+  return hook?.type === 'command' && OUR_CODEX_COMMAND.test(String(hook.command || ''))
+    && (hook.statusMessage === undefined || OUR_CODEX_STATUS.test(String(hook.statusMessage)))
+}
 
 const EXECUTABLE_TEMPLATE_FILES = new Set(['codex-delayed-clear.sh', 'codex-hook.sh', 'codex-notify.sh', 'k28_status.sh'])
 
@@ -254,19 +269,20 @@ statusMessage = "K28 ${state}"
  * @returns {object}
  */
 function userPartOfCodexConfig(doc) {
-  const out = { ...doc }
+  // 无原型对象：用户的表名叫 __proto__ 时也按普通键保存，不会被当成原型吞掉
+  const out = Object.assign(Object.create(null), doc)
   if (out.features && typeof out.features === 'object') {
     const { hooks: _ours, ...rest } = out.features
     if (Object.keys(rest).length) out.features = rest
     else delete out.features
   }
   if (out.hooks && typeof out.hooks === 'object' && !Array.isArray(out.hooks)) {
-    const hooks = {}
+    const hooks = Object.create(null)
     for (const [event, groups] of Object.entries(out.hooks)) {
       if (!Array.isArray(groups)) { hooks[event] = groups; continue }
       const kept = groups
         .map((group) => (Array.isArray(group?.hooks)
-          ? { ...group, hooks: group.hooks.filter((hook) => !String(hook?.command || '').includes(CODEX_HOOK_MARK)) }
+          ? { ...group, hooks: group.hooks.filter((hook) => !isOurCodexHook(hook)) }
           : group))
         .filter((group) => !Array.isArray(group?.hooks) || group.hooks.length > 0)
       if (kept.length) hooks[event] = kept
@@ -704,17 +720,24 @@ function stripCodexHooksLf(content) {
   }
   segments.push(current)
 
+  const isOurSegment = (seg) => {
+    if (!seg.lines.some((l) => /^\s*command\s*=\s*"bash .*\/k28-status-light\/codex-hook\.sh [a-z]+"\s*$/.test(l))) return false
+    const status = seg.lines.filter((l) => /^\s*statusMessage\s*=/.test(l))
+    return status.every((l) => /^\s*statusMessage\s*=\s*"K28 [a-z]+"\s*$/.test(l))
+  }
   const drop = new Set()
   segments.forEach((seg, index) => {
-    if (!seg.header || !/^\[\[hooks\.[A-Za-z]+\.hooks\]\]$/.test(seg.header)) return
-    if (!seg.lines.some((l) => l.includes(CODEX_HOOK_MARK))) return
-    drop.add(index)
-    const prev = segments[index - 1]
-    const parent = seg.header.replace('.hooks]]', ']]')
-    if (prev && prev.header === parent) {
-      const body = prev.lines.slice(1).filter((l) => l.trim() && !l.trim().startsWith('#'))
-      if (body.every((l) => /^\s*matcher\s*=/.test(l))) drop.add(index - 1)
-    }
+    if (seg.header && /^\[\[hooks\.[A-Za-z]+\.hooks\]\]$/.test(seg.header) && isOurSegment(seg)) drop.add(index)
+  })
+  // 只有 matcher 的组头：它下面的钩子全是我们的才一起删；还有用户的钩子就保留组头和 matcher
+  segments.forEach((seg, index) => {
+    if (!seg.header || !/^\[\[hooks\.[A-Za-z]+\]\]$/.test(seg.header)) return
+    const child = seg.header.replace(']]', '.hooks]]')
+    const children = []
+    for (let k = index + 1; k < segments.length && segments[k].header === child; k++) children.push(k)
+    if (!children.length || !children.every((k) => drop.has(k))) return
+    const body = seg.lines.slice(1).filter((l) => l.trim() && !l.trim().startsWith('#'))
+    if (body.every((l) => /^\s*matcher\s*=/.test(l))) drop.add(index)
   })
 
   const out = segments
