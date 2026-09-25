@@ -89,6 +89,27 @@ describe('会话状态钩子不改用户其余内容', () => {
   })
 })
 
+describe('[features] 按 TOML 语义定位（Codex 审核反例）', () => {
+  it('H-7 文件开头有 BOM 且第一行就是 [features]：改这张表，不追加第二个', async () => {
+    const { home, file } = await codexHome('\uFEFF[features]\nhooks = false\n')
+    const result = await loadSessionStatus(home).installSessionStatus({ trustHooks: noTrust })
+    expect(result.failures).toEqual([])
+    const after = await readFile(file, 'utf8')
+    expect(after.startsWith('\uFEFF[features]\nhooks = true\n')).toBe(true)
+    expect(after.match(/^\uFEFF?\[features\]/gm)).toHaveLength(1)
+  })
+
+  it('H-8 多行字符串里写着 [features] 示例：字符串原样，真正的 features.hooks 设上', async () => {
+    const instructions = 'Example config:\n[features]\n  hooks = false\n'
+    const { home, file } = await codexHome(`developer_instructions = """\n${instructions}"""\n`)
+    const result = await loadSessionStatus(home).installSessionStatus({ trustHooks: noTrust })
+    expect(result.failures).toEqual([])
+    const doc = parse(await readFile(file, 'utf8'))
+    expect(doc.developer_instructions).toBe(instructions)
+    expect(doc.features.hooks).toBe(true)
+  })
+})
+
 describe('一次性 MCP 清理与只读文件', () => {
   it('H-5 带 BOM 的 config.toml 也能清掉 provider_registry，BOM 保留', async () => {
     const script = '/Apps/CodePal.app/Contents/Resources/app/mcp/provider_registry_mcp.js'

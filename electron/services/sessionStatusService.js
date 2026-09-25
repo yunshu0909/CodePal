@@ -18,7 +18,7 @@ const os = require('os')
 const { mutateClaudeSettingsFile, detectUnsupportedCustomRoot } = require('./claudeSettingsService')
 const { trustCodePalCodexHooks } = require('./codexHookTrust')
 const { withConfigLock, commitConfigUnlocked, finalizeBackup } = require('./codexConfigOwner')
-const { parseToml } = require('./tomlSafeEdit')
+const { parseToml, setTableBoolean } = require('./tomlSafeEdit')
 const { recordFootprint, removeFootprint } = require('./footprintRegistry')
 
 const HOOK_DIR = path.join(os.homedir(), '.claude', 'k28-status-light')
@@ -184,9 +184,6 @@ function keepLineEndings(content, edit) {
   return edit(content.replace(/\r\n/g, '\n')).replace(/\n/g, '\r\n')
 }
 
-/** 真正的 [features] 表头行（注释、字符串里出现的字样不算） */
-const FEATURES_HEADER = /^[ \t]*\[features\][ \t]*(#.*)?$/m
-
 /**
  * 给 Codex config.toml 追加 K28 hooks；已有 K28 hooks 时只确保 features.hooks=true
  * @returns {Promise<void>}
@@ -204,20 +201,14 @@ function buildCodexHooksContentLf(content) {
   // 不再改顶层 notify：「完成了」由 Stop 钩子负责；旧逻辑认不出多行写法的 notify，会插出重复的键让 Codex 读配置失败
   let nextContent = content
 
-  const header = FEATURES_HEADER.exec(nextContent)
-  if (header) {
-    // [features] 表的范围：表头行之后，到下一个表头行（行首的 [）为止
-    const bodyStart = header.index + header[0].length
-    const nextHeader = /\n[ \t]*\[/.exec(nextContent.slice(bodyStart))
-    const bodyEnd = nextHeader ? bodyStart + nextHeader.index : nextContent.length
-    const body = nextContent.slice(bodyStart, bodyEnd)
-    const nextBody = /^[ \t]*hooks\s*=/m.test(body)
-      ? body.replace(/^([ \t]*)hooks\s*=.*$/m, '$1hooks = true')
-      : `${body.trimEnd()}\nhooks = true\n${nextHeader ? '\n' : ''}`
-    nextContent = nextContent.slice(0, bodyStart) + nextBody + nextContent.slice(bodyEnd).replace(/^\n+/, nextHeader ? '\n' : '')
-  } else {
-    nextContent = `${nextContent.trimEnd()}\n\n[features]\nhooks = true\n`
-  }
+  // 按 TOML 语义定位 [features]：字符串 / 注释里的同名字样、开头的 BOM 都不会干扰；做不到安全编辑就拒绝
+  nextContent = setTableBoolean(nextContent, {
+    tablePath: ['features'],
+    field: 'hooks',
+    value: true,
+    invalidCode: 'CODEX_CONFIG_INVALID',
+    unsupportedCode: 'CODEX_CONFIG_UNSUPPORTED',
+  }).text
 
   // 每次都先删掉我们旧的一套再追加最新的：旧安装只有 4 个时机，这样能升级到 6 个；内容没变就不写
   // 钩子内容（command / timeout / statusMessage / matcher）必须和旧安装逐字一致：Codex 按内容算 trusted_hash，

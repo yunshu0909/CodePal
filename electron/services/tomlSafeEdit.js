@@ -337,6 +337,78 @@ function setArrayTableBoolean(text, spec) {
 }
 
 /**
+ * 在一张普通表（如 [features]）里设置布尔字段；表不存在就在文末追加这张表
+ *
+ * 用词法扫描定位（跳过字符串、注释和开头的 BOM），只改 / 插一行；
+ * 改完重新解析，确认语义上只多了 / 变了这一个字段。表用内联或点号键定义时无法安全定位，直接拒绝。
+ *
+ * @param {string} text - 原文（可为空）
+ * @param {object} spec
+ * @param {string[]} spec.tablePath - 如 ['features']
+ * @param {string} spec.field - 如 'hooks'
+ * @param {boolean} spec.value - 目标值
+ * @param {string} [spec.invalidCode='TOML_INVALID']
+ * @param {string} [spec.unsupportedCode='TOML_UNSUPPORTED']
+ * @returns {{text: string, changed: boolean}}
+ */
+function setTableBoolean(text, spec) {
+  const source = String(text || '')
+  const invalidCode = spec.invalidCode || 'TOML_INVALID'
+  const unsupportedCode = spec.unsupportedCode || 'TOML_UNSUPPORTED'
+  const doc = parseToml(source, invalidCode)
+
+  let table = doc
+  for (const part of spec.tablePath) table = table?.[part]
+  if (table !== undefined && (table === null || typeof table !== 'object' || Array.isArray(table))) throw codedError(unsupportedCode)
+  if (table?.[spec.field] === spec.value) return { text: source, changed: false }
+
+  let items
+  try {
+    items = scanDocument(source)
+  } catch {
+    throw codedError(unsupportedCode)
+  }
+  const headers = items.filter((item) => item.type === 'header' && !item.array && samePath(item.parts, spec.tablePath))
+  const eol = source.includes('\r\n') ? '\r\n' : '\n'
+  let next
+
+  if (headers.length === 1) {
+    const header = headers[0]
+    const start = items.indexOf(header)
+    const keys = []
+    for (const item of items.slice(start + 1)) {
+      if (item.type === 'header') break
+      keys.push(item)
+    }
+    const fieldLine = keys.find((item) => samePath(item.parts, [spec.field]))
+    if (fieldLine) {
+      next = source.slice(0, fieldLine.valueStart) + String(spec.value) + source.slice(fieldLine.valueEnd)
+    } else {
+      const anchor = keys.at(-1)?.lineEnd ?? header.lineEnd
+      const prefix = source.slice(0, anchor)
+      const joiner = prefix.endsWith('\n') ? '' : eol
+      next = `${prefix}${joiner}${spec.field} = ${spec.value}${eol}${source.slice(anchor)}`
+    }
+  } else if (headers.length === 0) {
+    // 没有这张表的表头：在文末补一个（表只由子表隐式定义时也合法）；内联 / 点号键写法会在下面的重新解析里被拒
+    const hasContent = source.replace(/^\uFEFF/, '').length > 0
+    const base = hasContent && !source.endsWith('\n') ? `${source}${eol}` : source
+    next = `${base}${hasContent ? eol : ''}[${spec.tablePath.join('.')}]${eol}${spec.field} = ${spec.value}${eol}`
+  } else {
+    // 同一张表出现多个表头本身就不合法，走不到这里；保险起见拒绝
+    throw codedError(unsupportedCode)
+  }
+
+  const expected = cloneTree(doc)
+  let target = expected
+  for (const part of spec.tablePath) target = target[part] ??= Object.create(null)
+  target[spec.field] = spec.value
+  const reparsed = parseToml(next, unsupportedCode)
+  if (!sameSemantics(reparsed, expected)) throw codedError(unsupportedCode)
+  return { text: next, changed: next !== source }
+}
+
+/**
  * 删除一张普通表（如 [mcp_servers.provider_registry]）及其所有子表（如 [….env]），其余字节原样
  *
  * 只支持用表头定义的写法；删完重新解析，确认语义上正好少了这张表（上级因此变空时，允许上级一并消失）。
@@ -441,6 +513,7 @@ function assertOnlyChanged(beforeText, afterText, keyPath, value, codes = {}) {
 }
 
 module.exports = {
+  setTableBoolean,
   parseToml,
   scanDocument,
   locateArrayTables,
