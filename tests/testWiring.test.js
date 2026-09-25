@@ -120,3 +120,13 @@ describe('lint 接入', () => {
     expect(config).toMatch(/'react-hooks\/rules-of-hooks': 'error'/)
   })
 })
+
+// v2.0.0 发版时 CI 用 Node 20 跑挂了（zlib.zstd* 要 22.15+）：CI 的 Node 要和 Electron 内置的大版本一致
+describe('CI 运行环境', () => {
+  it('L-4 CI 的 Node 大版本不低于 24（Electron 40 内置 Node 24）', () => {
+    const ci = fs.readFileSync(path.join(repoRoot, '.github', 'workflows', 'release.yml'), 'utf8')
+    const versions = [...ci.matchAll(/node-version:\s*['"]?(\d+)/g)].map((m) => Number(m[1]))
+    expect(versions.length).toBeGreaterThan(0)
+    expect(versions.every((v) => v >= 24)).toBe(true)
+  })
+})
