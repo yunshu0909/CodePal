@@ -44,6 +44,8 @@ function createDshWorkerRunner(options = {}) {
    * @param {string} reason - 失败原因
    */
   function failAllPending(reason) {
+    // 只有真的丢了进行中的扫描才告警；应用正常退出时 worker 随之退出，没有请求在等
+    const dropped = pending.size
     for (const [, entry] of pending) {
       clearTimeout(entry.timer)
       if (entry.strictScan) entry.reject(new Error('DSH_WORKER_UNAVAILABLE'))
@@ -51,7 +53,7 @@ function createDshWorkerRunner(options = {}) {
     }
     pending.clear()
 
-    if (pending.size === 0 && reason) {
+    if (dropped > 0 && reason) {
       logger.warn(`DSH usage worker unavailable (${reason}); DSH data omitted for this window`)
     }
   }

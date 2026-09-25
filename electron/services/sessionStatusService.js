@@ -173,22 +173,48 @@ async function installClaudeHooks() {
 }
 
 /**
+ * 按文件原来的换行写法处理：内部统一用 LF 编辑，写回时整份是 CRLF 的就还原成 CRLF
+ * （只追加 LF 会留下混合换行，Codex 下次写入再整份改成 LF，文件每次启动都在变）
+ * @param {string} content
+ * @param {(text: string) => string} edit
+ * @returns {string}
+ */
+function keepLineEndings(content, edit) {
+  if (!content || !content.includes('\r\n') || /(^|[^\r])\n/.test(content)) return edit(content)
+  return edit(content.replace(/\r\n/g, '\n')).replace(/\n/g, '\r\n')
+}
+
+/** 真正的 [features] 表头行（注释、字符串里出现的字样不算） */
+const FEATURES_HEADER = /^[ \t]*\[features\][ \t]*(#.*)?$/m
+
+/**
  * 给 Codex config.toml 追加 K28 hooks；已有 K28 hooks 时只确保 features.hooks=true
  * @returns {Promise<void>}
  */
 function buildCodexHooksContent(content) {
+  return keepLineEndings(content, buildCodexHooksContentLf)
+}
+
+/**
+ * buildCodexHooksContent 的 LF 版本
+ * @param {string} content
+ * @returns {string}
+ */
+function buildCodexHooksContentLf(content) {
   // 不再改顶层 notify：「完成了」由 Stop 钩子负责；旧逻辑认不出多行写法的 notify，会插出重复的键让 Codex 读配置失败
   let nextContent = content
 
-  if (/\[features\]/.test(nextContent)) {
-    if (/(\[features\][\s\S]*?)(?=\n\[|$)/.test(nextContent)) {
-      nextContent = nextContent.replace(/(\[features\][\s\S]*?)(?=\n\[|$)/, (block) => {
-        if (/^hooks\s*=/m.test(block)) {
-          return block.replace(/^hooks\s*=.*$/m, 'hooks = true')
-        }
-        return `${block.trimEnd()}\nhooks = true\n`
-      })
-    }
+  const header = FEATURES_HEADER.exec(nextContent)
+  if (header) {
+    // [features] 表的范围：表头行之后，到下一个表头行（行首的 [）为止
+    const bodyStart = header.index + header[0].length
+    const nextHeader = /\n[ \t]*\[/.exec(nextContent.slice(bodyStart))
+    const bodyEnd = nextHeader ? bodyStart + nextHeader.index : nextContent.length
+    const body = nextContent.slice(bodyStart, bodyEnd)
+    const nextBody = /^[ \t]*hooks\s*=/m.test(body)
+      ? body.replace(/^([ \t]*)hooks\s*=.*$/m, '$1hooks = true')
+      : `${body.trimEnd()}\nhooks = true\n${nextHeader ? '\n' : ''}`
+    nextContent = nextContent.slice(0, bodyStart) + nextBody + nextContent.slice(bodyEnd).replace(/^\n+/, nextHeader ? '\n' : '')
   } else {
     nextContent = `${nextContent.trimEnd()}\n\n[features]\nhooks = true\n`
   }
@@ -630,6 +656,15 @@ async function uninstallClaudeHooks() {
  * @returns {string}
  */
 function stripCodexHooks(content) {
+  return keepLineEndings(content, stripCodexHooksLf)
+}
+
+/**
+ * stripCodexHooks 的 LF 版本：只删我们那几段，其余行（包括用户的空行、多行字符串）原样保留
+ * @param {string} content
+ * @returns {string}
+ */
+function stripCodexHooksLf(content) {
   const lines = content.split('\n')
   const segments = []
   let current = { header: null, lines: [] }
@@ -660,7 +695,7 @@ function stripCodexHooks(content) {
     .filter((_, index) => !drop.has(index))
     .flatMap((seg) => seg.lines)
     .filter((line) => !/^#\s*CodePal (K28 status light|session status) hooks\s*$/.test(line.trim()))
-  return `${out.join('\n').replace(/\n{3,}/g, '\n\n').trimEnd()}\n`
+  return `${out.join('\n').trimEnd()}\n`
 }
 
 /**

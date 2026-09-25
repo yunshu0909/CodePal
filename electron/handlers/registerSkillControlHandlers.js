@@ -43,16 +43,6 @@ function registerSkillControlHandlers({ ipcMain, homeDir }, deps = {}) {
     }
   })
 
-  // 兼容 v1.9 开发分支的两个旧入口，统一转给新命令模型。
-  ipcMain.handle('skill-control:deploy', async (_event, params) => {
-    const action = params?.enabled ? 'enable' : 'remove-tool'
-    try {
-      const data = await execute({ ...params, action, homeDir }, deps)
-      return { success: true, data, error: null }
-    } catch (error) {
-      return { success: false, data: null, error: errorCode(error, 'SKILL_CONTROL_DEPLOY_FAILED') }
-    }
-  })
   ipcMain.handle('skill-control:adopt', async (_event, params) => {
     try {
       const data = await execute({ ...params, action: 'adopt', source: params?.source || { origin: 'user', mutable: true }, homeDir }, deps)

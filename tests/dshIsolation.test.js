@@ -67,6 +67,16 @@ describe('worker 客户端', () => {
     expect(logger.warn).toHaveBeenCalled()
   })
 
+  it('没有进行中的扫描时 worker 退出（如应用正常退出）不告警', async () => {
+    const child = makeFakeChild()
+    child.postMessage.mockImplementation((message) => child.emit('message', { id: message.id, ok: true, records: [] }))
+    const logger = { warn: vi.fn() }
+    const run = createDshWorkerRunner({ homeDir: '/home/u', forkFn: () => child, logger })
+    await run(START, END)
+    child.emit('exit', 0)
+    expect(logger.warn).not.toHaveBeenCalled()
+  })
+
   it('worker 返回错误时降级为空数组并留痕', async () => {
     const child = makeFakeChild()
     child.postMessage.mockImplementation((message) => {

@@ -192,7 +192,8 @@ function scanValue(text, index) {
  */
 function scanDocument(text) {
   const items = []
-  let i = 0
+  // 文件开头的 BOM 跳过；偏移仍按原文计，编辑时 BOM 原样留在原处
+  let i = text.charCodeAt(0) === 0xfeff ? 1 : 0
   while (i < text.length) {
     const lineStart = i
     while (text[i] === ' ' || text[i] === '\t') i++

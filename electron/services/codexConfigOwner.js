@@ -130,6 +130,8 @@ async function commitConfigUnlocked(configPath, plan, deps = {}, options = {}) {
   const before = await snapshotConfig(configPath)
   const { text, changed } = plan(before.text)
   if (!changed) return { changed: false, before, backupTemp: null }
+  // 用户把配置设成只读（chmod 444）就是不想被改：rename 能绕过权限，所以这里主动拒绝
+  if (before.exists && (before.mode & 0o200) === 0) throw codedError('CODEX_CONFIG_READONLY')
   if (deps.beforeConfigCommit) await deps.beforeConfigCommit(configPath)
   await assertUnchanged(before)
   await fs.mkdir(path.dirname(before.target), { recursive: true })

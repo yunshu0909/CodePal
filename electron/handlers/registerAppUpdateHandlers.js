@@ -57,9 +57,6 @@ function registerAppUpdateHandlers({ ipcMain, app, shell, getMainWindow }) {
     currentVersion: app.getVersion(),
   }))
 
-  ipcMain.handle('app-update:check', async () => {
-    return checkForUpdates()
-  })
 
   ipcMain.handle('app-update:open-release-page', async () => {
     const { releaseUrl } = getAppUpdateState()

@@ -81,7 +81,7 @@ CodePal 按用途分 4 组：**用量账单 · 项目开发 · 技能中心 · �
 
 #### Plugins 管理
 
-统一查看 Claude Code、Codex 已安装的 Plugin：版本、来源、启用状态、包含哪些能力；安装、启用、停用、卸载都走官方 CLI。
+统一查看 Claude Code、Codex 已安装的 Plugin：版本、来源、启用状态、包含哪些能力；可以安装、启用、停用、卸载（Codex 的启用 / 停用直接改 `config.toml` 里对应的一项，其余操作走官方 CLI）。
 
 ---
 
@@ -89,7 +89,7 @@ CodePal 按用途分 4 组：**用量账单 · 项目开发 · 技能中心 · �
 
 #### Claude Code 设置
 
-- 默认启动模式（只读规划 / 每次询问 / 自动编辑 / 全自动），下次启动生效
+- 默认启动模式，6 档：全自动 / 自动审批 / 自动编辑 / 每次询问 / 仅预先授权 / 只读规划，下次启动生效
 - 底部状态栏显示内容的设置
 
 #### 网络诊断 · 出口 IP 变了第一时间知道
@@ -105,7 +105,8 @@ CodePal 按用途分 4 组：**用量账单 · 项目开发 · 技能中心 · �
 从 [Releases](https://github.com/yunshu0909/CodePal/releases/latest) 下载最新 `.dmg` 安装包：
 
 - **macOS Apple Silicon (M 系列)** — 当前支持
-- Windows / Intel macOS — 暂未打包，如需请自行本地构建
+- **Windows (x64)** — 随版本自动构建安装包，作者日常不在 Windows 上使用，可能有未发现的问题
+- Intel macOS — 暂未打包，如需请自行本地构建
 
 ### 🧑‍💻 本地开发
 
@@ -132,7 +133,7 @@ npm run dist:win    # Windows (x64) NSIS 安装包
 ## 环境要求
 
 - **macOS**（Apple Silicon 优先，Intel 能跑但未打包发布）
-- **Node.js 20+**（建议 LTS）
+- **Node.js 20.19+**（建议 LTS）
 - **npm 9+**
 
 ---
@@ -145,7 +146,6 @@ npm run dist:win    # Windows (x64) NSIS 安装包
 | React | ^19.2.4 | 渲染层 |
 | Vite | ^7.3.1 | 前端构建 |
 | Vitest | ^4.0.18 | 单元测试 |
-| Playwright | ^1.58.2 | E2E 测试 |
 | chokidar | ^4.0.3 | 文件监听（Skills 中央仓库） |
 | smol-toml | ^1.9.0 | 按 TOML 语义读写 Codex 配置 |
 
@@ -158,7 +158,7 @@ skill-manager/
 ├── electron/                  # 主进程（Node.js 环境）
 │   ├── main.js                # 入口 + 窗口 + IPC 注册
 │   ├── preload.js             # contextBridge 暴露 electronAPI
-│   ├── handlers/              # 按领域拆分的 IPC handlers
+│   ├── handlers/ · ipc/       # 按领域拆分的 IPC handlers
 │   └── services/              # 可复用业务服务（可测试）
 ├── src/                       # 渲染进程（React）
 │   ├── App.jsx                # 根组件 + 模块路由
@@ -167,7 +167,7 @@ skill-manager/
 │   ├── hooks/                 # 自定义 hook
 │   └── store/                 # 数据层
 ├── tests/                     # 自动化测试（Vitest）
-├── templates/                 # 新建项目模板
+├── templates/                 # 新建项目模板、会话状态钩子脚本
 └── package.json               # build 配置、scripts、依赖
 ```
 
@@ -205,4 +205,4 @@ CodePal 目前是作者自用驱动的产品，**不提前规划功能列表**�
 
 ## License
 
-[ISC](./LICENSE) — by [云舒](https://github.com/yunshu0909)
+ISC — by [云舒](https://github.com/yunshu0909)

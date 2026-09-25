@@ -55,7 +55,6 @@ const { registerPluginControlHandlers } = require('./handlers/registerPluginCont
 const { registerProjectInitHandlers } = require('./handlers/registerProjectInitHandlers')
 const { registerPermissionModeHandlers } = require('./handlers/permissionModeHandlers')
 const { registerModelConfigHandlers } = require('./handlers/modelConfigHandlers')
-const { registerModelRegistryHandlers } = require('./handlers/registerModelRegistryHandlers')
 const { registerPricingRegistryHandlers } = require('./handlers/registerPricingRegistryHandlers')
 const { registerPlanHandlers, isReservedPlanKey } = require('./ipc/registerPlanHandlers')
 const { createPlanStoreService } = require('./services/plan/planStoreService')
@@ -124,7 +123,6 @@ const usageScheduler = createUsageStatisticsScheduler({statistics:usageStatistic
 usageStatistics.subscribe(snapshot=>{
   for(const window of BrowserWindow.getAllWindows()){if(!window.isDestroyed()){try{window.webContents.send('usage-statistics:changed',snapshot)}catch{/* Window may close during a batch. */}}}
 })
-ipcMain.handle('usage-statistics:status',()=>({success:true,data:usageStatistics.snapshot()}))
 
 // 初始化文档查阅服务的 store 引用
 initDocBrowserStore(store)
@@ -259,7 +257,6 @@ app.whenReady().then(async () => {
     }
   }
 
-  registerModelRegistryHandlers({ ipcMain })
   registerPricingRegistryHandlers({ ipcMain })
 
   createWindow()

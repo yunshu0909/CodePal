@@ -1,19 +1,20 @@
 /**
- * 死代码清理守护（架构优化 B2-2）
+ * 死代码清理守护（架构优化 B2-2 起，v2.0.0 发版前补充）
  *
  * 负责：
  * - 生产入口（main.js / preload.js / src/main.jsx / DSH worker）走不到的渲染层文件已删除，且不再回来
  * - preload 不再暴露渲染层没人调用的接口（暴露面越小越好）
  * - 旧模板、下线功能的脚本与过期文档不再随仓库 / 安装包分发
+ * - 主进程旧用量接口已在 B2-7 删除；页面调不到的主进程通道不再注册（D-7）
+ * - README 只介绍 dev 上真实存在的功能（D-6）
  *
  * 判据是「从生产入口沿 require / import 走不到」，不是 grep 名字（k28 模板曾因分段拼接路径被 grep 误判）。
- * 主进程旧用量接口（aggregate-usage-period / range、scan-log-files）仍被测试用来覆盖日志扫描核心，留给统计引擎迁移（路线 6）一并处理。
  *
  * @module tests/safety/deadCode.test
  */
 
 import { describe, it, expect } from 'vitest'
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import path from 'node:path'
 
 const root = path.resolve(__dirname, '..', '..')
@@ -103,5 +104,19 @@ describe('README 与代码一致', () => {
     expect(readme).not.toMatch(/#### 启动模式/)
     const version = JSON.parse(readFileSync(path.join(root, 'package.json'), 'utf-8')).version
     expect(readme).toContain(`version-v${version}-blue`)
+  })
+})
+
+// 2026-09-25 发版前静态审计：页面调不到的主进程通道一并清掉（下线要连 IPC 一起清干净）
+const DEAD_MAIN_CHANNELS = ['app-update:check', 'scan-preset-tools', 'check-path-exists', 'model-registry:get', 'skill-control:deploy', 'usage-statistics:status']
+
+describe('主进程没有页面调不到的通道', () => {
+  it('D-7 主进程不再注册无人调用的通道；preload 不再监听没人发的 plan-resume', () => {
+
+    const handlerDir = path.join(root, 'electron', 'handlers')
+    const sources = [path.join(root, 'electron', 'main.js'), ...readdirSync(handlerDir).map((f) => path.join(handlerDir, f))]
+      .map((file) => readFileSync(file, 'utf-8')).join('\n')
+    expect(DEAD_MAIN_CHANNELS.filter((ch) => sources.includes(`'${ch}'`))).toEqual([])
+    expect(readFileSync(path.join(root, 'electron', 'preload.js'), 'utf-8')).not.toMatch(/plan-resume/)
   })
 })

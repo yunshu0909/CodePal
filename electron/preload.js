@@ -25,11 +25,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
   refreshPlanPrice: (payload) => ipcRenderer.invoke('plan-price-refresh', payload),
   setPlanLocalPrice: (payload) => ipcRenderer.invoke('plan-price-set-local', payload),
   clearPlanLocalPrice: (payload) => ipcRenderer.invoke('plan-price-clear-local', payload),
-  onPlanResume: (callback) => {
-    const listener = () => callback()
-    ipcRenderer.on('plan-resume', listener)
-    return () => ipcRenderer.removeListener('plan-resume', listener)
-  },
   // Legacy store APIs (for backward compatibility)
 
   /**
