@@ -1,7 +1,7 @@
 {
   "name": "skill-manager",
   "version": "2.0.0",
-  "description": "管理和推送你的 Skills 到各个工具",
+  "description": "\u7ba1\u7406\u548c\u63a8\u9001\u4f60\u7684 Skills \u5230\u5404\u4e2a\u5de5\u5177",
   "main": "electron/main.js",
   "scripts": {
     "dev": "concurrently \"npm run dev:vite\" \"npm run dev:electron\"",
@@ -115,5 +115,10 @@
     "vite": "^7.3.1",
     "vitest": "^4.0.18",
     "wait-on": "^8.0.5"
+  },
+  "overrides": {
+    "ajv": {
+      "fast-uri": "4.1.3"
+    }
   }
 }
