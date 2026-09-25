@@ -59,8 +59,8 @@ describe('B2-2 死代码清理', () => {
     expect(still).toEqual([])
   })
 
-  it('D-2 仍在用的保留：k28 模板、组件预览页、分段控件、README 引用的截图', () => {
-    for (const keep of ['templates/k28-status-light', 'templates/project-init-v3', 'src/pages/ComponentPreviewPage.jsx', 'src/components/SegmentedControl/SegmentedControl.jsx', 'docs/screenshots/usage-monitor.png']) {
+  it('D-2 仍在用的保留：k28 模板、组件预览页、分段控件', () => {
+    for (const keep of ['templates/k28-status-light', 'templates/project-init-v3', 'src/pages/ComponentPreviewPage.jsx', 'src/components/SegmentedControl/SegmentedControl.jsx']) {
       expect(existsSync(path.join(root, keep))).toBe(true)
     }
   })
@@ -91,5 +91,17 @@ describe('B2-7 旧用量接口下线', () => {
     expect(fsStore).not.toMatch(/scanLogFiles/)
     const preload = readFileSync(path.join(root, 'electron', 'preload.js'), 'utf-8')
     expect(preload).not.toMatch(/^\s{2}(scanLogFiles|onUsageAggregationProgress)\s*:/m)
+  })
+})
+
+// 2026-09-25 发 v2.0.0：README 只介绍 dev 上真实存在的功能
+describe('README 与代码一致', () => {
+  it('D-6 README 不再介绍已下线模块，也不引用已删的旧截图', () => {
+    const readme = readFileSync(path.join(root, 'README.md'), 'utf-8')
+    expect(readme).not.toMatch(/^#{2,4} .*MCP 管理/m)
+    expect(readme).not.toMatch(/docs\/screenshots\//)
+    expect(readme).not.toMatch(/#### 启动模式/)
+    const version = JSON.parse(readFileSync(path.join(root, 'package.json'), 'utf-8')).version
+    expect(readme).toContain(`version-v${version}-blue`)
   })
 })

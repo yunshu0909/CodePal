@@ -63,6 +63,6 @@ _disabled/codex-account/
 13. `package.json` 加回 `test:v150` / `test:v17` 等脚本
 14. `README.md` 恢复「Codex 账户」功能段 + 凭证保活隐私声明
 15. 跑 `npm run build` + 对应 Codex 测试套件确认绿
-16. `docs/screenshots/codex-accounts.png` 仍在原处可直接复用
+16. `docs/screenshots/codex-accounts.png` 已于 2026-09-25 删除（旧样式截图），需要时从 git 历史取回
 
 > 提示：以上每个接线点的原始写法都能在 git 历史中按文件 `git log -p -- electron/main.js` 等检索到下线那一笔 commit 的 diff，照着反向贴回最稳。
