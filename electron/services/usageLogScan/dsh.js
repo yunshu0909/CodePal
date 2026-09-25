@@ -129,6 +129,9 @@ async function listDshSessionLogs(basePath, startTime, endTime, deps = {}) {
   const fs = deps.fsPromises || require('fs/promises')
   const maxDepth = typeof deps.maxDepth === 'number' ? deps.maxDepth : 6
   const candidates = []
+  // 读不了的目录 / 文件数：严格扫描（用量日历）时不能把缺了一块的结果当完整的一天存下来
+  // 扫描途中被删掉的（ENOENT）不算，那是正常的会话清理
+  let failed = 0
 
   /**
    * @param {string} currentPath - 当前目录
@@ -141,7 +144,8 @@ async function listDshSessionLogs(basePath, startTime, endTime, deps = {}) {
     let entries
     try {
       entries = await fs.readdir(currentPath, { withFileTypes: true })
-    } catch {
+    } catch (error) {
+      if (error?.code !== 'ENOENT') failed += 1
       return
     }
 
@@ -158,13 +162,14 @@ async function listDshSessionLogs(basePath, startTime, endTime, deps = {}) {
       try {
         const stat = await fs.stat(fullPath)
         candidates.push({ path: fullPath, mtime: stat.mtime, sizeBytes: stat.size })
-      } catch {
-        // 单文件 stat 失败静默跳过
+      } catch (error) {
+        if (error?.code !== 'ENOENT') failed += 1
       }
     }
   }
 
   await walk(basePath, 0)
+  if (deps.strictScan && failed > 0) throw new Error('DSH_LOG_ENUMERATION_FAILED')
 
   const startMs = startTime instanceof Date ? startTime.getTime() : Number.NEGATIVE_INFINITY
   const endMs = endTime instanceof Date ? endTime.getTime() : Number.POSITIVE_INFINITY
