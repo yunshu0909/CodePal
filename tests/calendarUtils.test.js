@@ -11,12 +11,13 @@ describe('usage calendar numeric contracts', () => {
     expect(getMonthCells('2026-09')).toHaveLength(35)
     expect(getMonthCells('2026-08')[5]).toBe('2026-08-01')
   })
-  it.each([[0,'0'],[400000,'0.4M'],[999000,'1.0M'],[320400000,'320M'],[4200000000,'4.2B']])('TC004: formats %s as %s', (n, label) => expect(formatToken(n)).toBe(label))
+  it.each([[0,'0'],[1,'<0.1M'],[24850,'<0.1M'],[99999,'<0.1M'],[100000,'0.1M'],[400000,'0.4M'],[999000,'1.0M'],[320400000,'320M'],[4200000000,'4.2B']])('TC004: formats %s as %s', (n, label) => expect(formatToken(n)).toBe(label))
   it('TC029: raw thresholds precede integer percentage display', () => {
     const result = [999000, 1000000, 1999000, 2000000].map(n => getGoalStatus(n, 1000000))
     expect(result.map(r => r.tier)).toEqual(['under','done','done','over'])
     expect(result.map(r => r.percent)).toEqual([100,100,200,200])
-    expect(result[0].label).toBe('还差 0.0M')
+    // 2026-09-25 用户定：不到 0.1M 写「<0.1M」，不再显示成 0.0M 像没用
+    expect(result[0].label).toBe('还差 <0.1M')
     expect(result[1].label).toBe('已达成')
     expect(result[3].label).toBe('优秀 · 超出 1M')
   })

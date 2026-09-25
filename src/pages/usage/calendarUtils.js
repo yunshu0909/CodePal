@@ -20,6 +20,8 @@ export function formatToken(value) {
   if (!value) return '0'
   if(value>=1e9)return `${(value/1e9).toFixed(1)}B`
   if(value>=1e6)return `${Math.round(value/1e6)}M`
+  // 不到 0.1M 时一位小数会显示成 0.0M，看起来像没用（2026-09-25 用户定）
+  if(value<1e5)return '<0.1M'
   return `${(value/1e6).toFixed(1)}M`
 }
 /** Raw ratio determines tier; rounding is only for the label. @param {number} total @param {number} target @returns {object} */
