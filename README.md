@@ -133,7 +133,7 @@ npm run dist:win    # Windows (x64) NSIS 安装包
 ## 环境要求
 
 - **macOS**（Apple Silicon 优先，Intel 能跑但未打包发布）
-- **Node.js 20.19+**（建议 LTS）
+- **Node.js 24+**（与 Electron 40 内置的 Node 一致；DSH 用量解析依赖 Node 自带的 zstd）
 - **npm 9+**
 
 ---
