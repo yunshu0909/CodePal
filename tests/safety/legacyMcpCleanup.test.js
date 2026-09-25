@@ -145,14 +145,14 @@ describe('B2-1 清理已写入的 provider_registry', () => {
 
 describe('B2-1 MCP 代码下线', () => {
   const root = path.resolve(__dirname, '..', '..')
-  it('M-1 MCP 代码不在打包范围，搬进 _disabled/mcp-manager 并有恢复说明', () => {
+  it('M-1 MCP 代码不在打包范围，且已整体删除（2026-09-25 起不再存档）', () => {
     const pkg = JSON.parse(readFileSync(path.join(root, 'package.json'), 'utf-8'))
     expect(pkg.build.files).not.toContain('mcp/**/*')
     expect(Object.keys(pkg.scripts).filter((k) => k.startsWith('mcp:'))).toEqual([])
     for (const gone of ['mcp', 'scripts/mcp', 'src/pages/McpPage.jsx', 'electron/handlers/registerMcpHandlers.js', 'electron/services/builtinMcpInstallerService.js']) {
       expect(existsSync(path.join(root, gone))).toBe(false)
     }
-    expect(existsSync(path.join(root, '_disabled/mcp-manager/README.md'))).toBe(true)
+    expect(existsSync(path.join(root, '_disabled/mcp-manager'))).toBe(false)
   })
 
   it('M-2 主进程启动时调用一次性清理', () => {

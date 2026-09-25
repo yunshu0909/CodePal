@@ -26,7 +26,7 @@
 
 ## 未随隔离移动（其他模块仍依赖）
 
-- `electron/services/providerRegistryService.js`——当时 `providerRegistryPathService` 与 `mcp/provider_registry_mcp.js` 依赖；**2026-09-24 已随 MCP 下线搬进 `_disabled/mcp-manager/electron/services/`**，恢复本模块时从那里一并取回
+- `electron/services/providerRegistryService.js`——当时 `providerRegistryPathService` 与 `mcp/provider_registry_mcp.js` 依赖；**MCP 管理已于 2026-09-25 整体删除**，恢复本模块时从 git 历史取回（最后存在于提交 `51fa8e0` 的 `_disabled/mcp-manager/electron/services/`）
 - `electron/services/envFileService.js`——`claudeSettingsService` 依赖
 - `electron/services/claudeSettingsService.js`——v1.9.8 起是 settings.json 唯一写 broker
 - `src/components/ApiKeyField`——K28 状态灯页复用

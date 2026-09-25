@@ -294,7 +294,7 @@ export default function ComponentPreviewPage() {
         </Row>
         <Row label="禁用">
           <div style={{ width: 280 }}>
-            <SearchInput value="" onChange={() => {}} placeholder="搜索 MCP..." disabled />
+            <SearchInput value="" onChange={() => {}} placeholder="搜索..." disabled />
           </div>
         </Row>
       </Section>

@@ -48,7 +48,7 @@ function WorkbenchLayout({ children, activeModule, onModuleChange, appUpdate, on
    * 按用途分四组（2026-09-19 用户定顺序），新功能按每组的定义归组：
    * - 用量账单：花了多少、值不值（token 用量、订阅费和回本）
    * - 项目开发：写代码这件事本身（开项目、回看过程、查资料）
-   * - 技能中心：给 AI 工具装的能力（Skills、Plugins，以后的 MCP）
+   * - 技能中心：给 AI 工具装的能力（Skills、Plugins）
    * - 环境配置：让工具跑得起来、跑得顺的环境（Claude Code 设置、网络、以后的消息同步）
    * 图标见 sidebarIcons.js（按模块 ID 取）
    * @type {Array<{label: string, items: Array<{id: string, label: string, beta?: boolean}>}>}
