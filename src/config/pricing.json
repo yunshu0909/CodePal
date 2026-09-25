@@ -1,13 +1,21 @@
 {
-  "version": "2026-09-19",
-  "updatedAt": "2026-09-19",
+  "version": "2026-09-25",
+  "updatedAt": "2026-09-25",
   "exchangeRate": 6.7253,
   "aliases": {
     "deepseek-v4-flash": "deepseek-v4.1-flash",
     "deepseek-flash": "deepseek-v4.1-flash",
-    "deepseek-v4-1-flash-expires-on-0910": "deepseek-v4.1-flash"
+    "deepseek-v4-1-flash-expires-on-0910": "deepseek-v4.1-flash",
+    "k3-256k": "kimi-k3"
   },
   "models": {
+    "claude-opus-5-5": {
+      "displayName": "Claude Opus 5.5",
+      "input": 4,
+      "output": 20,
+      "cacheRead": 0.2,
+      "cacheWrite": 5
+    },
     "claude-opus-5": {
       "displayName": "Claude Opus 5",
       "input": 5,
@@ -21,6 +29,20 @@
       "output": 50,
       "cacheRead": 1,
       "cacheWrite": 12.5
+    },
+    "gpt-6-sol": {
+      "displayName": "GPT-6 Sol",
+      "input": 2,
+      "output": 10,
+      "cacheRead": 0.2,
+      "cacheWrite": 2.5
+    },
+    "gpt-6-luna": {
+      "displayName": "GPT-6 Luna",
+      "input": 0.1,
+      "output": 0.5,
+      "cacheRead": 0.01,
+      "cacheWrite": 0.125
     },
     "claude-fable-5-1": {
       "displayName": "Claude Fable 5.1",
@@ -186,6 +208,13 @@
       "output": 4.5,
       "cacheRead": 0.075,
       "cacheWrite": 0
+    },
+    "kimi-k3": {
+      "displayName": "Kimi K3",
+      "input": 3,
+      "output": 15,
+      "cacheRead": 0.3,
+      "cacheWrite": 3
     },
     "kimi-k2-5": {
       "displayName": "Kimi K2.5",
