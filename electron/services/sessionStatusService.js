@@ -18,7 +18,7 @@ const os = require('os')
 const { mutateClaudeSettingsFile, detectUnsupportedCustomRoot } = require('./claudeSettingsService')
 const { trustCodePalCodexHooks } = require('./codexHookTrust')
 const { withConfigLock, commitConfigUnlocked, finalizeBackup } = require('./codexConfigOwner')
-const { parseToml, setTableBoolean } = require('./tomlSafeEdit')
+const { parseToml, setTableBoolean, sameSemantics } = require('./tomlSafeEdit')
 const { recordFootprint, removeFootprint } = require('./footprintRegistry')
 
 const HOOK_DIR = path.join(os.homedir(), '.claude', 'k28-status-light')
@@ -247,12 +247,47 @@ statusMessage = "K28 ${state}"
  * @param {(content: string) => string} transform
  * @returns {Promise<void>}（须在锁内调用）
  */
+/**
+ * 去掉 CodePal 自己的那部分（我们的钩子、features.hooks），剩下的就是用户的配置
+ * 用来校验装 / 卸钩子前后，用户的配置在语义上一个字都没变
+ * @param {object} doc - 解析后的 config.toml
+ * @returns {object}
+ */
+function userPartOfCodexConfig(doc) {
+  const out = { ...doc }
+  if (out.features && typeof out.features === 'object') {
+    const { hooks: _ours, ...rest } = out.features
+    if (Object.keys(rest).length) out.features = rest
+    else delete out.features
+  }
+  if (out.hooks && typeof out.hooks === 'object' && !Array.isArray(out.hooks)) {
+    const hooks = {}
+    for (const [event, groups] of Object.entries(out.hooks)) {
+      if (!Array.isArray(groups)) { hooks[event] = groups; continue }
+      const kept = groups
+        .map((group) => (Array.isArray(group?.hooks)
+          ? { ...group, hooks: group.hooks.filter((hook) => !String(hook?.command || '').includes(CODEX_HOOK_MARK)) }
+          : group))
+        .filter((group) => !Array.isArray(group?.hooks) || group.hooks.length > 0)
+      if (kept.length) hooks[event] = kept
+    }
+    if (Object.keys(hooks).length) out.hooks = hooks
+    else delete out.hooks
+  }
+  return out
+}
+
 async function commitCodexHooksUnlocked(transform) {
   const committed = await commitConfigUnlocked(CODEX_CONFIG_PATH, (content) => {
-    if (content) parseToml(content, 'CODEX_CONFIG_INVALID')
+    const before = content ? parseToml(content, 'CODEX_CONFIG_INVALID') : {}
     const next = transform(content)
     if (next === content) return { text: content, changed: false }
-    parseToml(next, 'CODEX_CONFIG_UNSUPPORTED')
+    const after = parseToml(next, 'CODEX_CONFIG_UNSUPPORTED')
+    // 文本层面的编辑再小心也可能误伤（例如用户字符串里恰好有我们的标记行）：
+    // 去掉我们自己的部分后，用户的配置必须语义上完全一致，否则宁可不写
+    if (!sameSemantics(userPartOfCodexConfig(before), userPartOfCodexConfig(after))) {
+      throw Object.assign(new Error('CODEX_CONFIG_UNSUPPORTED'), { code: 'CODEX_CONFIG_UNSUPPORTED' })
+    }
     return { text: next, changed: true }
   })
   await finalizeBackup(committed)

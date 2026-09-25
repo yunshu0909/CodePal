@@ -514,6 +514,7 @@ function assertOnlyChanged(beforeText, afterText, keyPath, value, codes = {}) {
 
 module.exports = {
   setTableBoolean,
+  sameSemantics,
   parseToml,
   scanDocument,
   locateArrayTables,

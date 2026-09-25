@@ -110,6 +110,16 @@ describe('[features] 按 TOML 语义定位（Codex 审核反例）', () => {
   })
 })
 
+describe('写入前整体语义校验（Codex 审核反例）', () => {
+  it('H-9 用户字符串里恰好有「# CodePal session status hooks」这一行：拒绝写入，原文不动', async () => {
+    const config = 'developer_instructions = """\nKeep this example verbatim:\n# CodePal session status hooks\nEND\n"""\n["features"]\nhooks = false\n'
+    const { home, file } = await codexHome(config)
+    const result = await loadSessionStatus(home).installSessionStatus({ trustHooks: noTrust })
+    expect(await readFile(file, 'utf8')).toBe(config)
+    expect(result.failures.map((f) => f.tool)).toContain('codex')
+  })
+})
+
 describe('一次性 MCP 清理与只读文件', () => {
   it('H-5 带 BOM 的 config.toml 也能清掉 provider_registry，BOM 保留', async () => {
     const script = '/Apps/CodePal.app/Contents/Resources/app/mcp/provider_registry_mcp.js'
