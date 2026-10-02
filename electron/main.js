@@ -3,8 +3,7 @@
  *
  * 负责：
  * - 创建和管理应用窗口
- * - 处理 IPC 通信（文件系统操作、配置管理）
- * - 扫描和解析技能目录
+ * - 处理 IPC 通信；各领域的 IPC 在 handlers/ 与 modules/ 里注册，这里只组装
  *
  * @module electron/main
  */
@@ -12,7 +11,6 @@
 const { app, BrowserWindow, ipcMain, dialog, shell, powerMonitor, net, Notification } = require('electron')
 const path = require('path')
 const fs = require('fs/promises')
-const { randomUUID } = require('crypto')
 const Store = require('electron-store').default
 const os = require('os')
 const dotenv = require('dotenv')
@@ -43,9 +41,6 @@ app.on('second-instance', () => {
 const ENV_FILE_PATH = path.resolve(__dirname, '..', '.env')
 dotenv.config({ path: ENV_FILE_PATH })
 
-const { scanSkillDirectory, parseSkillMd } = require('./services/skillScanService')
-const { registerSkillHandlers } = require('./handlers/registerSkillHandlers')
-const { registerImportPageHandlers } = require('./handlers/registerImportPageHandlers')
 const { installAppMenu, applyDevDockIcon } = require('./appMenu')
 const { registerAppUpdateHandlers } = require('./handlers/registerAppUpdateHandlers')
 const { registerUsageAggregationHandlers } = require('./handlers/registerUsageAggregationHandlers')
@@ -84,7 +79,6 @@ const { initDocBrowserStore } = require('./services/docBrowserService')
 const { initializeIpMonitor, setIpMonitorFastMode, stopIpMonitor } = require('./services/networkDiagnosticsService')
 const { createEgressNotifier, withNetworkStyle } = require('./services/egressNotifier')
 const { createNavigationBridge } = require('./services/appNavigation')
-const { registerRepoWatcherHandlers } = require('./handlers/registerRepoWatcherHandlers')
 const { attachNavigationGuard, registerNavigationGuardHandlers } = require('./services/navigationGuardService')
 const genericFileGuards = require('./services/genericFileGuards')
 const { runLegacyProviderRegistryCleanup } = require('./services/legacyMcpCleanup')
@@ -146,38 +140,6 @@ const navigationBridge = createNavigationBridge({
   createWindow: () => createWindow(),
   app,
 })
-// 中央仓库监听服务清理函数
-let repoWatcherCleanup = null
-/**
- * 配置文件写入队列（按文件路径串行）
- * 解决同一文件并发写入时的临时文件冲突与写入顺序不确定问题
- */
-const fileWriteQueues = new Map()
-
-/**
- * 按文件路径串行执行写入任务
- * @param {string} filePath - 目标文件路径
- * @param {() => Promise<void>} writeTask - 实际写入任务
- * @returns {Promise<void>}
- */
-async function enqueueFileWrite(filePath, writeTask) {
-  const previousTask = fileWriteQueues.get(filePath) || Promise.resolve()
-  const nextTask = previousTask
-    // 让队列继续流动，避免一次失败阻断后续写入
-    .catch(() => {})
-    .then(() => writeTask())
-
-  fileWriteQueues.set(filePath, nextTask)
-
-  try {
-    await nextTask
-  } finally {
-    // 仅清理当前任务，避免误删新入队任务
-    if (fileWriteQueues.get(filePath) === nextTask) {
-      fileWriteQueues.delete(filePath)
-    }
-  }
-}
 
 /**
  * 创建主窗口
@@ -222,9 +184,6 @@ function createWindow() {
   } else {
     mainWindow.loadFile(path.join(__dirname, '../dist/index.html'))
   }
-
-  // macOS 关掉最后一个窗口会停中央仓库监听；再开窗口（Dock / 点通知）时恢复
-  repoWatcherCleanup?.ensureWatching().catch((error) => console.error('[repo-watcher] Ensure failed:', error))
 }
 
 app.whenReady().then(async () => {
@@ -305,27 +264,9 @@ app.whenReady().then(async () => {
   sessionStatus = registerSessionStatusHandlers({ ipcMain, store, getWindow: () => mainWindow, notify: sessionNotifier.notify })
   sessionStatus.start().catch((error) => console.warn('[session-status] start failed:', error?.message || error))
 
-  // 启动中央仓库文件监听（方向 1：中央→工具自动推送）
-  let initialRepoPath = '~/Documents/SkillManager/'
-  try {
-    const configPath = expandHome('~/Documents/SkillManager/.config.json')
-    const configContent = await fs.readFile(configPath, 'utf-8')
-    const config = JSON.parse(configContent)
-    if (config.repoPath) initialRepoPath = config.repoPath
-  } catch {
-    // 使用默认路径
-  }
-
-  repoWatcherCleanup = registerRepoWatcherHandlers({
-    ipcMain,
-    getMainWindow: () => mainWindow,
-    expandHome,
-    initialRepoPath,
-  })
 })
 
 app.on('window-all-closed', () => {
-  repoWatcherCleanup?.stopWatching().catch(() => {})
   if (process.platform !== 'darwin') {
     app.quit()
   }
@@ -337,7 +278,6 @@ shutdownRegistry.register('usage-scheduler', () => usageScheduler.stop())
 shutdownRegistry.register('session-status', () => sessionStatus?.stop())
 shutdownRegistry.register('network-monitor', () => stopIpMonitor())
 shutdownRegistry.register('dsh-worker', () => dshRunner.dispose())
-shutdownRegistry.register('repo-watcher', () => repoWatcherCleanup?.stopWatching())
 shutdownRegistry.register('models-watcher', () => modelsHandlers.stop())
 // 正在写的 Codex 配置要等写完，不能写到一半被中断
 shutdownRegistry.register('codex-config-writes', () => drainConfigQueue())
@@ -392,8 +332,6 @@ async function pathExists(filepath) {
   }
 }
 
-// parseSkillMd 已抽到 services/skillScanService.js（统一复用）
-
 // IPC handlers for data persistence (legacy - for backward compatibility)
 
 /**
@@ -433,250 +371,7 @@ ipcMain.handle('delete-store', (event, key) => {
   return true
 })
 
-// IPC handlers for file system operations
-
-/**
- * 扫描工具目录获取技能列表（委托给 skillScanService）
- */
-ipcMain.handle('scan-tool-directory', async (event, toolPath) => {
-  if (typeof toolPath !== 'string' || toolPath.length === 0) {
-    return { success: false, error: 'INVALID_PATH', skills: [] }
-  }
-
-  try {
-    const expandedPath = expandHome(toolPath)
-    return await scanSkillDirectory(expandedPath)
-  } catch (error) {
-    console.error('Error scanning tool directory:', error)
-    if (error.code === 'EACCES' || error.code === 'EPERM') {
-      return { success: false, error: 'PERMISSION_DENIED', skills: [] }
-    }
-    return { success: false, error: error.message, skills: [] }
-  }
-})
-
-/**
- * 读取技能信息（从 SKILL.md）
- * @param {Electron.IpcMainInvokeEvent} event - IPC 事件
- * @param {string} skillPath - 技能文件夹路径
- * @returns {Promise<{success: boolean, name: string, desc: string, error: string|null}>} 技能信息
- */
-ipcMain.handle('read-skill-info', async (event, skillPath) => {
-  try {
-    const expandedPath = expandHome(skillPath)
-    const skillMdPath = path.join(expandedPath, 'SKILL.md')
-
-    if (!(await pathExists(skillMdPath))) {
-      return { success: false, error: 'SKILL_MD_NOT_FOUND' }
-    }
-
-    const content = await fs.readFile(skillMdPath, 'utf-8')
-    const { name, desc } = parseSkillMd(content)
-
-    return {
-      success: true,
-      name: name || path.basename(expandedPath),
-      desc,
-      error: null
-    }
-  } catch (error) {
-    console.error('Error reading skill info:', error)
-    return { success: false, error: error.message }
-  }
-})
-
-/**
- * 复制技能文件夹（用于导入和推送）
- * @param {Electron.IpcMainInvokeEvent} event - IPC 事件
- * @param {string} sourcePath - 源路径
- * @param {string} targetPath - 目标路径
- * @param {Object} options - 复制选项
- * @param {boolean} options.force - 是否覆盖已存在的文件
- * @returns {Promise<{success: boolean, error: string|null}>} 复制结果
- */
-ipcMain.handle('copy-skill', async (event, sourcePath, targetPath, options = {}) => {
-  // IPC 参数类型校验
-  if (typeof sourcePath !== 'string' || sourcePath.length === 0) {
-    return { success: false, error: 'INVALID_SOURCE_PATH' }
-  }
-  if (typeof targetPath !== 'string' || targetPath.length === 0) {
-    return { success: false, error: 'INVALID_TARGET_PATH' }
-  }
-
-  try {
-    const expandedSource = expandHome(sourcePath)
-    const expandedTarget = expandHome(targetPath)
-
-    // 只允许「一个 Skill 文件夹 → 另一处的同名 Skill 文件夹」；校验与复制在同一函数里用同一组规范化路径
-    await genericFileGuards.copySkillFolder(expandedSource, expandedTarget, { force: options.force !== false })
-    return { success: true, error: null }
-  } catch (error) {
-    if (error.code === 'COPY_NOT_ALLOWED' || error.code === 'SOURCE_NOT_FOUND') {
-      return { success: false, error: error.code }
-    }
-    console.error('Error copying skill:', error)
-    if (error.code === 'ENOSPC') {
-      return { success: false, error: 'DISK_FULL' }
-    }
-    if (error.code === 'EACCES' || error.code === 'EPERM') {
-      return { success: false, error: 'PERMISSION_DENIED' }
-    }
-    return { success: false, error: error.message }
-  }
-})
-
-/**
- * 删除技能文件夹（用于取消推送）
- * @param {Electron.IpcMainInvokeEvent} event - IPC 事件
- * @param {string} skillPath - 要删除的技能路径
- * @returns {Promise<{success: boolean, error: string|null}>} 删除结果
- */
-ipcMain.handle('delete-skill', async (event, skillPath) => {
-  // IPC 参数类型校验
-  if (typeof skillPath !== 'string' || skillPath.length === 0) {
-    return { success: false, error: 'INVALID_PATH' }
-  }
-
-  try {
-    const expandedPath = expandHome(skillPath)
-    // 只能删已知 Skill 目录的直接子项（含 SKILL.md 的目录或软链接）；校验与删除用同一个规范化路径，
-    // 软链接只删链接本身。目标不存在视为已删除
-    await genericFileGuards.deleteSkillPath(expandedPath, os.homedir())
-    return { success: true, error: null }
-  } catch (error) {
-    if (error.code === 'PATH_NOT_ALLOWED') {
-      console.error('Security: Blocked delete attempt for path:', skillPath)
-      return { success: false, error: 'UNSAFE_PATH' }
-    }
-    console.error('Error deleting skill:', error)
-    if (error.code === 'EACCES' || error.code === 'EPERM') {
-      return { success: false, error: 'PERMISSION_DENIED' }
-    }
-    return { success: false, error: error.message }
-  }
-})
-
-/**
- * 确保目录存在（不存在则创建）
- * @param {Electron.IpcMainInvokeEvent} event - IPC 事件
- * @param {string} dirPath - 目录路径
- * @returns {Promise<{success: boolean, error: string|null}>} 操作结果
- */
-ipcMain.handle('ensure-dir', async (event, dirPath) => {
-  try {
-    const expandedPath = expandHome(dirPath)
-    // 仓库路径可以手输，不做目录白名单（会误拒）；只拒绝相对路径——mkdir 不会破坏已有数据
-    if (typeof expandedPath !== 'string' || !path.isAbsolute(expandedPath)) {
-      return { success: false, error: 'INVALID_PATH' }
-    }
-    await fs.mkdir(expandedPath, { recursive: true })
-    return { success: true, error: null }
-  } catch (error) {
-    console.error('Error ensuring directory:', error)
-    return { success: false, error: error.message }
-  }
-})
-
-/**
- * 检查路径是否存在
- * @param {Electron.IpcMainInvokeEvent} event - IPC 事件
- * @param {string} checkPath - 要检查的路径
- * @returns {Promise<{success: boolean, exists: boolean, error: string|null}>} 检查结果
- */
-ipcMain.handle('path-exists', async (event, checkPath) => {
-  try {
-    const expandedPath = expandHome(checkPath)
-    const exists = await pathExists(expandedPath)
-    return { success: true, exists, error: null }
-  } catch (error) {
-    return { success: false, exists: false, error: error.message }
-  }
-})
-
-/**
- * 原子写入文件：先写入临时文件，再重命名，避免写入中断导致文件损坏
- * @param {string} filePath - 目标文件路径
- * @param {string} data - 要写入的数据
- */
-async function atomicWriteFile(filePath, data) {
-  const tempPath = `${filePath}.tmp.${process.pid}.${Date.now()}.${randomUUID()}`
-  try {
-    // 确保目标目录存在
-    await fs.mkdir(path.dirname(filePath), { recursive: true })
-    await fs.writeFile(tempPath, data, 'utf-8')
-    await fs.rename(tempPath, filePath)
-  } catch (error) {
-    // 清理临时文件
-    try {
-      await fs.unlink(tempPath)
-    } catch {}
-    throw error
-  }
-}
-
-/**
- * 读取配置文件（.config.json）
- * @param {Electron.IpcMainInvokeEvent} event - IPC 事件
- * @param {string} configPath - 配置文件路径
- * @returns {Promise<{success: boolean, data: Object, error: string|null}>} 配置数据
- */
-ipcMain.handle('read-config', async (event, configPath) => {
-  // IPC 参数类型校验
-  if (typeof configPath !== 'string' || configPath.length === 0) {
-    return { success: false, error: 'INVALID_PATH', data: null }
-  }
-
-  try {
-    // 只读 .config.json；文件损坏时返回失败、原文件原地不动（以前会改名成备份，读操作不该改文件）
-    const result = await genericFileGuards.readConfigFile(expandHome(configPath))
-    if (!result.exists) {
-      return { success: true, data: { version: '0.2', pushStatus: {} }, error: null }
-    }
-    if (result.error) return { success: false, data: null, error: result.error }
-    return { success: true, data: result.data, error: null }
-  } catch (error) {
-    console.error('Error reading config:', error)
-    return { success: false, error: error.code || error.message, data: null }
-  }
-})
-
-/**
- * 写入配置文件（.config.json）
- * @param {Electron.IpcMainInvokeEvent} event - IPC 事件
- * @param {string} configPath - 配置文件路径
- * @param {Object} data - 要写入的配置数据
- * @returns {Promise<{success: boolean, error: string|null}>} 写入结果
- */
-ipcMain.handle('write-config', async (event, configPath, data) => {
-  // IPC 参数类型校验
-  if (typeof configPath !== 'string' || configPath.length === 0) {
-    return { success: false, error: 'INVALID_PATH' }
-  }
-  if (typeof data !== 'object' || data === null) {
-    return { success: false, error: 'INVALID_DATA' }
-  }
-
-  try {
-    const expandedPath = expandHome(configPath)
-    // 只写 .config.json；原文件已损坏就拒绝覆盖（不静默丢掉用户的配置）
-    await genericFileGuards.assertConfigWritable(expandedPath)
-
-    // Ensure parent directory exists
-    const parentDir = path.dirname(expandedPath)
-    await fs.mkdir(parentDir, { recursive: true })
-
-    const content = JSON.stringify(data, null, 2)
-    // 使用原子写入避免写入中断导致文件损坏
-    await enqueueFileWrite(expandedPath, async () => atomicWriteFile(expandedPath, content))
-
-    return { success: true, error: null }
-  } catch (error) {
-    console.error('Error writing config:', error)
-    return { success: false, error: error.code || error.message }
-  }
-})
-
-// IPC handlers for V0.3 import page
+// 选文件夹（新建项目选位置用）
 
 /**
  * 打开文件夹选择对话框
@@ -700,28 +395,6 @@ ipcMain.handle('select-folder', async (event) => {
     console.error('Error selecting folder:', error)
     return { success: false, path: null, canceled: false, error: error.message }
   }
-})
-
-// scan-preset-tools, scan-custom-path, check-path-exists
-// 已迁移到 handlers/registerImportPageHandlers.js
-
-/**
- * 注册技能管理相关 IPC handlers
- */
-registerSkillHandlers({
-  ipcMain,
-  expandHome,
-  pathExists,
-  parseSkillMd,
-  deleteSkillPath: (skillPath) => genericFileGuards.deleteSkillPath(skillPath, os.homedir()),
-})
-
-/**
- * 注册导入页面相关 IPC handlers（预设工具扫描、自定义路径、路径重复检查）
- */
-registerImportPageHandlers({
-  ipcMain,
-  expandHome,
 })
 
 /**

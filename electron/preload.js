@@ -4,7 +4,6 @@
  * 负责：
  * - 通过 contextBridge 向渲染进程暴露安全的 API
  * - 封装 IPC 通信接口
- * - 提供文件系统操作和配置管理的方法
  *
  * @module electron/preload
  */
@@ -49,143 +48,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
    */
   deleteStore: (key) => ipcRenderer.invoke('delete-store', key),
 
-  // File system APIs (V0.2)
-
   /**
-   * 扫描工具目录获取技能列表
-   * @param {string} toolPath - 工具目录路径
-   * @returns {Promise<{success: boolean, skills: Array, error: string|null}>} 扫描结果
-   */
-  scanToolDirectory: (toolPath) => ipcRenderer.invoke('scan-tool-directory', toolPath),
-
-  /**
-   * 读取技能信息（从 SKILL.md）
-   * @param {string} skillPath - 技能文件夹路径
-   * @returns {Promise<{success: boolean, name: string, desc: string, error: string|null}>} 技能信息
-   */
-  readSkillInfo: (skillPath) => ipcRenderer.invoke('read-skill-info', skillPath),
-
-  /**
-   * 复制技能文件夹（用于导入和推送）
-   * @param {string} sourcePath - 源路径
-   * @param {string} targetPath - 目标路径
-   * @param {Object} options - 复制选项
-   * @returns {Promise<{success: boolean, error: string|null}>} 复制结果
-   */
-  copySkill: (sourcePath, targetPath, options) => ipcRenderer.invoke('copy-skill', sourcePath, targetPath, options),
-
-  /**
-   * 删除技能文件夹（用于取消推送）
-   * @param {string} skillPath - 要删除的技能路径
-   * @returns {Promise<{success: boolean, error: string|null}>} 删除结果
-   */
-  deleteSkill: (skillPath) => ipcRenderer.invoke('delete-skill', skillPath),
-
-  /**
-   * 确保目录存在（不存在则创建）
-   * @param {string} dirPath - 目录路径
-   * @returns {Promise<{success: boolean, error: string|null}>} 操作结果
-   */
-  ensureDir: (dirPath) => ipcRenderer.invoke('ensure-dir', dirPath),
-
-  /**
-   * 检查路径是否存在
-   * @param {string} checkPath - 要检查的路径
-   * @returns {Promise<{success: boolean, exists: boolean, error: string|null}>} 检查结果
-   */
-  pathExists: (checkPath) => ipcRenderer.invoke('path-exists', checkPath),
-
-  /**
-   * 读取配置文件（.config.json）
-   * @param {string} configPath - 配置文件路径
-   * @returns {Promise<{success: boolean, data: Object, error: string|null}>} 配置数据
-   */
-  readConfig: (configPath) => ipcRenderer.invoke('read-config', configPath),
-
-  /**
-   * 写入配置文件（.config.json）
-   * @param {string} configPath - 配置文件路径
-   * @param {Object} data - 要写入的配置数据
-   * @returns {Promise<{success: boolean, error: string|null}>} 写入结果
-   */
-  writeConfig: (configPath, data) => ipcRenderer.invoke('write-config', configPath, data),
-
-  // V0.3 Import page APIs
-
-  /**
-   * 打开文件夹选择对话框
+   * 打开文件夹选择对话框（新建项目选位置用）
    * @returns {Promise<{success: boolean, path: string, canceled: boolean, error: string|null}>} 选择结果
    */
   selectFolder: () => ipcRenderer.invoke('select-folder'),
-
-  /**
-   * 扫描自定义路径下的 skills 分布
-   * 扫描 .claude/skills/、.codex/skills/、.cursor/skills/、.trae/skills/ 子目录
-   * @param {string} customPath - 自定义路径
-   * @returns {Promise<{success: boolean, skills: Object, error: string|null}>} 扫描结果
-   * skills 格式: { claude: 5, codex: 3, ... }
-   */
-  scanCustomPath: (customPath) => ipcRenderer.invoke('scan-custom-path', customPath),
-
-  /**
-   * 执行导入操作
-   * 将选中的来源 skills 去重合并到中央仓库
-   * @param {Object} params - 导入参数
-   * @param {string[]} params.presetTools - 选中的预设工具ID列表
-   * @param {Array<{path: string, skills: Object}>} params.customPaths - 选中的自定义路径列表
-   * @param {string} params.repoPath - 中央仓库路径
-   * @returns {Promise<{success: boolean, importedCount: number, errors: Array, error: string|null}>} 导入结果
-   */
-  importSkills: (params) => ipcRenderer.invoke('import-skills', params),
-
-  // V0.4 Manage page APIs
-
-  /**
-   * 获取中央仓库所有技能
-   * 扫描中央仓库目录，返回所有包含 SKILL.md 的技能文件夹
-   * @param {string} repoPath - 中央仓库路径
-   * @returns {Promise<{success: boolean, skills: Array, error: string|null}>} 技能列表
-   */
-  getCentralSkills: (repoPath) => ipcRenderer.invoke('get-central-skills', repoPath),
-
-  /**
-   * 获取工具的推送状态
-   * 检查每个工具目录中是否存在指定的技能
-   * @param {string[]} skillNames - 技能名称列表
-   * @returns {Promise<{success: boolean, status: Object, error: string|null}>} 推送状态
-   */
-  getToolStatus: (skillNames) => ipcRenderer.invoke('get-tool-status', skillNames),
-
-  /**
-   * 推送技能到工具
-   * 将中央仓库中的技能复制到指定工具的 skills 目录
-   * @param {Object} params - 推送参数
-   * @param {string} params.repoPath - 中央仓库路径
-   * @param {string[]} params.skillNames - 要推送的技能名称列表
-   * @param {string[]} params.toolIds - 目标工具 ID 列表
-   * @returns {Promise<{success: boolean, results: Array, error: string|null}>} 推送结果
-   */
-  pushSkills: (params) => ipcRenderer.invoke('push-skills', params),
-
-  /**
-   * 停用技能（从工具目录删除）
-   * 从指定工具的 skills 目录中删除技能
-   * @param {Object} params - 停用参数
-   * @param {string[]} params.skillNames - 要停用的技能名称列表
-   * @param {string[]} params.toolIds - 目标工具 ID 列表
-   * @returns {Promise<{success: boolean, results: Array, error: string|null}>} 停用结果
-   */
-  unpushSkills: (params) => ipcRenderer.invoke('unpush-skills', params),
-
-  /**
-   * 增量导入 - 仅新增不覆盖
-   * 从自定义路径扫描技能，仅导入中央仓库中不存在的技能
-   * @param {Object} params - 导入参数
-   * @param {string[]} params.customPathIds - 自定义路径 ID 列表
-   * @param {string} params.repoPath - 中央仓库路径
-   * @returns {Promise<{success: boolean, added: number, skipped: number, errors: string[]}>} 导入结果
-   */
-  incrementalImport: (params) => ipcRenderer.invoke('incremental-import', params),
 
   // V0.6 Usage monitoring APIs
 
@@ -207,10 +74,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Skill 运行样本（近 N 天清洗后的 usable run samples）
   listSkillRunSamples: (params) => ipcRenderer.invoke('list-skill-run-samples', params),
 
-  // Skill 控制中心：快照读取和统一命令。写操作由主进程重读原生状态后返回。
+  // Skill 控制中心：资产库路径（主进程按配置解析）、快照读取和统一命令。写操作由主进程重读原生状态后返回。
+  getSkillRepoPath: () => ipcRenderer.invoke('skill-control:get-repo-path'),
   getSkillControlSnapshot: (params) => ipcRenderer.invoke('skill-control:get-snapshot', params),
   executeSkillCommand: (params) => ipcRenderer.invoke('skill-control:execute', params),
-  adoptExternalSkill: (params) => ipcRenderer.invoke('skill-control:adopt', params),
 
   // V0.7 供应商切换 API 已断接线隔离（见 _disabled/api-config/），token 不再过渲染层
 
@@ -357,45 +224,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
    * @returns {Promise<object>}
    */
   saveClaudeUsageStatusConfig: (config) => ipcRenderer.invoke('claude-usage-status:save-config', config),
-
-  // V0.14 双向自动同步 APIs
-
-  /**
-   * 比较两个技能目录的 SKILL.md 内容 hash
-   * @param {Object} params - { sourcePath, targetPath }
-   * @returns {Promise<{success: boolean, isDifferent: boolean, sourceMtime: number, targetMtime: number}>}
-   */
-  compareSkillContent: (params) => ipcRenderer.invoke('compare-skill-content', params),
-
-  /**
-   * 监听中央仓库变更事件（主进程 → 渲染进程）
-   * @param {(skillNames: string[]) => void} callback - 变更回调
-   * @returns {() => void} 取消监听函数
-   */
-  onCentralRepoChanged: (callback) => {
-    const handler = (_event, skillNames) => callback(skillNames)
-    ipcRenderer.on('central-repo-changed', handler)
-    return () => ipcRenderer.removeListener('central-repo-changed', handler)
-  },
-
-  /**
-   * 获取同步锁（方向 2 写入前调用，屏蔽方向 1 的 watcher）
-   * @returns {Promise<{success: boolean}>}
-   */
-  acquireSyncLock: () => ipcRenderer.invoke('acquire-sync-lock'),
-
-  /**
-   * 释放同步锁（方向 2 写入后调用，主进程延迟 1s 解锁）
-   * @returns {Promise<{success: boolean}>}
-   */
-  releaseSyncLock: () => ipcRenderer.invoke('release-sync-lock'),
-
-  /**
-   * 重启中央仓库文件监听（仓库路径变更时调用）
-   * @param {string} newRepoPath - 新仓库路径
-   * @returns {Promise<{success: boolean}>}
-   */
-  restartRepoWatcher: (newRepoPath) => ipcRenderer.invoke('restart-repo-watcher', newRepoPath),
 
   // V1.2.9 应用更新提醒 APIs
 

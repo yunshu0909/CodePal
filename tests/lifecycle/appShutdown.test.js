@@ -80,8 +80,10 @@ describe('B2-5 各模块可停', () => {
     // 清理结束（无论成败）才放行并真正退出；清理进行中再次请求退出只拦下、不重复排队
     expect(quit).toMatch(/\.finally\(\(\) => \{\s*shutdownFinished = true\s*app\.quit\(\)/)
     expect(quit).toMatch(/if \(shutdownPromise\) return/)
-    for (const name of ['usage-scheduler', 'session-status', 'network-monitor', 'dsh-worker', 'repo-watcher', 'codex-config-writes']) {
+    for (const name of ['usage-scheduler', 'session-status', 'network-monitor', 'dsh-worker', 'codex-config-writes']) {
       expect(main).toMatch(new RegExp(`register\\('${name}'`))
     }
+    // 资产库监听随 Skills 旧引擎退役删除（v2.1.9），不再登记
+    expect(main).not.toMatch(/register\('repo-watcher'/)
   })
 })

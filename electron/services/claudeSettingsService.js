@@ -5,8 +5,6 @@
  * - 读取并解析 ~/.claude/settings.json
  * - 备份 settings 文件
  * - **settings.json 唯一写入口**（writeClaudeSettingsFile：串行队列 + 备份 + 原子写）
- * - 确保 apiKeyHelper 脚本存在
- * - 将供应商配置应用到 settings
  *
  * V1.9.8 起全应用对 settings.json 的写入必须走本模块的 writeClaudeSettingsFile，
  * 禁止各模块自行 read-modify-write（防止并发互相覆盖 + 备份位置漂移）。
@@ -19,7 +17,7 @@ const fsSync = require('fs')
 const fsConstants = fsSync.constants
 const path = require('path')
 const os = require('os')
-const { normalizeEnvValue, atomicWriteText } = require('./envFileService')
+const { atomicWriteText } = require('./envFileService')
 
 /**
  * 判断是否为普通对象
@@ -731,53 +729,6 @@ async function writeClaudeSettingsFile(
  * @returns {Object} Claude settings 服务
  */
 function createClaudeSettingsService({ pathExists }) {
-  const CLAUDE_API_KEY_HELPER_FILE_NAME = 'skill-manager-api-key-helper.sh'
-  const CLAUDE_API_KEY_HELPER_PATH = path.join(path.dirname(CLAUDE_SETTINGS_FILE_PATH), CLAUDE_API_KEY_HELPER_FILE_NAME)
-  const CLAUDE_API_KEY_HELPER_CONTENT = `#!/usr/bin/env bash
-set -euo pipefail
-SCRIPT_DIR="$(cd "$(dirname "\${BASH_SOURCE[0]}")" && pwd)"
-SETTINGS_FILE="$SCRIPT_DIR/settings.json"
-if [ ! -f "$SETTINGS_FILE" ]; then
-  exit 1
-fi
-node -e '
-const fs=require("fs")
-const settingsPath=process.argv[1]
-const settings=JSON.parse(fs.readFileSync(settingsPath,"utf8"))
-const env=settings&&typeof settings==="object"&&settings.env&&typeof settings.env==="object"
-  ? settings.env
-  : {}
-const token=(env.ANTHROPIC_API_KEY||env.ANTHROPIC_AUTH_TOKEN||"").trim()
-if (token) {
-  process.stdout.write(token + "\\n")
-}
-' "$SETTINGS_FILE"
-`
-
-  /**
-   * 确保 Claude apiKeyHelper 脚本存在
-   * @returns {Promise<{success: boolean, helperPath: string|null, errorCode: string|null, error: string|null}>}
-   */
-  async function ensureClaudeApiKeyHelperScript() {
-    try {
-      await fs.mkdir(path.dirname(CLAUDE_API_KEY_HELPER_PATH), { recursive: true })
-      await fs.writeFile(CLAUDE_API_KEY_HELPER_PATH, CLAUDE_API_KEY_HELPER_CONTENT, {
-        encoding: 'utf-8',
-        mode: 0o700,
-      })
-      await fs.chmod(CLAUDE_API_KEY_HELPER_PATH, 0o700)
-      return { success: true, helperPath: CLAUDE_API_KEY_HELPER_PATH, errorCode: null, error: null }
-    } catch (error) {
-      if (error.code === 'EACCES' || error.code === 'EPERM') {
-        return { success: false, helperPath: null, errorCode: 'PERMISSION_DENIED', error: '无法写入 Claude apiKeyHelper 脚本，请检查权限' }
-      }
-      if (error.code === 'ENOSPC') {
-        return { success: false, helperPath: null, errorCode: 'DISK_FULL', error: '磁盘空间不足，无法写入 Claude apiKeyHelper 脚本' }
-      }
-      return { success: false, helperPath: null, errorCode: 'WRITE_FAILED', error: `写入 Claude apiKeyHelper 脚本失败: ${error.message}` }
-    }
-  }
-
   /**
    * 读取 Claude settings.json 文件
    * @returns {Promise<{success: boolean, exists: boolean, content: string, data: Record<string, any>, errorCode: string|null, error: string|null, backupPath: string|null}>}
@@ -819,53 +770,8 @@ if (token) {
     }
   }
 
-  /**
-   * 将供应商档应用到 Claude settings 数据
-   * @param {Record<string, any>} settingsData - 原始 settings 数据
-   * @param {{token: string|null, baseUrl: string|null, model: string, settingsEnv?: Record<string, string>}} profile - 目标供应商档
-   * @param {string[]} managedEnvKeys - 需要清理的 env keys
-   * @returns {Record<string, any>}
-   */
-  function applyProviderProfileToSettings(settingsData, profile, managedEnvKeys) {
-    const source = isPlainObject(settingsData) ? settingsData : {}
-    const updated = JSON.parse(JSON.stringify(source))
-    const envObject = isPlainObject(updated.env) ? updated.env : {}
-
-    for (const key of managedEnvKeys) {
-      delete envObject[key]
-    }
-
-    if (profile.token) {
-      // 仅写 API_KEY：避免将第三方 sk-* 误当作 OAuth token 走账号登录链路。
-      envObject.ANTHROPIC_API_KEY = profile.token
-    }
-    if (profile.baseUrl) {
-      envObject.ANTHROPIC_BASE_URL = profile.baseUrl
-    }
-    if (isPlainObject(profile.settingsEnv)) {
-      for (const [key, value] of Object.entries(profile.settingsEnv)) {
-        const normalizedValue = normalizeEnvValue(value)
-        if (normalizedValue) {
-          envObject[key] = normalizedValue
-        }
-      }
-    }
-
-    updated.env = envObject
-    if (profile.token) {
-      // Claude CLI 登录判断优先读取 apiKeyHelper
-      updated.apiKeyHelper = CLAUDE_API_KEY_HELPER_PATH
-    } else {
-      // Official 严格登录模式：无条件清理 apiKeyHelper
-      delete updated.apiKeyHelper
-    }
-    updated.model = profile.model
-    return updated
-  }
-
   return {
     settingsFilePath: CLAUDE_SETTINGS_FILE_PATH,
-    apiKeyHelperPath: CLAUDE_API_KEY_HELPER_PATH,
     // 调用方在产生副作用之前自检配置根用
     detectUnsupportedCustomRoot,
     readManagedSettings,
@@ -873,9 +779,7 @@ if (token) {
     backupClaudeSettingsRaw,
     writeClaudeSettingsFile,
     mutateClaudeSettingsFile,
-    ensureClaudeApiKeyHelperScript,
     readClaudeSettingsFile,
-    applyProviderProfileToSettings,
     isPlainObject,
   }
 }

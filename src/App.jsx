@@ -2,19 +2,19 @@
  * 应用根组件
  *
  * 负责：
- * - 始终渲染 WorkbenchLayout（含侧边栏）
- * - 根据中央仓库状态决定 SkillManager 初始子页面（import/manage）
- * - 导入完成后初始化推送目标
- * - 管理活跃模块状态（技能管理/用量看板/Claude 专属页/API配置等）
- * - 工作台下定时执行自动增量刷新（每 5 分钟）
+ * - 始终渲染 WorkbenchLayout（含侧边栏），按活跃模块渲染对应页面（只组装，不写业务）
+ * - 管理活跃模块状态（Skills / 用量看板 / Claude 专属页等），记住上次停在哪一页
  * - 同步主进程的新版提醒状态
+ *
+ * Skills 的读取与写入都在 Skills 页自己的模块里（进页面时读、你点了才写）；
+ * 旧的导入 / 推送后台任务已于 2026-10 退役（specs/v2.1.9-Skills只留一套引擎）。
  *
  * @module App
  */
 
 import React, { useState, useEffect } from 'react'
 import WorkbenchLayout from './components/WorkbenchLayout'
-import SkillManagerModule from './components/SkillManagerModule'
+import SkillsPage from './pages/skills/SkillsPage'
 import UsageMonitorModule from './components/UsageMonitorModule'
 import PlanManagementPage from './pages/PlanManagementPage'
 import ProjectInitPage from './pages/ProjectInitPage'
@@ -24,12 +24,9 @@ import ModelsPage from './features/models/ModelsPage'
 import SessionBrowserPage from './pages/SessionBrowserPage'
 import DocBrowserPage from './pages/DocBrowserPage'
 import SessionStatusPage from './pages/SessionStatusPage'
-import { toast } from './components/Toast'
-import { dataStore } from './store/data'
 import { setPricingOverride } from './store/costCalculator'
 import useMainNavigation from './hooks/useMainNavigation'
 
-const AUTO_INCREMENTAL_REFRESH_INTERVAL_MS = 5 * 60 * 1000
 // 首次打开、或记住的页面已下线时进侧栏第一项（2026-09-19 用户定）
 const DEFAULT_ACTIVE_MODULE = 'usage'
 export const VALID_ACTIVE_MODULES = new Set(['skills', 'usage', 'claude-usage', 'project-init', 'permission', 'models', 'network', 'session-status', 'sessions', 'doc-browser'])
@@ -58,14 +55,10 @@ export function getInitialActiveModule() {
 }
 
 export default function App() {
-  // SkillManager 初始子页面：null=加载中, 'manage'=管理页, 'import'=导入页
-  const [initialSkillManagerPage, setInitialSkillManagerPage] = useState(null)
   // 活跃模块：从 localStorage 恢复上次页面；已下线模块统一回落到默认页（用量监测）
   const [activeModule, setActiveModule] = useState(getInitialActiveModule)
   // Usage 页面是否已访问（已访问后保持挂载，支持后台继续汇总重周期）
   const [hasVisitedUsage, setHasVisitedUsage] = useState(false)
-  // 技能模块刷新信号（自动增量导入新增 skill 后触发）
-  const [skillsRefreshSignal, setSkillsRefreshSignal] = useState(0)
   // 应用更新状态：由主进程统一检查并推送，渲染层只负责展示
   const [appUpdateState, setAppUpdateState] = useState(INITIAL_APP_UPDATE_STATE)
 
@@ -84,117 +77,6 @@ export default function App() {
     }
     loadRemotePricing()
   }, [])
-
-  // 启动时检查中央仓库状态，决定初始页面
-  useEffect(() => {
-    const checkInitialPage = async () => {
-      try {
-        const hasData = await dataStore.hasCentralSkills()
-        setInitialSkillManagerPage(hasData ? 'manage' : 'import')
-      } catch (error) {
-        console.error('Error checking central repo:', error)
-        setInitialSkillManagerPage('import')
-      }
-    }
-
-    checkInitialPage()
-  }, [])
-
-  // 确定初始页面后，若为 manage 则执行推送目标初始化检查
-  useEffect(() => {
-    if (initialSkillManagerPage === 'manage') {
-      initPushTargetsIfNeeded()
-    }
-  }, [initialSkillManagerPage])
-
-  // 工作台下启用自动增量刷新任务：每 5 分钟扫描一次导入来源并仅新增
-  useEffect(() => {
-    // 加载中不启动定时任务
-    if (initialSkillManagerPage === null) {
-      return undefined
-    }
-
-    let isDisposed = false
-
-    const runAutoRefresh = async () => {
-      try {
-        // 方向 2 会写入中央仓库，先获取同步锁避免触发方向 1
-        await window.electronAPI?.acquireSyncLock?.()
-        const refreshResult = await dataStore.autoIncrementalRefresh()
-        if (isDisposed) return
-
-        if (refreshResult?.added > 0 || refreshResult?.updated > 0) {
-          // 通过信号通知技能模块刷新数据；不弹 toast，避免打断用户操作
-          setSkillsRefreshSignal((prev) => prev + 1)
-        }
-      } catch (error) {
-        // 自动任务失败仅记录日志，避免影响用户主流程
-        console.error('Auto incremental refresh failed:', error)
-      } finally {
-        // 释放同步锁（主进程会延迟 1s 再解锁）
-        window.electronAPI?.releaseSyncLock?.().catch(() => {})
-      }
-    }
-
-    // 进入工作台后先执行一次，避免首次等待 5 分钟
-    runAutoRefresh()
-    const timerId = window.setInterval(runAutoRefresh, AUTO_INCREMENTAL_REFRESH_INTERVAL_MS)
-
-    return () => {
-      isDisposed = true
-      window.clearInterval(timerId)
-    }
-  }, [initialSkillManagerPage])
-
-  // 方向 1：监听中央仓库文件变更，自动推送到已启用工具
-  useEffect(() => {
-    if (!window.electronAPI?.onCentralRepoChanged) return undefined
-    const unsubscribe = window.electronAPI.onCentralRepoChanged(async (changedSkillNames) => {
-      try {
-        const result = await dataStore.handleCentralRepoChanged(changedSkillNames)
-        if (result.syncedCount > 0) {
-          setSkillsRefreshSignal((prev) => prev + 1)
-        }
-      } catch (error) {
-        console.error('[auto-sync] Central → tools failed:', error)
-      }
-    })
-    return () => unsubscribe()
-  }, [])
-
-  /**
-   * 导入后首次进入管理页时初始化推送目标
-   * 根据导入时选中的工具决定默认推送目标
-   */
-  async function initPushTargetsIfNeeded() {
-    try {
-      // 1. 检查是否是导入后首次进入
-      const isFirstEntry = await dataStore.isFirstEntryAfterImport()
-      if (!isFirstEntry) return
-
-      // 2. 获取上次导入时选中的工具
-      const importedTools = dataStore.getLastImportedToolIds()
-
-      // 3. 调用初始化方法
-      await dataStore.initPushTargetsAfterImport(importedTools)
-
-      // 4. 重置标记
-      await dataStore.setFirstEntryAfterImport(false)
-
-      // 5. 显示成功提示
-      toast.success('已根据导入选择初始化推送目标')
-    } catch (error) {
-      console.error('Error initializing push targets:', error)
-    }
-  }
-
-  /**
-   * 导入完成后的回调：初始化推送目标并更新初始页面状态
-   */
-  const handleAfterImport = async () => {
-    await initPushTargetsIfNeeded()
-    setInitialSkillManagerPage('manage')
-  }
 
   /**
    * 处理模块切换
@@ -284,7 +166,7 @@ export default function App() {
     })
   }
 
-  // 始终渲染 WorkbenchLayout；加载中时内容区显示 loading
+  // 始终渲染 WorkbenchLayout
   return (
     <div className="app">
       <WorkbenchLayout
@@ -293,15 +175,7 @@ export default function App() {
         appUpdate={appUpdateState}
         onDownloadUpdate={handleUpdateClick}
       >
-        {activeModule === 'skills' && (
-          initialSkillManagerPage === null
-            ? <div className="manage-container"><div className="loading-state">加载中...</div></div>
-            : <SkillManagerModule
-                initialPage={initialSkillManagerPage}
-                onAfterImport={handleAfterImport}
-                refreshSignal={skillsRefreshSignal}
-              />
-        )}
+        {activeModule === 'skills' && <SkillsPage />}
         {(activeModule === 'usage' || hasVisitedUsage) && (
           <div className="keep-alive-wrapper" hidden={activeModule !== 'usage'}>
             <UsageMonitorModule isActive={activeModule === 'usage'} />

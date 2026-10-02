@@ -13,8 +13,8 @@ import React from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 
-vi.mock('../../src/store/data', () => ({
-  dataStore: { getRepoPath: vi.fn(async () => '/Users/me/Documents/SkillManager') },
+vi.mock('../../src/store/skillRepoPath', () => ({
+  skillRepoPath: { getRepoPath: vi.fn(async () => '/Users/me/Documents/SkillManager'), getCachedRepoPath: vi.fn(() => null) },
   toolDefinitions: [],
 }))
 
@@ -54,7 +54,7 @@ async function renderPage() {
     aggregateSkillUsage: vi.fn(async () => ({ success: true, data: { skills: [] } })),
     listSkillRunSamples: vi.fn(async () => ({ success: true, data: { records: [] } })),
   }
-  const Page = (await import('../../src/pages/ManagePage')).default
+  const Page = (await import('../../src/pages/skills/SkillsPage')).default
   render(<Page />)
   await screen.findByText('装载总览', { selector: '.np-li b' })
 }

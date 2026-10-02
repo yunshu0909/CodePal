@@ -6,8 +6,8 @@
 import { describe, expect, it, vi } from 'vitest'
 import { act, renderHook, waitFor } from '@testing-library/react'
 import useSkillControl from '../../src/hooks/useSkillControl'
-import { dataStore } from '../../src/store/data'
-vi.mock('../../src/store/data', () => ({ dataStore: { getRepoPath: vi.fn(), getCachedRepoPath: vi.fn() } }))
+import { skillRepoPath } from '../../src/store/skillRepoPath'
+vi.mock('../../src/store/skillRepoPath', () => ({ skillRepoPath: { getRepoPath: vi.fn(), getCachedRepoPath: vi.fn() } }))
 
 const deferred = () => {
   let resolve
@@ -73,8 +73,8 @@ describe('Skill snapshot cache contract', () => {
     expect(fresh.state.snapshot).toBeNull()
     expect(old.state.snapshot.skills[0].name).toBe('old')
     let repo = '/library-old'
-    dataStore.getRepoPath.mockImplementation(async () => repo)
-    dataStore.getCachedRepoPath.mockImplementation(() => repo)
+    skillRepoPath.getRepoPath.mockImplementation(async () => repo)
+    skillRepoPath.getCachedRepoPath.mockImplementation(() => repo)
     const next = deferred()
     window.electronAPI = { getSkillControlSnapshot: vi.fn().mockResolvedValueOnce(live('old')).mockReturnValueOnce(next.promise) }
     const first = renderHook(() => useSkillControl())

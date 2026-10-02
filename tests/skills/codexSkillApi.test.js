@@ -320,16 +320,24 @@ describe('旧写法补关', () => {
     expect(api.calls.filter((call) => call.method === 'skills/config/write')).toHaveLength(1)
   })
 
-  it('TC-008 LEGACY_MIGRATION 打开 Skills 页读快照前会先补关', async () => {
+  // v2.1.9 起读就是读（specs/v2.1.9-Skills只留一套引擎 TC-004）：补关从读快照挪到 Codex 写操作里
+  it('TC-008 LEGACY_MIGRATION 读快照不补关、如实显示开着；下一次动 Codex 时先补关', async () => {
     const { registerSkillControlHandlers } = require('../../electron/handlers/registerSkillControlHandlers')
     await writeSkill(repoPath, 'lark-base')
+    await writeSkill(repoPath, 'other')
     const link = await deployLink('lark-base')
-    await fs.writeFile(configPath(), legacyConfig([link]))
+    const original = legacyConfig([link])
+    await fs.writeFile(configPath(), original)
     const handlers = {}
     registerSkillControlHandlers({ ipcMain: { handle: (channel, fn) => { handlers[channel] = fn } }, homeDir }, deps())
     const result = await handlers['skill-control:get-snapshot'](null, { repoPath })
     expect(result.success).toBe(true)
-    expect(result.data.skills.find((skill) => skill.name === 'lark-base').tools.codex.enabled).toBe(false)
+    expect(result.data.skills.find((skill) => skill.name === 'lark-base').tools.codex.enabled).toBe(true)
+    expect(await readConfig()).toBe(original)
+
+    const write = await handlers['skill-control:execute'](null, { repoPath, toolId: 'codex', skillName: 'other', action: 'enable' })
+    expect(write.success).toBe(true)
+    expect(write.snapshot.skills.find((skill) => skill.name === 'lark-base').tools.codex.enabled).toBe(false)
   })
 
   it('TC-035 LEGACY_ROLLBACK 备份写不出一条都不写；中途失败或核对仍开着就恢复备份（逐字节一致）；快照照常；下次重试', async () => {

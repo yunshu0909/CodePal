@@ -18,29 +18,21 @@ import { fileURLToPath } from 'node:url'
 import useSkillControl from '../../src/hooks/useSkillControl'
 import * as skillUsageModule from '../../src/hooks/useSkillUsage'
 import { resetToastForTests } from '../../src/components/Toast'
-import { dataStore } from '../../src/store/data'
 
 // 调用记录的时间写法（今天 / 周几 / 几月几日）依赖「现在」和时区：固定成样本数据所在的那一刻
 process.env.TZ = 'Asia/Shanghai'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 
-vi.mock('../../src/store/data', () => ({
-  dataStore: {
+// 资产库路径由主进程给（v2.1.9 起经 skill-control:get-repo-path，见 src/store/skillRepoPath.js）
+vi.mock('../../src/store/skillRepoPath', () => ({
+  skillRepoPath: {
     getRepoPath: vi.fn(async () => '/Users/me/Documents/SkillManager'),
-    getCentralSkills: vi.fn(async () => []),
-    getTags: vi.fn(async () => []),
-    getSkillTags: vi.fn(async () => ({})),
-    setSkillTag: vi.fn(async () => ({ success: true })),
-    getPushTargets: vi.fn(async () => []),
-    setPushTargets: vi.fn(async () => ({ success: true })),
-    removeCentralSkill: vi.fn(async () => ({ success: true })),
-    getConfig: vi.fn(async () => ({})),
+    getCachedRepoPath: vi.fn(() => null),
   },
-  toolDefinitions: [],
 }))
 
-const loadPage = async () => (await import('../../src/pages/ManagePage')).default
+const loadPage = async () => (await import('../../src/pages/skills/SkillsPage')).default
 
 // ---------- 快照样本（按 2026-09-29 本机真实数据缩小） ----------
 const CENTRAL = '/Users/me/Documents/SkillManager'
@@ -668,9 +660,8 @@ describe('状态', () => {
     await selectSkill('page-solution-design')
     fireEvent.click(within(toolRow('Codex')).getByRole('switch'))
     await waitFor(() => expect(api.executeSkillCommand).toHaveBeenCalled())
-    for (const fn of ['getTags', 'getSkillTags', 'setSkillTag', 'getPushTargets', 'setPushTargets', 'removeCentralSkill', 'getCentralSkills']) {
-      expect(dataStore[fn]).not.toHaveBeenCalled()
-    }
+    // 旧的标签 / 推送目标 / 资产库存储已随旧引擎删除（v2.1.9），页面也不调旧的标签接口
+    expect(fs.existsSync(path.join(root, 'src/store/data.js'))).toBe(false)
     expect(api.getTags).not.toHaveBeenCalled()
   })
 

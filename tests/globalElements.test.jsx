@@ -156,4 +156,11 @@ describe('源码守门（全局元素只有一个入口）', () => {
     const offenders = sourceFiles('src/components').filter((f) => emoji.test(fs.readFileSync(path.join(root, f), 'utf8')))
     expect(offenders).toEqual([])
   })
+
+  // specs/v2.1.9-Skills只留一套引擎 TC-007：检查从共用组件扩到所有页面
+  it('TC-007 PAGE_EMOJI 页面也不放 emoji', () => {
+    const emoji = /[\u{1F300}-\u{1FAFF}\u{2600}-\u{26FF}\u{2705}\u{274C}\u{2B50}]/u
+    const offenders = sourceFiles('src/pages').filter((f) => emoji.test(fs.readFileSync(path.join(root, f), 'utf8')))
+    expect(offenders, 'PAGE_EMOJI 页面里有 emoji').toEqual([])
+  })
 })

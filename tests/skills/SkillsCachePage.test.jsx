@@ -9,9 +9,9 @@ import { act, cleanup, fireEvent, render, renderHook, screen, waitFor } from '@t
 import SkillsPage from '../../src/pages/skills/SkillsPage'
 import useSkillControl from '../../src/hooks/useSkillControl'
 import useSkillUsage, { resetSkillUsageCache } from '../../src/hooks/useSkillUsage'
-import { dataStore } from '../../src/store/data'
+import { skillRepoPath } from '../../src/store/skillRepoPath'
 
-vi.mock('../../src/store/data', () => ({ dataStore: { getRepoPath: vi.fn(), getCachedRepoPath: vi.fn() } }))
+vi.mock('../../src/store/skillRepoPath', () => ({ skillRepoPath: { getRepoPath: vi.fn(), getCachedRepoPath: vi.fn() } }))
 const deferred = () => {
   let resolve
   const promise = new Promise((done) => { resolve = done })
@@ -28,8 +28,8 @@ let api
 let repo
 beforeEach(() => {
   repo = '/library'
-  dataStore.getRepoPath.mockImplementation(async () => repo)
-  dataStore.getCachedRepoPath.mockImplementation(() => repo)
+  skillRepoPath.getRepoPath.mockImplementation(async () => repo)
+  skillRepoPath.getCachedRepoPath.mockImplementation(() => repo)
   resetSkillUsageCache()
   api = {
     getSkillControlSnapshot: vi.fn(async () => live()),

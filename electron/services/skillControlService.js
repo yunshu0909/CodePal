@@ -8,6 +8,9 @@
  * - 在写操作前统一拦截 project/plugin/system 等只读来源
  * - 快照带每个工具的装载汇总（Skill 数 + 约多少 tokens，插件不算）、同一工具两份、每个位置的完整路径
  * - 删除：资产库和各工具里指向它的那份一起删，任何一步失败全部恢复
+ * - 每一份来源带不含路径的 sourceId；命令带 sourceId 时只对那一份来源操作（收进、停用），启用和删除不支持按来源
+ * - 动到 Codex 的写操作（toolId 为 codex，或删除时为 all）在所有拒绝检查通过之后、真正写入之前调用调用方给的
+ *   补关钩子（beforeCodexWriteFn）；被拒绝的操作（来源找不到、只读、要删的不在资产库、要收的已在资产库或原件不在）不调用
  *
  * @module electron/services/skillControlService
  */
@@ -230,9 +233,20 @@ function loadAdapters(overrides = {}) {
   }
 }
 
+/**
+ * 一份来源的稳定身份：工具 + 来源类别 + 真实位置的摘要，不含路径字样；同一位置每次读都一样
+ * @param {string} toolId
+ * @param {{origin?: string, absolutePath?: string}} source
+ * @returns {string}
+ */
+function sourceIdOf(toolId, source) {
+  const key = `${toolId}\0${source.origin || ''}\0${source.absolutePath || ''}`
+  return `src_${crypto.createHash('sha256').update(key).digest('hex').slice(0, 16)}`
+}
+
 function publicOrigin(source) {
   const { absolutePath, manifest, ...safe } = source
-  return safe
+  return { ...safe, sourceId: sourceIdOf(source.toolId, source) }
 }
 
 function sourceEnabled(source) {
@@ -524,23 +538,57 @@ async function executeSkillCommand(params = {}, overrides = {}) {
   const homeDir = params.homeDir || overrides.homeDir || os.homedir()
   const repoPath = expandHome(params.repoPath, homeDir)
   if (!repoPath) throw codedError('INVALID_REPO_PATH')
-  if (params.action === 'delete') return deleteSkillEverywhere({ repoPath, homeDir, skillName: params.skillName }, overrides)
+  // 按来源这次只支持收进和停用：启用照旧从资产库链接出去，删除照旧整组删
+  const hasSourceId = params.sourceId !== undefined && params.sourceId !== null
+  if (hasSourceId && (params.action === 'enable' || params.action === 'delete')) throw codedError('SOURCE_ACTION_UNSUPPORTED')
+  if (params.action === 'delete') {
+    // 先确认要删的在资产库里，再补关：删不了的不该改 Codex 配置（删除会连带 ~/.codex、~/.agents 里的那份）
+    if (!(await pathExists(path.join(repoPath, params.skillName, 'SKILL.md'), overrides))) throw codedError('SKILL_NOT_FOUND')
+    if (params.toolId === 'codex' || params.toolId === 'all') await overrides.beforeCodexWriteFn?.()
+    return deleteSkillEverywhere({ repoPath, homeDir, skillName: params.skillName }, overrides)
+  }
   const adapter = loadAdapters(overrides)[params.toolId]
   if (!adapter) throw codedError('TOOL_NOT_SUPPORTED')
   const discovery = await adapter.discover({ homeDir, projectRoots: params.projectRoots || [], repoPath }, overrides)
   const matchingSources = (discovery?.sources || []).filter((source) => source.name === params.skillName)
-  const mutableSource = matchingSources.find((source) => source.mutable)
-  if (matchingSources.length > 0 && !mutableSource && params.action !== 'enable') throw codedError('ORIGIN_READ_ONLY')
+  const chosenSource = selectSource(params, matchingSources)
   if (params.action === 'adopt') {
-    return adoptExternalSkill({ ...params, repoPath, homeDir, source: mutableSource || params.source }, overrides)
+    const adoptParams = { ...params, repoPath, homeDir, source: chosenSource || params.source }
+    // 收不了的（已在资产库、原件不在）先拒绝，再补关
+    await adoptPaths(adoptParams, overrides)
+    if (params.toolId === 'codex') await overrides.beforeCodexWriteFn?.()
+    return adoptExternalSkill(adoptParams, overrides)
   }
+  if (params.toolId === 'codex') await overrides.beforeCodexWriteFn?.()
   if (!adapter.apply) throw codedError('TOOL_NOT_SUPPORTED')
   // renderer 传来的 source 只作意图提示；真正写入位置始终采用刚刚重读到的来源。
-  return adapter.apply({ ...params, repoPath, homeDir, source: mutableSource || params.source }, overrides)
+  return adapter.apply({ ...params, repoPath, homeDir, source: chosenSource || params.source }, overrides)
 }
 
-/** 将可变工具来源物化到中央仓库，不删除软链接上游。 */
-async function adoptExternalSkill(params = {}, deps = {}) {
+/**
+ * 选出这次命令要动的那一份来源；不合格时抛错，调用方在此之前不能有任何写入。
+ * - 带 sourceId：只认那一份；找不到 SOURCE_NOT_FOUND，只读 ORIGIN_READ_ONLY
+ * - 不带：照旧取第一份可写来源；同名只有只读来源时除启用外都报 ORIGIN_READ_ONLY
+ * @returns {object|undefined} 选中的来源；没有同名来源时为 undefined
+ */
+function selectSource(params, matchingSources) {
+  if (params.sourceId !== undefined && params.sourceId !== null) {
+    const chosen = matchingSources.find((source) => sourceIdOf(params.toolId, source) === params.sourceId)
+    if (!chosen) throw codedError('SOURCE_NOT_FOUND')
+    if (!chosen.mutable) throw codedError('ORIGIN_READ_ONLY')
+    return chosen
+  }
+  const mutableSource = matchingSources.find((source) => source.mutable)
+  if (matchingSources.length > 0 && !mutableSource && params.action !== 'enable') throw codedError('ORIGIN_READ_ONLY')
+  return mutableSource
+}
+
+/**
+ * 收进前的检查：算出原件和资产库里的位置；已在资产库报 SKILL_ALREADY_MANAGED，原件不在报 EXTERNAL_SKILL_NOT_FOUND。
+ * 只读不写，executeSkillCommand 在补关之前先调它。
+ * @returns {Promise<{sourcePath: string, targetPath: string}>}
+ */
+async function adoptPaths(params = {}, deps = {}) {
   assertMutableSource(params.source)
   const homeDir = params.homeDir || deps.homeDir || os.homedir()
   const repoPath = expandHome(params.repoPath, homeDir)
@@ -554,6 +602,12 @@ async function adoptExternalSkill(params = {}, deps = {}) {
   const targetPath = path.join(repoPath, params.skillName)
   if (await pathExists(targetPath, deps)) throw codedError('SKILL_ALREADY_MANAGED')
   if (!(await pathExists(path.join(sourcePath, 'SKILL.md'), deps))) throw codedError('EXTERNAL_SKILL_NOT_FOUND')
+  return { sourcePath, targetPath }
+}
+
+/** 将可变工具来源物化到中央仓库，不删除软链接上游。 */
+async function adoptExternalSkill(params = {}, deps = {}) {
+  const { sourcePath, targetPath } = await adoptPaths(params, deps)
   const realpathFn = deps.realpathFn || fs.realpath
   const lstatFn = deps.lstatFn || fs.lstat
   const stat = await lstatFn(sourcePath)
@@ -575,6 +629,7 @@ module.exports = {
   getSkillControlSnapshot,
   executeSkillCommand,
   adoptExternalSkill,
+  sourceIdOf,
   deleteSkillEverywhere,
   displayPath,
 }

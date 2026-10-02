@@ -5,7 +5,7 @@
  * @module hooks/useSkillControl
  */
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
-import { dataStore } from '../store/data'
+import { skillRepoPath } from '../store/skillRepoPath'
 import { getSkillControlCache } from '../store/services/skillControlCache'
 
 /**
@@ -16,7 +16,7 @@ export default function useSkillControl(refreshSignal = 0) {
   const api = typeof window !== 'undefined' ? window.electronAPI : null
   const cache = getSkillControlCache(api)
   // 配置缓存未就绪时先显示未知上下文，不能把其它资产库闪到第一帧。
-  const hint = dataStore.getCachedRepoPath ? dataStore.getCachedRepoPath() : cache.lastRepoPath
+  const hint = skillRepoPath.getCachedRepoPath() || cache.lastRepoPath
   const hintRef = useRef(hint)
   hintRef.current = hint
   const [resolution, setResolution] = useState(null)
@@ -28,7 +28,7 @@ export default function useSkillControl(refreshSignal = 0) {
   const state = useSyncExternalStore(subscribe, getSnapshot, getSnapshot)
 
   const resolveContext = useCallback(async () => {
-    const resolvedPath = await dataStore.getRepoPath()
+    const resolvedPath = await skillRepoPath.getRepoPath()
     cache.lastRepoPath = resolvedPath
     if (mounted.current) setResolution({ hint: hintRef.current, repoPath: resolvedPath })
     return { repoPath: resolvedPath, target: cache.entry(resolvedPath) }

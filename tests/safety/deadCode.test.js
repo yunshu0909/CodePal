@@ -13,6 +13,7 @@
  * @module tests/safety/deadCode.test
  *
  * 也是 specs/v2.1.6-新建项目 的守卫行 TC-026：新建项目改造后已删文件不回来、无人调用的通道不注册。
+ * 也是 specs/v2.1.9-Skills只留一套引擎 的 TC-001：Skills 旧导入 / 推送引擎退役后，文件、preload API、通道不回来。
  */
 
 import { describe, it, expect } from 'vitest'
@@ -105,8 +106,9 @@ describe('B2-7 旧用量接口下线', () => {
 
   it('D-5 旧用量 handler 文件与渲染层包装已删除', () => {
     expect(LEGACY_USAGE_FILES.filter((rel) => existsSync(path.join(root, rel)))).toEqual([])
-    const fsStore = readFileSync(path.join(root, 'src', 'store', 'fs.js'), 'utf-8')
-    expect(fsStore).not.toMatch(/scanLogFiles/)
+    // src/store/fs.js 已随 Skills 旧引擎退役删除（v2.1.9）；还在时仍不许带旧用量包装
+    const fsStorePath = path.join(root, 'src', 'store', 'fs.js')
+    if (existsSync(fsStorePath)) expect(readFileSync(fsStorePath, 'utf-8')).not.toMatch(/scanLogFiles/)
     const preload = readFileSync(path.join(root, 'electron', 'preload.js'), 'utf-8')
     expect(preload).not.toMatch(/^\s{2}(scanLogFiles|onUsageAggregationProgress)\s*:/m)
   })
@@ -135,5 +137,71 @@ describe('主进程没有页面调不到的通道', () => {
       .map((file) => readFileSync(file, 'utf-8')).join('\n')
     expect(DEAD_MAIN_CHANNELS.filter((ch) => sources.includes(`'${ch}'`))).toEqual([])
     expect(readFileSync(path.join(root, 'electron', 'preload.js'), 'utf-8')).not.toMatch(/plan-resume/)
+  })
+})
+
+// Skills 只留一套引擎（2026-10-02，specs/v2.1.9-Skills只留一套引擎，#61）：旧导入 / 推送引擎整套退役，连同接线与零引用组件
+const SKILL_ENGINE_FILES = [
+  'src/components/SkillManagerModule.jsx',
+  'src/pages/ManagePage.jsx',
+  'src/pages/ImportPage.jsx',
+  'src/pages/ConfigPage.jsx',
+  'src/pages/config/configPageStyles.js',
+  'src/components/AddPathModal.jsx',
+  'src/store/data.js',
+  'src/store/fs.js',
+  'src/store/services/importService.js',
+  'src/store/services/pushService.js',
+  'src/store/services/autoSyncService.js',
+  'src/store/services/customPathManager.js',
+  'src/store/services/pathService.js',
+  'src/store/services/repoPathManager.js',
+  'src/store/services/tagService.js',
+  'src/components/TagManagementModal/TagManagementModal.jsx',
+  'src/components/TagSelector/TagSelector.jsx',
+  'src/components/TagFilterChips/TagFilterChips.jsx',
+  'src/components/BatchActionBar/BatchActionBar.jsx',
+  'src/components/PathPickerField.jsx',
+  'src/components/skillUsage/SkillUsageBadge.jsx',
+  'src/components/skillUsage/SkillUsageColumnHeader.jsx',
+  'src/components/skillUsage/SkillRunSamplesModal.jsx',
+  'src/hooks/useTagManagement.js',
+  'electron/handlers/registerSkillHandlers.js',
+  'electron/handlers/registerImportPageHandlers.js',
+  'electron/handlers/registerRepoWatcherHandlers.js',
+  'electron/services/repoWatcherService.js',
+  'electron/services/skillScanService.js',
+  'tests/importService.regression.test.js',
+  'tests/lifecycle/repoWatcherReopen.test.js',
+]
+const SKILL_ENGINE_PRELOAD_APIS = [
+  'scanToolDirectory', 'readSkillInfo', 'copySkill', 'deleteSkill', 'ensureDir', 'pathExists', 'readConfig', 'writeConfig',
+  'scanCustomPath', 'importSkills', 'getCentralSkills', 'getToolStatus', 'pushSkills', 'unpushSkills', 'incrementalImport',
+  'compareSkillContent', 'onCentralRepoChanged', 'acquireSyncLock', 'releaseSyncLock', 'restartRepoWatcher', 'adoptExternalSkill',
+]
+const SKILL_ENGINE_CHANNELS = [
+  'scan-tool-directory', 'read-skill-info', 'copy-skill', 'delete-skill', 'ensure-dir', 'path-exists', 'read-config', 'write-config',
+  'scan-custom-path', 'import-skills', 'get-central-skills', 'get-tool-status', 'push-skills', 'unpush-skills', 'incremental-import',
+  'compare-skill-content', 'central-repo-changed', 'acquire-sync-lock', 'release-sync-lock', 'restart-repo-watcher', 'skill-control:adopt',
+]
+
+describe('Skills 旧引擎退役（v2.1.9）', () => {
+  it('TC-001 ONE_ENGINE_REMOVED 旧引擎文件、preload API、通道都不回来；App 不再有后台导入与推送', () => {
+    const still = SKILL_ENGINE_FILES.filter((rel) => existsSync(path.join(root, rel)))
+    expect(still, 'ONE_ENGINE_REMOVED 旧引擎文件还在').toEqual([])
+
+    const preload = readFileSync(path.join(root, 'electron', 'preload.js'), 'utf-8')
+    const exposed = SKILL_ENGINE_PRELOAD_APIS.filter((name) => new RegExp(`^\\s{2}${name}\\s*:`, 'm').test(preload))
+    expect(exposed, 'ONE_ENGINE_REMOVED preload 仍暴露旧引擎接口').toEqual([])
+
+    const handlerDir = path.join(root, 'electron', 'handlers')
+    const sources = [path.join(root, 'electron', 'main.js'), path.join(root, 'electron', 'preload.js'), ...readdirSync(handlerDir).map((f) => path.join(handlerDir, f))]
+      .map((file) => readFileSync(file, 'utf-8')).join('\n')
+    expect(SKILL_ENGINE_CHANNELS.filter((ch) => sources.includes(`'${ch}'`)), 'ONE_ENGINE_REMOVED 主进程仍注册旧引擎通道').toEqual([])
+
+    const app = readFileSync(path.join(root, 'src', 'App.jsx'), 'utf-8')
+    const leftovers = ['autoIncrementalRefresh', 'handleCentralRepoChanged', 'initPushTargetsIfNeeded', 'acquireSyncLock', 'onCentralRepoChanged', 'store/data']
+      .filter((token) => app.includes(token))
+    expect(leftovers, 'ONE_ENGINE_REMOVED App 仍有后台导入 / 推送').toEqual([])
   })
 })

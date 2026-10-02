@@ -2,7 +2,7 @@
  * 失败如实上报 + 测试 / CI 接线（架构优化 B2-3）
  *
  * 负责：
- * - 自动增量导入：配置保存失败时结果为失败（界面仍按原设计不弹提示）
+ * - （H-3 自动增量导入已随 Skills 旧引擎退役删除，v2.1.9）
  * - 共享用量统计：来源失败时记下原因（原来只记 failed）
  * - CI 在 dev 分支的 push / PR 上跑测试；覆盖率统计包含主进程 electron/
  *
@@ -13,40 +13,12 @@ import { describe, it, expect, vi } from 'vitest'
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { createRequire } from 'node:module'
-import { createImportService } from '../src/store/services/importService.js'
 
 const require = createRequire(import.meta.url)
 const { createSharedUsageStatistics } = require('../electron/services/sharedUsageStatistics')
 const root = path.resolve(__dirname, '..')
 
 describe('B2-3 失败如实上报', () => {
-  it('H-3 自动增量导入：新增了 Skill 但配置保存失败 → success=false 且带错误', async () => {
-    const config = { version: '0.4', repoPath: '/repo', customPaths: [], pushStatus: {}, pushTargets: ['claude'], importSources: ['claude'] }
-    const deps = {
-      getRepoPath: vi.fn(async () => '/repo'),
-      getConfig: vi.fn(async () => structuredClone(config)),
-      saveConfig: vi.fn(async () => ({ success: false, error: 'CONFIG_CORRUPTED' })),
-      setFirstEntryAfterImport: vi.fn(),
-      getCentralSkills: vi.fn(async () => []),
-      getCentralSkillPath: vi.fn(async (name) => `/repo/${name}`),
-      getToolSkillPath: vi.fn((toolPath, name) => `${toolPath}/${name}`),
-      deleteSkill: vi.fn(async () => ({ success: true })),
-      copySkill: vi.fn(async () => ({ success: true })),
-      ensureDir: vi.fn(async () => ({ success: true })),
-      scanToolDirectory: vi.fn(async () => ({ success: true, skills: [{ name: 'fresh' }] })),
-      scanCustomPath: vi.fn(async () => ({ success: true, skills: {} })),
-      buildCustomToolPath: vi.fn((base, toolPath) => `${base}/${toolPath}`),
-      compareSkillContent: vi.fn(),
-      clearPushStatusCache: vi.fn(),
-      toolDefinitions: [{ id: 'claude', name: 'Claude', path: '/tool/claude' }],
-      DEFAULT_REPO_PATH: '/default-repo',
-    }
-    const service = createImportService(deps)
-    const result = await service.autoIncrementalRefresh()
-    expect(result.success).toBe(false)
-    expect(JSON.stringify(result.errors)).toMatch(/CONFIG_CORRUPTED|save/i)
-  })
-
   it('H-4 共享用量统计：来源失败时记下原因', async () => {
     const entries = new Map()
     const storage = { read: async (k) => structuredClone(entries.get(k) || null), write: async (k, v) => entries.set(k, structuredClone(v)), list: async () => [...entries.keys()].filter((k) => /^\d{4}-\d{2}-\d{2}$/.test(k)) }
