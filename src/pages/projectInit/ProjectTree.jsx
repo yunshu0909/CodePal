@@ -44,7 +44,7 @@ export default function ProjectTree({ projectName, gitMode, codeDirName }) {
       <div className="pi-rows">
         <TreeRow depth={0} name={root.name} note={root.note} tag={root.tag} root hasChildren />
         {rows.map((row, index) => (
-          <TreeRow key={`${row.depth}-${row.name}`} {...row} hasChildren={rows[index + 1]?.depth > row.depth} />
+          <TreeRow key={row.path} {...row} hasChildren={rows[index + 1]?.depth > row.depth} />
         ))}
       </div>
     </div>

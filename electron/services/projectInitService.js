@@ -213,7 +213,9 @@ function describeError(error) {
   if (code === 'EACCES' || code === 'EPERM') return '目标路径不可写'
   if (code === 'ENOSPC') return '磁盘空间不足'
   if (code === 'EEXIST') return '目标路径存在冲突'
-  if (code === 'ENOENT' && error.path === undefined) return '没找到 Git'
+  // 启动 git 进程本身失败（找不到可执行文件）：spawn 报的 ENOENT 带 path=git、syscall=spawn git；
+  // 文件读写的 ENOENT 带的是文件路径，照原样显示，不误报成缺 Git
+  if (code === 'ENOENT' && String(error.syscall || '').startsWith('spawn')) return '没找到 Git'
   return (error && error.message) || '未知错误'
 }
 

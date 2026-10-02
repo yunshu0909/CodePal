@@ -113,15 +113,16 @@ export function buildManifest({ gitMode = DEFAULT_GIT_MODE, codeDir } = {}) {
 }
 
 /**
- * 目录树（给页面画）：根节点 + 按层级排好的行
+ * 目录树（给页面画）：根节点 + 按层级排好的行；path 是相对项目根的完整路径，同一棵树里唯一（页面拿它当 key）
  * @param {{projectName?: string, gitMode?: string, codeDir?: string}} [options]
- * @returns {{root: {name: string, tag?: 'private', note: string}, rows: Array<{name: string, depth: number, kind: 'dir'|'file', note: string, tag?: 'code'}>}}
+ * @returns {{root: {name: string, tag?: 'private', note: string}, rows: Array<{path: string, name: string, depth: number, kind: 'dir'|'file', note: string, tag?: 'code'}>}}
  */
 export function buildTree({ projectName, gitMode = DEFAULT_GIT_MODE, codeDir } = {}) {
   const name = typeof projectName === 'string' && projectName.trim() ? projectName.trim() : '项目名称'
   const rows = buildManifest({ gitMode, codeDir }).map((item) => {
     const parts = item.path.split('/')
     return {
+      path: item.path,
       name: `${parts[parts.length - 1]}${item.kind === 'dir' ? '/' : ''}`,
       depth: parts.length,
       kind: item.kind,
