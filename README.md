@@ -218,6 +218,7 @@ CodePal/
 │   ├── store/                 # 数据层
 │   └── styles/                # 设计 tokens 与 macOS 原生风格共用样式
 ├── tests/                     # 自动化测试（Vitest）
+├── shared/                    # 主进程与界面共用的纯函数（如新建项目会生成什么）
 ├── templates/                 # 新建项目模板、会话状态钩子脚本
 ├── docs/images/               # README 截图
 └── package.json               # build 配置、scripts、依赖
@@ -231,7 +232,18 @@ CodePal/
 
 完整版本信息见 [GitHub Releases](https://github.com/yunshu0909/CodePal/releases)。
 
-**最新版本：[v2.1.3](https://github.com/yunshu0909/CodePal/releases/tag/v2.1.3)**
+**最新版本：[v2.1.7](https://github.com/yunshu0909/CodePal/releases/tag/v2.1.7)**
+
+- 🗂 新建项目换成 macOS 原生风格：一张表单填项目名称、放在哪、代码文件夹、Git 方式，下面实时看会生成什么，不再一项项勾选
+- 🧱 生成的项目照 CodePal 自己的工作区：协议 v4、记忆、一条一个文件的需求池、specs、docs 与两个检查小工具，代码单独一个仓；建好的仓各做一次初始提交（分支 `main`）
+- 🔧 修复：创建时找不到 Git 会直接说「没找到 Git」，不再显示英文报错
+
+**v2.1.4**
+
+- 🔧 修复：会话状态和对话回顾不再把系统注入的消息当成你的任务显示
+- 🛠 Skills 管理切回来时先显示上次的结果，后台刷新完再更新，不再整页空白等待
+
+**v2.1.3**
 
 - 🛠 Skills 管理换成 macOS 原生风格双栏：装载总览看两个工具各装了多少、占多少上下文；左栏按近 30 天用没用分组；详情里每个工具一个开关
 - 🔧 修复：Codex 的 Skill 开关以前写进配置但 Codex 不认，现在改走 Codex 官方接口，写完核对，要么生效要么失败；以前关了没生效的会自动补关（先备份配置）
