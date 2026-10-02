@@ -614,3 +614,30 @@
   border: solid #fff; border-width: 0 1.8px 1.8px 0; transform: rotate(45deg);
 }
 :is(.page-shell--native, .np-scope) .np-doc.np-doc hr { height: .5px; margin: 16px 0; border: 0; background: var(--hair); }
+
+/* 提交类表单的动作行（样式包推导件 .actionbar，新建项目页首次使用后转正）：
+   固定在滚动区底部；左边一句话（结果 / 原因 / 提示，最多两行），右边主按钮 */
+:is(.page-shell--native, .np-scope) .np-actionbar {
+  position: sticky;
+  bottom: -20px;
+  margin: 12px -20px -20px;
+  padding: 10px 20px;
+  background: #fff;
+  box-shadow: inset 0 .5px 0 rgba(0, 0, 0, .12);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+:is(.page-shell--native, .np-scope) .np-actionbar-msg { display: flex; flex-direction: column; gap: 2px; min-width: 0; font-size: 12px; line-height: 16px; }
+:is(.page-shell--native, .np-scope) .np-actionbar-msg--hint { color: var(--fg-3); }
+:is(.page-shell--native, .np-scope) .np-actionbar-msg--ok { color: var(--green); }
+:is(.page-shell--native, .np-scope) .np-actionbar-msg--warn { color: var(--orange-fg); }
+:is(.page-shell--native, .np-scope) .np-actionbar-msg--bad { color: var(--red-fg); }
+:is(.page-shell--native, .np-scope) .np-actionbar-msg .sub { font-size: 11.5px; line-height: 15px; color: var(--fg-2); }
+
+/* 只读说明列（如新建项目目录树右侧的说明）：11.5 次级灰 */
+:is(.page-shell--native, .np-scope) .np-note { font-size: 11.5px; color: var(--fg-2); }
+
+/* 只读目录树行（如新建项目的「会生成什么」）：不可点，没有悬停底色 */
+:is(.page-shell--native, .np-scope) .np-tr.np-tr--static:hover { background: none; }

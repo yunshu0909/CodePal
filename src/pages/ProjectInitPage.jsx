@@ -1,454 +1,68 @@
 /**
- * 新建项目页面
+ * 新建项目页面（Native+，表单页 · 提交类）
  *
- * 负责：
- * - 收集项目初始化参数（名称、路径、Git、模板、记忆系统）
- * - Git 可用性预检
- * - 模板依赖联动（记忆系统依赖指引文件）
- * - 实时预览将创建的目录结构（含文件注释）
- * - 调用主进程 validate/execute 完成初始化闭环
- * - 展示校验结果、失败详情与成功确认弹窗
+ * 负责：组装表单卡、会生成什么（目录树）与底部动作行；状态与动作在 useProjectInit。
+ * 设计定稿：specs/v2.1.5-设计-新建项目/新建项目-定稿/（W1–W11）。
  *
  * @module pages/ProjectInitPage
  */
 
-import React, { useEffect, useMemo, useState } from 'react'
-import PathPickerField from '../components/PathPickerField'
-import ProjectInitSuccessModal, { ProjectInitErrorModal } from '../components/ProjectInitSuccessModal'
-import { toast } from '../components/Toast'
-import '../styles/project-init.css'
 import PageShell from '../components/PageShell'
 import Button from '../components/Button/Button'
-import ProjectTreePreview from './projectInit/ProjectTreePreview'
-import {
-  DEFAULT_TARGET_PATH,
-  PROJECT_NAME_INVALID_CHARS,
-  PREVIEW_MEDIA_QUERY,
-  DEFAULT_SUCCESS_MODAL_SUMMARY,
-  TEMPLATE_OPTIONS,
-  DEFAULT_TEMPLATE_SELECTION,
-  GIT_MODES,
-} from './projectInit/projectInitConstants'
+import ProjectInitForm from './projectInit/ProjectInitForm'
+import ProjectTree from './projectInit/ProjectTree'
+import useProjectInit from './projectInit/useProjectInit'
+import './projectInit/projectInit.css'
 
 /**
- * 新建项目页面组件
+ * 动作行左边那一句话
+ */
+function ActionMessage({ message, onCopy }) {
+  if (!message) return <span />
+  if (message.kind === 'ok' || message.kind === 'nocommit') {
+    return (
+      <span className={`np-actionbar-msg np-actionbar-msg--${message.kind === 'ok' ? 'ok' : 'warn'}`} data-testid="pi-message">
+        <span className="pi-msg-line">
+          <span className="pi-msg-path">已创建在 {message.path}</span>
+          <Button size="sm" variant="ghost" className="np-btn-text" onClick={onCopy}>复制路径</Button>
+        </span>
+        {message.kind === 'nocommit'
+          ? <span className="sub">Git 没配名字和邮箱，没做初始提交；配好后到项目里补一次</span>
+          : null}
+      </span>
+    )
+  }
+  const cls = `np-actionbar-msg np-actionbar-msg--${message.kind === 'bad' ? 'bad' : 'hint'}`
+  return <span className={cls} data-testid="pi-message">{message.text}</span>
+}
+
+/**
+ * 新建项目页面
  * @returns {JSX.Element}
  */
 export default function ProjectInitPage() {
-  // 项目名称输入值
-  const [projectName, setProjectName] = useState('')
-  // 目标路径输入值
-  const [targetPath, setTargetPath] = useState(DEFAULT_TARGET_PATH)
-  // Git 模式选择
-  const [gitMode, setGitMode] = useState('root')
-  // Git 是否可用（预检结果）
-  const [gitAvailable, setGitAvailable] = useState(true)
-  // 模板勾选状态
-  const [templateSelection, setTemplateSelection] = useState({ ...DEFAULT_TEMPLATE_SELECTION })
-  // 预览是否展开
-  const [isPreviewExpanded, setIsPreviewExpanded] = useState(() => {
-    if (typeof window === 'undefined' || !window.matchMedia) return true
-    return !window.matchMedia(PREVIEW_MEDIA_QUERY).matches
-  })
-  // 是否正在提交
-  const [isSubmitting, setIsSubmitting] = useState(false)
-  // 最近一次校验结果
-  const [validationResult, setValidationResult] = useState(null)
-  // 最近一次执行结果
-  const [executionResult, setExecutionResult] = useState(null)
-  // 成功弹窗
-  const [isSuccessModalVisible, setIsSuccessModalVisible] = useState(false)
-  const [successModalSummary, setSuccessModalSummary] = useState(DEFAULT_SUCCESS_MODAL_SUMMARY)
-  // 失败弹窗
-  const [isErrorModalVisible, setIsErrorModalVisible] = useState(false)
-  const [errorModalData, setErrorModalData] = useState({
-    errorTitle: '',
-    errorMessage: '',
-    errorHint: '',
-    failedSteps: [],
-    rollback: null,
-  })
-
-  // 是否有指引文件被勾选（记忆系统的依赖条件）
-  const hasGuideFile = templateSelection.agents || templateSelection.claude
-
-  // 当前勾选的模板 key 列表（extraKeys：一个勾选项联动多个后端模板 key，如「开发范式配套」）
-  const selectedTemplates = useMemo(
-    () => TEMPLATE_OPTIONS.filter((item) => templateSelection[item.key]).flatMap((item) => [item.key, ...(item.extraKeys || [])]),
-    [templateSelection]
-  )
-
-  // 预览根目录名
-  const previewProjectName = useMemo(
-    () => (projectName.trim().length > 0 ? projectName.trim() : 'my-awesome-project'),
-    [projectName]
-  )
-
-  // 项目名称是否为空
-  const isProjectNameEmpty = useMemo(() => projectName.trim().length === 0, [projectName])
-
-  // 项目名错误提示
-  const projectNameError = useMemo(() => {
-    const trimmedName = projectName.trim()
-    if (trimmedName === '.' || trimmedName === '..' || PROJECT_NAME_INVALID_CHARS.test(trimmedName)) {
-      return '项目名称包含非法字符'
-    }
-    return ''
-  }, [projectName])
-
-  // 创建按钮是否可用
-  const canCreate = !isProjectNameEmpty && !projectNameError && !isSubmitting && !isSuccessModalVisible
-
-  // Git 预检
-  useEffect(() => {
-    if (!window.electronAPI?.checkGitAvailable) return
-
-    window.electronAPI.checkGitAvailable().then((result) => {
-      if (result?.success && result.data) {
-        const available = result.data.available
-        setGitAvailable(available)
-        if (!available) {
-          setGitMode('none')
-        }
-      }
-    }).catch(() => {
-      // 检测失败不阻塞页面，保持默认可用
-    })
-  }, [])
-
-  // 响应式预览展开
-  useEffect(() => {
-    if (typeof window === 'undefined' || !window.matchMedia) return undefined
-
-    const mediaQueryList = window.matchMedia(PREVIEW_MEDIA_QUERY)
-    const syncPreviewExpandedByViewport = (event) => {
-      setIsPreviewExpanded(!event.matches)
-    }
-
-    syncPreviewExpandedByViewport(mediaQueryList)
-
-    if (mediaQueryList.addEventListener) {
-      mediaQueryList.addEventListener('change', syncPreviewExpandedByViewport)
-      return () => mediaQueryList.removeEventListener('change', syncPreviewExpandedByViewport)
-    }
-
-    mediaQueryList.addListener(syncPreviewExpandedByViewport)
-    return () => mediaQueryList.removeListener(syncPreviewExpandedByViewport)
-  }, [])
-
-  /**
-   * 切换模板勾选（含记忆依赖逻辑）
-   */
-  const handleToggleTemplate = (templateKey) => {
-    setTemplateSelection((prev) => {
-      const next = { ...prev, [templateKey]: !prev[templateKey] }
-
-      // 如果取消的是指引文件，检查记忆依赖
-      const option = TEMPLATE_OPTIONS.find((o) => o.key === templateKey)
-      if (option?.isGuideFile && !next[templateKey]) {
-        const stillHasGuide = TEMPLATE_OPTIONS
-          .filter((o) => o.isGuideFile && o.key !== templateKey)
-          .some((o) => next[o.key])
-
-        if (!stillHasGuide) {
-          next.memory = false
-        }
-      }
-
-      return next
-    })
-  }
-
-  /**
-   * 选择目标路径
-   */
-  const handlePickFolder = async () => {
-    if (!window.electronAPI?.selectFolder) {
-      toast.warning('当前环境不支持路径浏览')
-      return
-    }
-
-    try {
-      const result = await window.electronAPI.selectFolder()
-      if (!result.success) {
-        toast.error(result.error || '选择路径失败')
-        return
-      }
-      if (!result.canceled && result.path) {
-        setTargetPath(result.path)
-      }
-    } catch (error) {
-      console.error('Error selecting target folder:', error)
-      toast.error('选择路径失败')
-    }
-  }
-
-  /**
-   * 执行创建流程
-   */
-  const handleCreateProject = async () => {
-    if (!window.electronAPI?.validateProjectInit || !window.electronAPI?.executeProjectInit) {
-      setErrorModalData({
-        errorTitle: '功能不可用',
-        errorMessage: '当前版本未接入项目初始化 IPC',
-        errorHint: '请检查应用版本或联系技术支持',
-        failedSteps: [],
-        rollback: null,
-      })
-      setIsErrorModalVisible(true)
-      return
-    }
-
-    const requestPayload = {
-      projectName: projectName.trim(),
-      targetPath: targetPath.trim(),
-      gitMode,
-      templates: selectedTemplates,
-      overwrite: false,
-      autoCommit: false,
-    }
-
-    setIsSubmitting(true)
-    setValidationResult(null)
-    setExecutionResult(null)
-    setIsSuccessModalVisible(false)
-
-    try {
-      const validateResponse = await window.electronAPI.validateProjectInit(requestPayload)
-      setValidationResult(validateResponse)
-
-      if (!validateResponse.success) {
-        setErrorModalData({
-          errorTitle: '创建前校验异常',
-          errorMessage: validateResponse.error || '校验过程发生错误',
-          errorHint: '请检查网络连接或稍后重试',
-          failedSteps: [],
-          rollback: null,
-        })
-        setIsErrorModalVisible(true)
-        return
-      }
-
-      if (!validateResponse.valid) {
-        const errors = validateResponse.data?.errors || []
-        const firstError = errors[0]
-        setErrorModalData({
-          errorTitle: '创建前校验未通过',
-          errorMessage: firstError?.message || '参数校验失败',
-          errorHint: firstError?.code === 'TARGET_CONFLICT'
-            ? '请更换项目名称或删除现有目录后重试'
-            : '请检查输入参数后重试',
-          failedSteps: errors.map((e) => ({ step: e.code || '校验', status: 'failed', message: e.message })),
-          rollback: null,
-        })
-        setIsErrorModalVisible(true)
-        return
-      }
-
-      const executeResponse = await window.electronAPI.executeProjectInit(requestPayload)
-      setExecutionResult(executeResponse)
-
-      if (executeResponse.success) {
-        const projectPath = executeResponse.data?.validation?.data?.resolvedPaths?.projectRoot
-          || `${requestPayload.targetPath.replace(/[\\/]+$/, '')}/${requestPayload.projectName}`
-        const createdDirectoryCount = executeResponse.data?.validation?.data?.plannedDirectories?.length
-          || executeResponse.data?.summary?.createdDirectories?.length
-          || 0
-
-        setSuccessModalSummary({
-          projectPath,
-          createdDirectoryCount,
-          configStatus: requestPayload.templates.length > 0 ? '已生成' : '未生成',
-        })
-        setIsSuccessModalVisible(true)
-      } else {
-        const steps = executeResponse.data?.steps || []
-        const failedSteps = steps.filter((s) => s.status === 'failed' || s.status === 'error')
-        const rollback = executeResponse.data?.rollback
-        setErrorModalData({
-          errorTitle: '项目创建失败',
-          errorMessage: executeResponse.error || '初始化过程中发生错误',
-          errorHint: failedSteps[0]?.message || '请检查日志或更换项目路径后重试',
-          failedSteps,
-          rollback: rollback || null,
-        })
-        setIsErrorModalVisible(true)
-      }
-    } catch (error) {
-      console.error('Error creating project:', error)
-      setErrorModalData({
-        errorTitle: '项目初始化失败',
-        errorMessage: error?.message || '未知错误',
-        errorHint: '请检查网络连接或稍后重试',
-        failedSteps: [],
-        rollback: null,
-      })
-      setIsErrorModalVisible(true)
-    } finally {
-      setIsSubmitting(false)
-    }
-  }
-
-  /**
-   * 成功弹窗确认：关闭并重置
-   */
-  const handleConfirmSuccessModal = () => {
-    setIsSuccessModalVisible(false)
-    setProjectName('')
-    setTargetPath(DEFAULT_TARGET_PATH)
-    setGitMode(gitAvailable ? 'root' : 'none')
-    setTemplateSelection({ ...DEFAULT_TEMPLATE_SELECTION })
-    setValidationResult(null)
-    setExecutionResult(null)
-    setSuccessModalSummary(DEFAULT_SUCCESS_MODAL_SUMMARY)
-    toast.info('页面已重置，可以开始新的配置')
-  }
-
-  const handleCloseErrorModal = () => setIsErrorModalVisible(false)
-
-  const handleRetryErrorModal = () => {
-    setIsErrorModalVisible(false)
-    handleCreateProject()
-  }
+  const state = useProjectInit()
+  const fullPath = state.values.projectName.trim()
+    ? `${state.values.targetPath.replace(/\/+$/, '')}/${state.values.projectName.trim()}`
+    : ''
 
   return (
-    <PageShell title="新建项目" subtitle="一键初始化 AI 编程项目结构" className="page-shell--no-padding" divider data-testid="project-init-page">
-      <div className="pi-two-column" data-testid="project-init-two-column">
-        <section className="pi-form-panel" data-testid="project-init-form-panel">
-
-          {/* 基本信息 */}
-          <div className="pi-form-section">
-            <div className="pi-section-title">基本信息</div>
-            <div className="pi-form-group">
-              <label className="pi-form-label">项目名称</label>
-              <input
-                className={`pi-input ${projectNameError ? 'is-error' : ''}`}
-                type="text"
-                value={projectName}
-                placeholder="请输入项目名称（必填）"
-                onChange={(event) => setProjectName(event.target.value)}
-                disabled={isSubmitting}
-                data-testid="project-name-input"
-              />
-              {projectNameError && (
-                <div className="pi-error-text" data-testid="project-name-error">{projectNameError}</div>
-              )}
-            </div>
-
-            <PathPickerField
-              label="目标路径"
-              value={targetPath}
-              onChange={setTargetPath}
-              onPick={handlePickFolder}
-              disabled={isSubmitting}
-              inputTestId="target-path-input"
-              pickButtonTestId="target-path-browse-button"
-            />
-          </div>
-
-          {/* Git 模式 */}
-          <div className="pi-form-section">
-            <div className="pi-section-title">Git 模式</div>
-            <div className="pi-radio-cards">
-              {GIT_MODES.map((mode) => (
-                <button
-                  key={mode.key}
-                  type="button"
-                  className={`pi-radio-card ${gitMode === mode.key ? 'selected' : ''} ${!gitAvailable && mode.key !== 'none' ? 'disabled' : ''}`}
-                  onClick={() => setGitMode(mode.key)}
-                  disabled={isSubmitting || (!gitAvailable && mode.key !== 'none')}
-                  data-testid={`git-mode-${mode.key}`}
-                >
-                  <div className="pi-radio-card__icon">{mode.icon}</div>
-                  <div className="pi-radio-card__title">{mode.title}</div>
-                  <div className="pi-radio-card__desc">{mode.desc}</div>
-                </button>
-              ))}
-            </div>
-            {!gitAvailable && (
-              <div className="pi-section-hint" data-testid="git-not-available-hint">
-                未检测到 Git，已自动选择"跳过 Git"。安装 Git 后重新打开此页面即可使用。
-              </div>
-            )}
-          </div>
-
-          {/* 初始化内容 */}
-          <div className="pi-form-section">
-            <div className="pi-section-title">初始化内容</div>
-            <div className="pi-template-list">
-              {TEMPLATE_OPTIONS.map((template) => {
-                const isMemoryDisabled = template.key === 'memory' && !hasGuideFile
-                const isSelected = templateSelection[template.key]
-                const isDisabled = isSubmitting || isMemoryDisabled
-
-                return (
-                  <button
-                    key={template.key}
-                    type="button"
-                    className={`pi-template-item ${isSelected ? 'selected' : ''} ${isDisabled ? 'disabled' : ''}`}
-                    onClick={() => handleToggleTemplate(template.key)}
-                    disabled={isDisabled}
-                    data-testid={`template-item-${template.key}`}
-                  >
-                    <div className="pi-template-checkbox">
-                      <span className="pi-template-checkbox-tick">&#10003;</span>
-                    </div>
-                    <div className="pi-template-info">
-                      <div className="pi-template-name">{template.label}</div>
-                      <div className="pi-template-desc">{template.desc}</div>
-                      {template.depHint && isMemoryDisabled && (
-                        <div className="pi-template-dep">{template.depHint}</div>
-                      )}
-                    </div>
-                  </button>
-                )
-              })}
-            </div>
-          </div>
-
-        </section>
-
-        {/* 预览区 */}
-        <ProjectTreePreview
-          projectName={previewProjectName}
-          templateSelection={templateSelection}
-          gitMode={gitMode}
-          isExpanded={isPreviewExpanded}
-          onToggle={() => setIsPreviewExpanded(!isPreviewExpanded)}
-        />
-
-        {/* Footer */}
-        <div className="pi-card-footer" data-testid="project-init-footer">
-          <Button
-            variant="primary"
-            loading={isSubmitting}
-            disabled={!canCreate}
-            onClick={handleCreateProject}
-            title={isProjectNameEmpty ? '请填写项目名称' : projectNameError ? projectNameError : ''}
-            data-testid="create-project-button"
-          >
-            创建项目
+    <PageShell title="新建项目" native className="pi-page">
+      <div className="np-scroll">
+        <div className="np-glabel">基本信息</div>
+        <ProjectInitForm {...state} />
+        <div className="np-glabel">
+          <span className="pi-glabel-title">会生成什么</span>
+          {fullPath ? <span className="pi-path">{fullPath}</span> : null}
+        </div>
+        <ProjectTree projectName={state.values.projectName} gitMode={state.values.gitMode} codeDirName={state.values.codeDirName} />
+        <div className="np-actionbar">
+          <ActionMessage message={state.message} onCopy={state.copyPath} />
+          <Button size="sm" variant="primary" className="np-btn" onClick={state.create} disabled={!state.canCreate}>
+            {state.creating ? '创建中…' : '创建项目'}
           </Button>
         </div>
       </div>
-
-      <ProjectInitSuccessModal
-        visible={isSuccessModalVisible}
-        projectPath={successModalSummary.projectPath}
-        createdDirectoryCount={successModalSummary.createdDirectoryCount}
-        configStatus={successModalSummary.configStatus}
-        onConfirm={handleConfirmSuccessModal}
-      />
-
-      <ProjectInitErrorModal
-        visible={isErrorModalVisible}
-        errorTitle={errorModalData.errorTitle}
-        errorMessage={errorModalData.errorMessage}
-        errorHint={errorModalData.errorHint}
-        onClose={handleCloseErrorModal}
-        onRetry={handleRetryErrorModal}
-      />
-
     </PageShell>
   )
 }

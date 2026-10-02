@@ -1,11 +1,16 @@
-/** Usage page interactions with deterministic daily IPC. @module tests/UsageMonitorPageCalendar */
+/**
+ * Usage page interactions with deterministic daily IPC. @module tests/UsageMonitorPageCalendar
+ *
+ * 测试数据是 2026 年 9 月，页面默认显示「今天」所在的月份：把今天固定在 2026-09-16，跨月后测试不再失效
+ * （2026-10-01 跨月时暴露；也是 specs/v2.1.6-新建项目 的守卫行 TC-030）。只假造 Date，计时器照常，waitFor 不受影响。
+ */
 import React from 'react'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, fireEvent, waitFor, cleanup } from '@testing-library/react'
 import UsageMonitorPage from '../src/pages/UsageMonitorPage'
 const fixture=()=>({month:'2026-09',today:'2026-09-16',earliestDate:'2026-08-16',days:{'2026-09-15':{status:'ready',total:150e6,models:{a:{total:100e6},b:{total:50e6}}},'2026-09-16':{status:'ready',total:120e6,models:{a:{total:120e6}}}},total:270e6,complete:true,failedDays:0})
-beforeEach(()=>{window.electronAPI={getStore:vi.fn(async key=>key==='usageGoal'?{value:300,unit:'M'}:false),setStore:vi.fn(async()=>({success:true})),deleteStore:vi.fn(async()=>({success:true})),aggregateUsageCalendar:vi.fn(async()=>({success:true,data:fixture()})),onUsageCalendarProgress:vi.fn(()=>()=>{})}})
-afterEach(cleanup)
+beforeEach(()=>{vi.useFakeTimers({toFake:['Date']});vi.setSystemTime(new Date('2026-09-16T12:00:00'));window.electronAPI={getStore:vi.fn(async key=>key==='usageGoal'?{value:300,unit:'M'}:false),setStore:vi.fn(async()=>({success:true})),deleteStore:vi.fn(async()=>({success:true})),aggregateUsageCalendar:vi.fn(async()=>({success:true,data:fixture()})),onUsageCalendarProgress:vi.fn(()=>()=>{})}})
+afterEach(()=>{cleanup();vi.useRealTimers()})
 describe('usage calendar page',()=>{
  it('TC001/006/023: shows calendar/detail and selects a day without fetching again',async()=>{
   render(<UsageMonitorPage isActive />)

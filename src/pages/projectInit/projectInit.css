@@ -1,0 +1,27 @@
+/**
+ * 新建项目页 · 本页结构样式（只写结构与尺寸；颜色、字号、控件外观都来自 native.css）
+ * 设计定稿：specs/v2.1.5-设计-新建项目/新建项目-定稿/ §3、§11
+ */
+
+/* 表单：左边名称列固定宽，右边控件从同一条线开始、撑到右边 */
+.pi-form .np-row { justify-content: flex-start; }
+.pi-form .np-row .lf { width: 224px; flex: none; }
+.pi-ctl { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; }
+.pi-ctl > .np-in { flex: 1; min-width: 0; }
+
+/* 「会生成什么」：标题不折行，右端完整路径单行省略 */
+.pi-glabel-title { flex: none; }
+.pi-path { margin-left: auto; font-weight: 400; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+
+/* 目录树：两列，左列文件名（按层级缩进），右列说明左对齐；只读，不可点 */
+.pi-tree { padding: 8px; }
+.pi-rows { min-width: 0; }
+.pi-tr { display: grid; grid-template-columns: 248px 1fr; align-items: center; height: 24px; }
+/* 标签紧跟名字（共用树行默认把标签推到最右） */
+.pi-tree .pi-name.np-tr .np-tag { margin-left: 8px; }
+.pi-nm { font-family: var(--mono); font-size: 12px; }
+.pi-root { font-weight: 600; }
+.pi-an { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pi-open { transform: rotate(90deg); }
+.pi-msg-line { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.pi-msg-path { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

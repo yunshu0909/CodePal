@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "openSourceBoundary": {
+    "privatePaths": [
+      "memory/",
+      "MEMORY.md",
+      "ISSUES.md",
+      "issues/",
+      "specs/",
+      ".dev-workflow/"
+    ]
+  }
+}

@@ -11,6 +11,8 @@
  * 它自己被 `test:root` 引用，所以规则对规则本身也成立。
  *
  * @module tests/testWiring
+ *
+ * 也是 specs/v2.1.6-新建项目 的守卫行 TC-025：新建项目新测试也要有脚本跑。
  */
 
 import { describe, it, expect } from 'vitest'

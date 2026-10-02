@@ -8,6 +8,8 @@
  * - 源码守门：页面不自己摆 <Toast>、不用浏览器 confirm、共用组件不放 emoji
  *
  * @module tests/globalElements
+ *
+ * 也是 specs/v2.1.6-新建项目 的守卫行 TC-024：新建项目页不自己摆 Toast、不用浏览器确认框、组件不放 emoji。
  */
 
 import { describe, it, expect, afterEach, vi } from 'vitest'

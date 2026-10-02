@@ -1,6 +1,6 @@
 {
   "name": "skill-manager",
-  "version": "2.1.4",
+  "version": "2.1.6",
   "description": "管理和推送你的 Skills 到各个工具",
   "main": "electron/main.js",
   "scripts": {
@@ -15,7 +15,7 @@
     "dist:mac": "npm run clean:release && npm run build && electron-builder --mac --arm64",
     "dist:win": "npm run clean:release && npm run build && electron-builder --win nsis --x64",
     "preview": "vite preview",
-    "test": "npm run test:root && npm run test:v2 && npm run test:v21 && npm run test:safety && npm run test:statusline && npm run test:usage-model-cost && npm run test:dsh-usage && npm run test:session-status && npm run test:usage-calendar && npm run test:plan && npm run test:shared-usage && npm run test:network && npm run test:sessions && npm run test:models && npm run test:docs && npm run test:skills",
+    "test": "npm run test:root && npm run test:v2 && npm run test:v21 && npm run test:safety && npm run test:statusline && npm run test:usage-model-cost && npm run test:dsh-usage && npm run test:session-status && npm run test:usage-calendar && npm run test:plan && npm run test:shared-usage && npm run test:network && npm run test:sessions && npm run test:models && npm run test:docs && npm run test:skills && npm run test:project-init",
     "test:dsh-usage": "vitest run tests/dshZstdFrames.test.js tests/dshUsageRecords.test.js tests/dshUsageScan.test.js tests/dshUsageAggregation.test.js tests/dshPricing.test.js tests/dshIsolation.test.js",
     "test:v2": "vitest run --root . tests/v2/skillControlService.test.js",
     "test:statusline": "vitest run --config tests/statusLine/vitest.config.js",
@@ -23,6 +23,7 @@
     "test:root": "vitest run tests/testWiring.test.js tests/claudeUsageStreaming.test.js tests/usageSpanIndex.test.js tests/codexUsageNoTruncation.test.js tests/findEarliestLogDate.test.js tests/importService.regression.test.js tests/pricing-gpt56.test.js tests/claudeSettingsPage.test.jsx tests/claudeSettingsWiring.test.js tests/globalElements.test.jsx tests/brandShell.test.jsx tests/usageAggregationIntegrity.test.js tests/lifecycle/repoWatcherReopen.test.js tests/honestFailures.test.js tests/lifecycle/appShutdown.test.js",
     "test:v21": "vitest run --root . tests/v21/pluginControlOffline.test.jsx",
     "test:session-status": "vitest run tests/sessionStatusService.test.js tests/sessionStatusHook.test.js tests/sessionPromptFilter.test.js tests/sessionStatusMonitor.test.js tests/sessionStatusPage.test.jsx tests/codexHookTrust.test.js",
+    "test:project-init": "vitest run tests/projectInit --testTimeout=30000",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "test:ui": "vitest --ui",
@@ -73,6 +74,7 @@
       "dist/**/*",
       "src/config/**/*.json",
       "electron/**/*",
+      "shared/**/*",
       "templates/**/*",
       "!**/*.map",
       "!**/.provider-manifests.json",

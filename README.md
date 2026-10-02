@@ -2,7 +2,7 @@
 
 > AI 编程工具负责写代码，CodePal 负责写代码之外的一切 —— 用量与订阅、会话状态、对话回顾、Skills 管理、用别家模型开 Claude Code。专为 **Claude Code / Codex** 用户打造。
 
-[![macOS](https://img.shields.io/badge/macOS-Apple%20Silicon-black?logo=apple)](https://github.com/yunshu0909/CodePal/releases) [![version](https://img.shields.io/badge/version-v2.1.4-blue)](https://github.com/yunshu0909/CodePal/releases/latest) [![license](https://img.shields.io/badge/license-ISC-green)](#license)
+[![macOS](https://img.shields.io/badge/macOS-Apple%20Silicon-black?logo=apple)](https://github.com/yunshu0909/CodePal/releases) [![version](https://img.shields.io/badge/version-v2.1.6-blue)](https://github.com/yunshu0909/CodePal/releases/latest) [![license](https://img.shields.io/badge/license-ISC-green)](#license)
 
 <p align="center">
   <img src="docs/images/usage.webp" width="860" alt="CodePal 用量监测：按月历看每天用了多少 Token">
@@ -83,14 +83,16 @@ CodePal 按用途分 4 组：**用量账单 · 项目开发 · 技能中心 · �
 
 #### 新建项目 · 一键生成 AI 可接管的项目骨架
 
-<p align="center"><img src="docs/images/project-init.webp" width="760" alt="新建项目：填项目名和路径，选 Git 模式与初始化内容"></p>
+<p align="center"><img src="docs/images/project-init.webp" width="760" alt="新建项目：填项目名、路径和代码文件夹，选 Git 方式，下面看会生成什么"></p>
 
-从一个空目录生成可被 AI 直接接管的托管 Coding 框架：
+从一个空目录生成照 CodePal 自己的工作区搭好的项目，建完用编辑器打开就能让 AI 接手：
 
-- 同构的 `AGENTS.md` / `CLAUDE.md` 协作协议，分别供 Codex / Claude Code 读取
-- `MEMORY.md` + 最近 7 天每日记忆协议
-- `ISSUES.md` 唯一需求入口与 `specs/<工作单元>/` 全链路归档
-- 通用 `.gitignore`、三种 Git 初始化方式可选
+- 外层放协议、需求、规格、记忆和文档（私人），代码在里层单独一个文件夹（名字可改，默认 `code`）
+- 同构的 `AGENTS.md` / `CLAUDE.md` 协议 v4，分别供 Codex / Claude Code 读取；项目特有的部分第一次对话时由 AI 引导补全
+- `MEMORY.md` + `memory/`（主题、会话交接、历史）
+- `ISSUES.md` 总览 + `issues/` 一条一个文件，配 `docs/issue-check.py` 小工具；`specs/` 按版本归档工作单元
+- Git 三种方式：双层（默认，外层私人仓 + 代码仓）、只给代码建仓、跳过；建好的仓各做一次初始提交（分支 `main`）
+- 带上 dev-workflow 要的私人路径清单，装了插件开箱即用，没装也能照协议手工走
 
 先看生成后的完整目录、教学案例与 skill 来源：[CodePal Managed Project Example](https://github.com/yunshu0909/codepal-managed-project-example)。配套 skills 的公开源码在 [云舒的 Skills Hub](https://github.com/yunshu0909/yunshu_skillshub)。
 

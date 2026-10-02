@@ -11,6 +11,8 @@
  * 判据是「从生产入口沿 require / import 走不到」，不是 grep 名字（k28 模板曾因分段拼接路径被 grep 误判）。
  *
  * @module tests/safety/deadCode.test
+ *
+ * 也是 specs/v2.1.6-新建项目 的守卫行 TC-026：新建项目改造后已删文件不回来、无人调用的通道不注册。
  */
 
 import { describe, it, expect } from 'vitest'

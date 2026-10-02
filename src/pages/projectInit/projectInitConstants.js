@@ -2,104 +2,30 @@
  * 新建项目页面常量
  *
  * 负责：
- * - 表单默认值与预览断点
- * - 初始化内容勾选项定义（TEMPLATE_OPTIONS）
- * - Git 模式定义（GIT_MODES）
- * - 数据驱动的预览树节点（TREE_NODES）
+ * - 表单默认值
+ * - Git 三档的名字与说明（说明跟着选中的档换）
+ * - 实时校验的防抖时长
+ *
+ * 会生成什么（目录树）不在这里：由 shared/projectInitManifest.mjs 统一给出。
  *
  * @module pages/projectInit/projectInitConstants
  */
 
 export const DEFAULT_TARGET_PATH = '~/Documents/projects/'
-export const PROJECT_NAME_INVALID_CHARS = /[\\/:*?"<>|]/
-export const PREVIEW_COLLAPSE_BREAKPOINT = 1024
-export const PREVIEW_MEDIA_QUERY = `(max-width: ${PREVIEW_COLLAPSE_BREAKPOINT}px)`
 
-export const DEFAULT_SUCCESS_MODAL_SUMMARY = Object.freeze({
-  projectPath: '',
-  createdDirectoryCount: 0,
-  configStatus: '未生成',
-})
+/** 停止输入多久后做一次实时校验 */
+export const VALIDATE_DEBOUNCE_MS = 300
 
-/**
- * 初始化内容勾选项
- * isGuideFile=true 的项是「指引文件」，记忆系统依赖至少一个
- */
-export const TEMPLATE_OPTIONS = [
-  {
-    key: 'agents',
-    label: 'AGENTS.md',
-    desc: 'Codex 项目指引文件 — 协作方式、工作单元流程、Git 工作流、文件体量信号，让 Codex 按统一标准干活',
-    isGuideFile: true,
-  },
-  {
-    key: 'claude',
-    label: 'CLAUDE.md',
-    desc: 'Claude Code 项目指引文件 — 与 AGENTS.md 内容一致，让 Claude Code 按统一标准干活',
-    isGuideFile: true,
-  },
-  {
-    key: 'memory',
-    label: '记忆系统',
-    desc: '生成 MEMORY.md + memory/ 目录，让 AI 跨对话记住项目上下文、偏好和关键决策。首次对话时 AI 会引导你完成初始化',
-    depHint: '需要至少启用一个指引文件（AGENTS.md 或 CLAUDE.md）',
-    isGuideFile: false,
-  },
-  {
-    key: 'specs',
-    label: '工作单元结构（含示例）',
-    desc: '生成 specs/ 工作单元目录 + 一个填好的示例单元（plan → design → prd → test），教 AI 按链路干活。可随时删除',
-    isGuideFile: false,
-  },
-  {
-    key: 'gitignore',
-    label: '.gitignore',
-    desc: '生成通用忽略规则（node_modules / dist / .env 等），避免误纳入版本',
-    isGuideFile: false,
-  },
-  {
-    key: 'issues',
-    label: '开发范式配套',
-    desc: '生成 ISSUES.md（issue 池 = 需求唯一入口）+ docs/README.md（沉淀规则）。配合指引文件里的开发流程闭环使用',
-    isGuideFile: false,
-    // 一个勾选项联动两个后端模板 key（勾选时 payload 同时带上 extraKeys）
-    extraKeys: ['docsReadme'],
-  },
+export const GIT_OPTIONS = [
+  { value: 'dual', label: '双层' },
+  { value: 'code', label: '只给代码建仓' },
+  { value: 'none', label: '跳过' },
 ]
 
-/** 默认全部勾选 */
-export const DEFAULT_TEMPLATE_SELECTION = Object.freeze({
-  agents: true,
-  claude: true,
-  memory: true,
-  specs: true,
-  gitignore: true,
-  issues: true,
-})
+export const GIT_DESCRIPTIONS = {
+  dual: '外层一个私人仓、代码一个仓，互不包含',
+  code: '只有代码文件夹是 Git 仓，外层不建仓',
+  none: '先不建仓，以后自己 git init',
+}
 
-export const GIT_MODES = [
-  { key: 'root', icon: '🌿', title: '根目录初始化', desc: '全项目纳入版本控制' },
-  { key: 'code', icon: '📦', title: '仅代码目录', desc: '只在 code/ 文件夹初始化' },
-  { key: 'none', icon: '🚫', title: '跳过 Git', desc: '稍后手动执行 git init' },
-]
-
-/**
- * 预览树节点（数据驱动）。新增节点只改这里，不动渲染逻辑。
- * visibleWhen(s) 的 s = { templateSelection, gitMode }；缺省视为始终显示。
- * kind: 'file' → 📄 / 'dir' → 📁；success: .git 等绿色高亮；indent: 1 或 2。
- */
-export const TREE_NODES = [
-  { key: 'root-git', name: '.git/', kind: 'dir', indent: 1, success: true, annotation: '版本控制', visibleWhen: (s) => s.gitMode === 'root' },
-  { key: 'gitignore', name: '.gitignore', kind: 'file', indent: 1, annotation: '忽略规则', testId: 'project-tree-gitignore', visibleWhen: (s) => s.templateSelection.gitignore },
-  { key: 'agents', name: 'AGENTS.md', kind: 'file', indent: 1, annotation: 'Codex 指引', testId: 'project-tree-agents', visibleWhen: (s) => s.templateSelection.agents },
-  { key: 'claude', name: 'CLAUDE.md', kind: 'file', indent: 1, annotation: 'Claude Code 指引', testId: 'project-tree-claude', visibleWhen: (s) => s.templateSelection.claude },
-  { key: 'memory-file', name: 'MEMORY.md', kind: 'file', indent: 1, annotation: '长期记忆', testId: 'project-tree-memory', visibleWhen: (s) => s.templateSelection.memory },
-  { key: 'memory-dir', name: 'memory/', kind: 'dir', indent: 1, annotation: '每日记忆', testId: 'project-tree-memory-dir', visibleWhen: (s) => s.templateSelection.memory },
-  { key: 'issues', name: 'ISSUES.md', kind: 'file', indent: 1, annotation: 'Issue 池', testId: 'project-tree-issues', visibleWhen: (s) => s.templateSelection.issues },
-  { key: 'specs', name: 'specs/', kind: 'dir', indent: 1, annotation: '工作单元', testId: 'project-tree-specs', visibleWhen: (s) => s.templateSelection.specs },
-  { key: 'specs-example', name: '_example-示例功能/', kind: 'dir', indent: 2, annotation: '示例单元', testId: 'project-tree-specs-example', visibleWhen: (s) => s.templateSelection.specs },
-  { key: 'docs', name: 'docs/', kind: 'dir', indent: 1, annotation: '沉淀知识库' },
-  { key: 'docs-readme', name: 'README.md', kind: 'file', indent: 2, annotation: '沉淀规则', testId: 'project-tree-docs-readme', visibleWhen: (s) => s.templateSelection.issues },
-  { key: 'code', name: 'code/', kind: 'dir', indent: 1, annotation: '项目代码' },
-  { key: 'code-git', name: '.git/', kind: 'dir', indent: 2, success: true, annotation: '版本控制', visibleWhen: (s) => s.gitMode === 'code' },
-]
+export const NO_GIT_DESCRIPTION = '本机没装 Git，只能先跳过'

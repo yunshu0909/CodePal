@@ -1,11 +1,14 @@
 /**
- * 新建项目初始化业务逻辑
+ * 新建项目服务
  *
  * 负责：
- * - 创建前校验（名称/路径/模板/冲突）
- * - 执行初始化与安全回滚
+ * - 创建前校验（项目名称、放在哪、代码文件夹、Git 方式），错误带 field 方便界面落到对应输入框
+ * - 按共用清单（shared/projectInitManifest.mjs）生成整套目录与模板
+ * - 按 Git 方式建仓，每个仓做一次初始提交（分支 main）；Git 没配名字和邮箱时只建仓不提交
+ * - 任何一步失败都把本次新建的项目目录整个撤回
  * - Git 可用性检测
- * - 记忆协议拼接
+ *
+ * 项目目录必须事先不存在，所以撤回就是删掉本次建出来的那一个目录，不会碰到用户已有文件。
  *
  * @module electron/services/projectInitService
  */
@@ -16,50 +19,30 @@ const path = require('path')
 const { execFile } = require('child_process')
 const { promisify } = require('util')
 
+const manifest = require('../../shared/projectInitManifest.mjs')
+
 const execFileAsync = promisify(execFile)
 
+const INITIAL_COMMIT_MESSAGE = '初始化项目结构'
+const DEFAULT_BRANCH = 'main'
+const IDENT_ENV_KEYS = ['GIT_AUTHOR_NAME', 'GIT_AUTHOR_EMAIL', 'GIT_COMMITTER_NAME', 'GIT_COMMITTER_EMAIL', 'EMAIL']
+
 /**
- * 归一化模板勾选输入
- * 支持数组或对象两种输入，降低前后端联调耦合
- * @param {unknown} templates - 前端传入的模板勾选值
- * @param {string[]} templateKeys - 合法模板 key 列表
- * @param {string[]} defaultTemplateKeys - 默认模板 key 列表
- * @returns {string[]} 归一化后的模板 key 列表
+ * 生成一条校验错误
+ * @param {string} code - 错误码
+ * @param {string} message - 界面直接显示的一句话
+ * @param {string} [field] - 出错的输入：projectName / targetPath / codeDirName / gitMode
+ * @returns {{code: string, message: string, field?: string}}
  */
-function normalizeTemplateSelection(templates, templateKeys, defaultTemplateKeys) {
-  if (templates === undefined || templates === null) {
-    return [...defaultTemplateKeys]
-  }
-
-  if (Array.isArray(templates)) {
-    return templates.filter((key) => templateKeys.includes(key))
-  }
-
-  if (typeof templates === 'object') {
-    return templateKeys.filter((key) => Boolean(templates[key]))
-  }
-
-  return []
+function createValidationError(code, message, field) {
+  return field ? { code, message, field } : { code, message }
 }
 
 /**
- * 校验项目名称是否合法
- * @param {string} projectName - 项目名称
- * @param {RegExp} invalidChars - 非法字符正则
- * @returns {string|null} 错误码；合法返回 null
- */
-function validateProjectName(projectName, invalidChars) {
-  if (projectName.length === 0) return 'INVALID_PROJECT_NAME'
-  if (projectName === '.' || projectName === '..') return 'INVALID_PROJECT_NAME'
-  if (invalidChars.test(projectName)) return 'INVALID_PROJECT_NAME'
-  return null
-}
-
-/**
- * 检查路径是否具备指定访问权限
- * @param {string} checkPath - 要检查的路径
- * @param {number} mode - fs 权限常量（R_OK/W_OK）
- * @returns {Promise<boolean>} 是否可访问
+ * 路径是否具备指定访问权限
+ * @param {string} checkPath
+ * @param {number} mode - fs 权限常量（W_OK 等）
+ * @returns {Promise<boolean>}
  */
 async function hasAccess(checkPath, mode) {
   try {
@@ -71,95 +54,144 @@ async function hasAccess(checkPath, mode) {
 }
 
 /**
- * 找到给定路径最近的"已存在父目录"
- * 用于在目标路径不存在时判断是否具备创建权限
- * @param {string} targetPath - 目标路径
- * @param {(filepath: string) => Promise<boolean>} pathExists - 路径存在检查函数
- * @returns {Promise<string|null>} 最近已存在目录；找不到返回 null
+ * 路径是否存在
+ * @param {string} checkPath
+ * @returns {Promise<boolean>}
  */
-async function findNearestExistingDir(targetPath, pathExists) {
-  let currentPath = path.resolve(targetPath)
+async function pathExists(checkPath) {
+  try {
+    await fs.lstat(checkPath)
+    return true
+  } catch {
+    return false
+  }
+}
 
+/**
+ * 从给定路径往上找最近的已存在目录（目标路径不存在时判断能否创建）
+ * @param {string} targetPath
+ * @returns {Promise<string|null>}
+ */
+async function findNearestExistingDir(targetPath) {
+  let current = path.resolve(targetPath)
   while (true) {
-    if (await pathExists(currentPath)) {
-      try {
-        const stat = await fs.stat(currentPath)
-        if (stat.isDirectory()) {
-          return currentPath
-        }
-      } catch {
-        return null
+    if (await pathExists(current)) return current
+    const parent = path.dirname(current)
+    if (parent === current) return null
+    current = parent
+  }
+}
+
+/**
+ * 创建前校验
+ * @param {Object} params
+ * @param {string} params.projectName - 项目名称（外层文件夹名）
+ * @param {string} params.targetPath - 放在哪（可含 ~）
+ * @param {string} [params.codeDirName] - 代码文件夹名，空时为 code
+ * @param {string} [params.gitMode] - dual / code / none
+ * @param {(filepath: string) => string} expandHome - 家目录展开
+ * @returns {Promise<{valid: boolean, errors: Array, resolved: {projectRoot: string|null, codeDir: string, gitMode: string}}>}
+ */
+async function validateProjectInitParams(params, expandHome) {
+  const input = params && typeof params === 'object' ? params : {}
+  const projectName = typeof input.projectName === 'string' ? input.projectName.trim() : ''
+  const targetInput = typeof input.targetPath === 'string' ? input.targetPath.trim() : ''
+  const rawCodeDir = typeof input.codeDirName === 'string' ? input.codeDirName.trim() : ''
+  const codeDir = manifest.resolveCodeDir(rawCodeDir)
+  const gitMode = typeof input.gitMode === 'string' ? input.gitMode : manifest.DEFAULT_GIT_MODE
+  const errors = []
+
+  if (!manifest.isValidName(projectName)) {
+    errors.push(createValidationError('INVALID_PROJECT_NAME', '项目名称包含非法字符', 'projectName'))
+  }
+  if (!manifest.isValidName(codeDir)) {
+    errors.push(createValidationError('INVALID_CODE_DIR', '代码文件夹名包含非法字符', 'codeDirName'))
+  } else if (manifest.conflictsWithOuter(codeDir)) {
+    errors.push(createValidationError('CODE_DIR_CONFLICT', '不能和外层的文件或文件夹同名', 'codeDirName'))
+  }
+  if (!manifest.GIT_MODES.includes(gitMode)) {
+    errors.push(createValidationError('INVALID_GIT_MODE', 'Git 模式不受支持', 'gitMode'))
+  }
+  if (!targetInput) {
+    errors.push(createValidationError('INVALID_TARGET_PATH', '目标路径不能为空', 'targetPath'))
+  }
+
+  const targetPath = targetInput ? expandHome(targetInput) : null
+  let projectRoot = null
+
+  if (targetPath) {
+    if (await pathExists(targetPath)) {
+      const stat = await fs.stat(targetPath)
+      if (!stat.isDirectory()) {
+        errors.push(createValidationError('TARGET_PATH_NOT_DIRECTORY', '目标路径必须是目录', 'targetPath'))
+      } else if (!(await hasAccess(targetPath, fsConstants.W_OK))) {
+        errors.push(createValidationError('TARGET_PATH_NOT_WRITABLE', '目标路径不可写', 'targetPath'))
+      }
+    } else {
+      const nearest = await findNearestExistingDir(targetPath)
+      if (!nearest || nearest === path.parse(targetPath).root) {
+        errors.push(createValidationError('TARGET_PATH_NOT_FOUND', '目标路径及其父目录不存在', 'targetPath'))
+      } else if (!(await hasAccess(nearest, fsConstants.W_OK))) {
+        errors.push(createValidationError('TARGET_PATH_NOT_WRITABLE', '目标路径不可写', 'targetPath'))
       }
     }
-
-    const parentPath = path.dirname(currentPath)
-    if (parentPath === currentPath) {
-      return null
-    }
-    currentPath = parentPath
-  }
-}
-
-/**
- * 创建校验错误对象
- * @param {string} code - 错误码
- * @param {string} message - 人类可读错误信息
- * @param {Object} extra - 额外信息
- * @returns {{code: string, message: string, [key: string]: any}}
- */
-function createValidationError(code, message, extra = {}) {
-  return { code, message, ...extra }
-}
-
-/**
- * 创建执行步骤对象
- * @param {string} step - 步骤名称
- * @param {'success'|'failed'|'skipped'} status - 步骤状态
- * @param {string|null} pathValue - 目标路径
- * @param {string|null} code - 错误码
- * @param {string|null} message - 描述信息
- * @returns {{step: string, status: string, path: string|null, code: string|null, message: string|null, timestamp: string}}
- */
-function createStep(step, status, pathValue, code = null, message = null) {
-  return {
-    step,
-    status,
-    path: pathValue,
-    code,
-    message,
-    timestamp: new Date().toISOString(),
-  }
-}
-
-/**
- * 标准化未知错误对象
- * @param {unknown} error - 捕获到的异常
- * @param {string} defaultCode - 默认错误码
- * @param {string} defaultMessage - 默认错误信息
- * @returns {{code: string, message: string, path?: string}}
- */
-function normalizeExecutionError(error, defaultCode, defaultMessage) {
-  if (error && typeof error === 'object') {
-    const code = typeof error.code === 'string' ? error.code : defaultCode
-    const message = typeof error.message === 'string' ? error.message : defaultMessage
-    const pathValue = typeof error.path === 'string' ? error.path : undefined
-    return {
-      code,
-      message,
-      ...(pathValue ? { path: pathValue } : {}),
+    if (projectName && manifest.isValidName(projectName)) {
+      projectRoot = path.join(targetPath, projectName)
+      // 同名的文件或文件夹已存在（哪怕是空目录）都算冲突：不往已有目录里合并写
+      if (await pathExists(projectRoot)) {
+        errors.push(createValidationError('TARGET_CONFLICT', '目标路径存在冲突', 'projectName'))
+      }
     }
   }
 
-  return { code: defaultCode, message: defaultMessage }
+  return { valid: errors.length === 0, errors, resolved: { projectRoot, codeDir, gitMode } }
 }
 
 /**
- * 执行 Git 初始化
- * @param {string} cwdPath - 执行目录
- * @returns {Promise<void>}
+ * 运行 git 命令
+ * @param {string} cwd
+ * @param {string[]} args
+ * @param {Object} [env] - 额外环境变量（测试用临时 HOME）
+ * @returns {Promise<string>} stdout
  */
-async function runGitInit(cwdPath) {
-  await execFileAsync('git', ['init'], { cwd: cwdPath })
+async function runGit(cwd, args, env) {
+  const merged = { ...process.env, ...(env || {}) }
+  // 作者名 / 邮箱环境变量是空字符串时 Git 会报「empty ident」：空值当作没设置，交给 git config
+  for (const key of IDENT_ENV_KEYS) {
+    if (merged[key] === '') delete merged[key]
+  }
+  const { stdout } = await execFileAsync('git', args, { cwd, env: merged })
+  return stdout.trim()
+}
+
+/**
+ * 在目录里建仓，分支设成 main（Git 太旧不认 -b 时改用 symbolic-ref）
+ * @param {string} dir
+ * @param {Object} [env]
+ */
+async function initRepo(dir, env) {
+  try {
+    await runGit(dir, ['init', '-b', DEFAULT_BRANCH], env)
+  } catch {
+    await runGit(dir, ['init'], env)
+    await runGit(dir, ['symbolic-ref', 'HEAD', `refs/heads/${DEFAULT_BRANCH}`], env)
+  }
+}
+
+/**
+ * Git 是否配了提交用的名字和邮箱（在这个目录生效的配置）
+ * @param {string} dir
+ * @param {Object} [env]
+ * @returns {Promise<boolean>}
+ */
+async function hasCommitIdentity(dir, env) {
+  try {
+    const name = await runGit(dir, ['config', 'user.name'], env)
+    const email = await runGit(dir, ['config', 'user.email'], env)
+    return Boolean(name && email)
+  } catch {
+    return false
+  }
 }
 
 /**
@@ -175,388 +207,109 @@ async function checkGitAvailable() {
   }
 }
 
-/**
- * 将记忆协议追加到指引文件末尾
- * @param {string} guidFilePath - 已复制到目标位置的指引文件路径
- * @param {string} protocolSourcePath - 记忆协议源文件路径
- * @returns {Promise<void>}
- */
-async function appendMemoryProtocol(guidFilePath, protocolSourcePath) {
-  const protocolContent = await fs.readFile(protocolSourcePath, 'utf-8')
-  await fs.appendFile(guidFilePath, protocolContent, 'utf-8')
+/** 失败原因的中文说法：常见系统错误码转成一句话，其余用原始信息 */
+function describeError(error) {
+  const code = error && error.code
+  if (code === 'EACCES' || code === 'EPERM') return '目标路径不可写'
+  if (code === 'ENOSPC') return '磁盘空间不足'
+  if (code === 'EEXIST') return '目标路径存在冲突'
+  if (code === 'ENOENT' && error.path === undefined) return '没找到 Git'
+  return (error && error.message) || '未知错误'
 }
 
 /**
- * 执行创建前校验
- * @param {Object} params - 校验输入参数
- * @param {(filepath: string) => string} expandHome - 家目录展开函数
- * @param {(filepath: string) => Promise<boolean>} pathExists - 路径存在检查函数
- * @param {string} templateBaseDir - 模板根目录
- * @param {Object} config - 配置常量
- * @returns {Promise<{valid: boolean, data: Object, error: string|null}>}
+ * 生成项目：建目录、写模板、建仓、初始提交；失败整体撤回
+ * @param {Object} params - 同 validateProjectInitParams
+ * @param {Object} deps
+ * @param {(filepath: string) => string} deps.expandHome
+ * @param {string} deps.templateBaseDir - 模板目录（templates/project-init-v4）
+ * @param {Object} [deps.fsOps] - 可注入的 fs（测试制造写入失败用），默认 fs/promises
+ * @param {Object} [deps.gitEnv] - 额外 git 环境变量（测试用临时 HOME）
+ * @returns {Promise<{success: boolean, error: string|null, data: Object}>}
+ *   成功 data：{ projectPath, commit: 'done'|'skipped-no-identity'|'skipped-no-git' }
+ *   失败 data：{ errors }（校验没过）或 { failedStep, reason, rollback: {success, path} }
  */
-async function validateProjectInitParams(params, expandHome, pathExists, templateBaseDir, config) {
-  const {
-    TEMPLATE_DEFINITIONS,
-    TEMPLATE_KEYS,
-    DEFAULT_TEMPLATE_KEYS,
-    SUPPORTED_GIT_MODES,
-    PROJECT_NAME_INVALID_CHARS,
-    PLANNED_DIRECTORIES,
-  } = config
-
-  if (typeof params !== 'object' || params === null) {
-    return {
-      valid: false,
-      error: 'INVALID_PARAMETERS',
-      data: {
-        errors: [createValidationError('INVALID_PARAMETERS', '参数格式错误，必须为对象')],
-      },
-    }
+async function executeProjectInit(params, deps) {
+  const { expandHome, templateBaseDir, gitEnv } = deps
+  const ops = deps.fsOps || fs
+  const validation = await validateProjectInitParams(params, expandHome)
+  if (!validation.valid) {
+    return { success: false, error: 'VALIDATION_FAILED', data: { errors: validation.errors } }
   }
 
-  const rawProjectName = typeof params.projectName === 'string' ? params.projectName : ''
-  const projectName = rawProjectName.trim()
-  const rawTargetPath = typeof params.targetPath === 'string' ? params.targetPath : ''
-  const targetPathInput = rawTargetPath.trim()
-  const gitMode = typeof params.gitMode === 'string' ? params.gitMode : 'root'
-  const overwrite = Boolean(params.overwrite)
-  const selectedTemplates = normalizeTemplateSelection(params.templates, TEMPLATE_KEYS, DEFAULT_TEMPLATE_KEYS)
+  const { projectRoot, codeDir, gitMode } = validation.resolved
+  const projectName = path.basename(projectRoot)
+  const targetPath = path.dirname(projectRoot)
+  const targetExisted = await pathExists(targetPath)
+  let rootCreated = false
+  let step = `创建 ${projectName}/`
 
-  const errors = []
-  const warnings = []
-  const conflicts = []
+  try {
+    await ops.mkdir(targetPath, { recursive: true })
+    await ops.mkdir(projectRoot) // 不递归：同名目录这时才出现也会报错，绝不往已有目录里写
+    rootCreated = true
 
-  // 项目名称校验
-  const projectNameError = validateProjectName(projectName, PROJECT_NAME_INVALID_CHARS)
-  if (projectNameError) {
-    errors.push(createValidationError(projectNameError, '项目名称不能为空且不能包含非法字符', {
-      field: 'projectName',
-    }))
-  }
-
-  if (targetPathInput.length === 0) {
-    errors.push(createValidationError('INVALID_TARGET_PATH', '目标路径不能为空', {
-      field: 'targetPath',
-    }))
-  }
-
-  if (!SUPPORTED_GIT_MODES.has(gitMode)) {
-    errors.push(createValidationError('INVALID_GIT_MODE', 'Git 模式不受支持', {
-      field: 'gitMode',
-    }))
-  }
-
-  const expandedTargetPath = targetPathInput.length > 0 ? expandHome(targetPathInput) : null
-  const projectRoot = expandedTargetPath && projectName
-    ? path.join(expandedTargetPath, projectName)
-    : null
-
-  // 构建模板计划（仅 copy 型模板，排除 memoryProtocol）
-  const copyableTemplates = selectedTemplates.filter((key) => TEMPLATE_DEFINITIONS[key])
-  const templatePlans = copyableTemplates.map((templateKey) => {
-    const definition = TEMPLATE_DEFINITIONS[templateKey]
-    const sourcePath = path.join(templateBaseDir, definition.sourceFile)
-    const targetPath = projectRoot
-      ? path.join(projectRoot, ...definition.targetSegments)
-      : null
-    return { key: templateKey, type: definition.type || 'file', sourcePath, targetPath }
-  })
-
-  // 目标路径校验
-  if (expandedTargetPath) {
-    const targetExists = await pathExists(expandedTargetPath)
-    if (targetExists) {
-      const targetStat = await fs.stat(expandedTargetPath)
-      if (!targetStat.isDirectory()) {
-        errors.push(createValidationError('TARGET_PATH_NOT_DIRECTORY', '目标路径必须是目录', {
-          field: 'targetPath',
-          path: expandedTargetPath,
-        }))
-      } else {
-        const writable = await hasAccess(expandedTargetPath, fsConstants.W_OK)
-        if (!writable) {
-          errors.push(createValidationError('TARGET_PATH_NOT_WRITABLE', '目标路径不可写', {
-            field: 'targetPath',
-            path: expandedTargetPath,
-          }))
-        }
-      }
-    } else {
-      const nearestExistingDir = await findNearestExistingDir(expandedTargetPath, pathExists)
-      if (!nearestExistingDir) {
-        errors.push(createValidationError('TARGET_PATH_NOT_FOUND', '目标路径及其父目录不存在', {
-          field: 'targetPath',
-          path: expandedTargetPath,
-        }))
-      } else {
-        const writable = await hasAccess(nearestExistingDir, fsConstants.W_OK)
-        if (!writable) {
-          errors.push(createValidationError('TARGET_PATH_NOT_WRITABLE', '目标路径父目录不可写', {
-            field: 'targetPath',
-            path: nearestExistingDir,
-          }))
-        } else {
-          warnings.push({
-            code: 'TARGET_PATH_WILL_BE_CREATED',
-            message: '目标路径当前不存在，执行时将自动创建',
-            path: expandedTargetPath,
-          })
-        }
-      }
-    }
-  }
-
-  // 模板源文件校验
-  for (const plan of templatePlans) {
-    const sourceExists = await pathExists(plan.sourcePath)
-    if (!sourceExists) {
-      errors.push(createValidationError('TEMPLATE_NOT_FOUND', `模板源文件不存在: ${plan.key}`, {
-        template: plan.key,
-        path: plan.sourcePath,
-      }))
-      continue
-    }
-
-    const readable = await hasAccess(plan.sourcePath, fsConstants.R_OK)
-    if (!readable) {
-      errors.push(createValidationError('TEMPLATE_NOT_READABLE', `模板源文件不可读: ${plan.key}`, {
-        template: plan.key,
-        path: plan.sourcePath,
-      }))
-    }
-  }
-
-  // 冲突检测
-  const plannedDirectories = projectRoot
-    ? PLANNED_DIRECTORIES.map((dir) => path.join(projectRoot, dir))
-    : []
-
-  if (projectRoot && errors.length === 0) {
-    const projectRootExists = await pathExists(projectRoot)
-    if (projectRootExists) {
-      const rootStat = await fs.stat(projectRoot)
-      if (!rootStat.isDirectory()) {
-        errors.push(createValidationError('PROJECT_ROOT_NOT_DIRECTORY', '项目根路径已存在且不是目录', {
-          path: projectRoot,
-        }))
-      }
-    }
-
-    for (const dirPath of plannedDirectories) {
-      const exists = await pathExists(dirPath)
-      if (!exists) continue
-
-      const stat = await fs.stat(dirPath)
-      if (!stat.isDirectory()) {
-        conflicts.push({
-          type: 'DIRECTORY_CONFLICT',
-          path: dirPath,
-          message: '目标应为目录，但当前是文件',
-        })
-      }
-    }
-
-    for (const plan of templatePlans) {
-      if (!plan.targetPath) continue
-
-      const exists = await pathExists(plan.targetPath)
-      if (!exists) continue
-
-      const targetStat = await fs.stat(plan.targetPath)
-      if (targetStat.isDirectory()) {
-        conflicts.push({
-          type: 'DIRECTORY_CONFLICT',
-          path: plan.targetPath,
-          template: plan.key,
-          message: '目标位置已存在目录，无法写入同名文件',
-        })
+    for (const item of manifest.buildManifest({ gitMode, codeDir })) {
+      const dest = path.join(projectRoot, ...item.path.split('/'))
+      if (item.kind === 'dir') {
+        step = `创建 ${item.path}/`
+        await ops.mkdir(dest, { recursive: true })
         continue
       }
+      step = `写入 ${item.path}`
+      let content = await fs.readFile(path.join(templateBaseDir, ...item.source.split('/')), 'utf-8')
+      if (item.template) {
+        content = content.split('{{PROJECT_NAME}}').join(projectName).split('{{CODE_DIR}}').join(codeDir)
+      }
+      await ops.writeFile(dest, content, 'utf-8')
+    }
 
-      if (overwrite) {
-        warnings.push({
-          code: 'WILL_OVERWRITE_TARGET_FILE',
-          message: `将覆盖已存在文件: ${plan.key}`,
-          path: plan.targetPath,
-        })
+    let commit = 'skipped-no-git'
+    if (gitMode !== 'none') {
+      step = '建 Git 仓'
+      const codeRoot = path.join(projectRoot, codeDir)
+      const repos = gitMode === 'dual' ? [codeRoot, projectRoot] : [codeRoot]
+      for (const repo of repos) await initRepo(repo, gitEnv)
+
+      step = '初始提交'
+      if (await hasCommitIdentity(codeRoot, gitEnv)) {
+        for (const repo of repos) {
+          await runGit(repo, ['add', '-A'], gitEnv)
+          await runGit(repo, ['commit', '-m', INITIAL_COMMIT_MESSAGE], gitEnv)
+        }
+        commit = 'done'
       } else {
-        conflicts.push({
-          type: 'FILE_EXISTS',
-          path: plan.targetPath,
-          template: plan.key,
-          message: '目标文件已存在，且未开启覆盖',
-        })
+        commit = 'skipped-no-identity'
       }
     }
 
-    const hasBlockingConflict = conflicts.some((c) => (
-      c.type === 'DIRECTORY_CONFLICT' || c.type === 'FILE_EXISTS'
-    ))
-
-    if (hasBlockingConflict) {
-      errors.push(createValidationError('TARGET_CONFLICT', '目标路径存在冲突', { conflicts }))
-    }
-  }
-
-  const gitInitPath = projectRoot
-    ? (gitMode === 'root' ? projectRoot : (gitMode === 'code' ? path.join(projectRoot, 'code') : null))
-    : null
-
-  return {
-    valid: errors.length === 0,
-    error: errors.length === 0 ? null : 'VALIDATION_FAILED',
-    data: {
-      fields: {
-        projectName,
-        targetPath: targetPathInput,
-        gitMode,
-        overwrite,
-        templates: selectedTemplates,
-      },
-      resolvedPaths: { targetPath: expandedTargetPath, projectRoot, gitInitPath },
-      plannedDirectories,
-      templatePlans,
-      conflicts,
-      warnings,
-      errors,
-    },
-  }
-}
-
-/**
- * 执行安全回滚
- * @param {Object} params - 回滚参数
- * @param {Array<string>} params.createdFiles - 本次新建文件
- * @param {Array<string>} params.createdDirectories - 本次新建目录
- * @param {string|null} params.createdGitDir - 本次新建 Git 目录
- * @param {boolean} params.projectRootCreated - 项目根目录是否为本次创建
- * @param {string|null} params.projectRoot - 项目根目录
- * @param {Array<{path: string, content: Buffer}>} params.overwrittenSnapshots - 被覆盖文件快照
- * @param {(filepath: string) => Promise<boolean>} pathExists - 路径存在检查函数
- * @returns {Promise<{attempted: boolean, success: boolean, steps: Array, error: string|null}>}
- */
-async function runSafeRollback(params, pathExists) {
-  const {
-    createdFiles,
-    createdDirectories,
-    createdGitDir,
-    projectRootCreated,
-    projectRoot,
-    overwrittenSnapshots,
-    createdTrees = [],
-  } = params
-
-  const rollbackSteps = []
-  let rollbackSuccess = true
-
-  const hasAnythingToRollback = (
-    createdFiles.length > 0 ||
-    createdTrees.length > 0 ||
-    createdDirectories.length > 0 ||
-    Boolean(createdGitDir) ||
-    projectRootCreated ||
-    overwrittenSnapshots.length > 0
-  )
-
-  if (!hasAnythingToRollback) {
-    return { attempted: false, success: true, steps: rollbackSteps, error: null }
-  }
-
-  // 先恢复被覆盖文件
-  for (const snapshot of [...overwrittenSnapshots].reverse()) {
-    try {
-      await fs.writeFile(snapshot.path, snapshot.content)
-      rollbackSteps.push(createStep('ROLLBACK_RESTORE_FILE', 'success', snapshot.path, null, '已恢复覆盖前内容'))
-    } catch (error) {
-      rollbackSuccess = false
-      rollbackSteps.push(createStep('ROLLBACK_RESTORE_FILE', 'failed', snapshot.path, 'ROLLBACK_RESTORE_FAILED', error.message))
-    }
-  }
-
-  if (createdGitDir) {
-    try {
-      await fs.rm(createdGitDir, { recursive: true, force: true })
-      rollbackSteps.push(createStep('ROLLBACK_REMOVE_GIT_DIR', 'success', createdGitDir, null, '已移除新建 .git 目录'))
-    } catch (error) {
-      rollbackSuccess = false
-      rollbackSteps.push(createStep('ROLLBACK_REMOVE_GIT_DIR', 'failed', createdGitDir, 'ROLLBACK_GIT_REMOVE_FAILED', error.message))
-    }
-  }
-
-  for (const filePath of [...createdFiles].reverse()) {
-    try {
-      const exists = await pathExists(filePath)
-      if (exists) {
-        await fs.rm(filePath, { force: true })
-      }
-      rollbackSteps.push(createStep('ROLLBACK_REMOVE_FILE', 'success', filePath, null, '已移除新建文件'))
-    } catch (error) {
-      rollbackSuccess = false
-      rollbackSteps.push(createStep('ROLLBACK_REMOVE_FILE', 'failed', filePath, 'ROLLBACK_FILE_REMOVE_FAILED', error.message))
-    }
-  }
-
-  // 移除目录型模板拷入的整树（如 specs/）——在删单文件之后、删固定目录之前
-  for (const treePath of [...createdTrees].reverse()) {
-    try {
-      const exists = await pathExists(treePath)
-      if (exists) {
-        await fs.rm(treePath, { recursive: true, force: true })
-      }
-      rollbackSteps.push(createStep('ROLLBACK_REMOVE_TREE', 'success', treePath, null, '已移除新建目录树'))
-    } catch (error) {
-      rollbackSuccess = false
-      rollbackSteps.push(createStep('ROLLBACK_REMOVE_TREE', 'failed', treePath, 'ROLLBACK_TREE_REMOVE_FAILED', error.message))
-    }
-  }
-
-  for (const dirPath of [...createdDirectories].reverse()) {
-    try {
-      const exists = await pathExists(dirPath)
-      if (exists) {
-        await fs.rm(dirPath, { recursive: true, force: true })
-      }
-      rollbackSteps.push(createStep('ROLLBACK_REMOVE_DIR', 'success', dirPath, null, '已移除新建目录'))
-    } catch (error) {
-      rollbackSuccess = false
-      rollbackSteps.push(createStep('ROLLBACK_REMOVE_DIR', 'failed', dirPath, 'ROLLBACK_DIR_REMOVE_FAILED', error.message))
-    }
-  }
-
-  // 项目根目录仅在"本次新建"场景删除
-  if (projectRootCreated && projectRoot) {
-    try {
-      const exists = await pathExists(projectRoot)
-      if (exists) {
+    return { success: true, error: null, data: { projectPath: projectRoot, commit } }
+  } catch (error) {
+    const reason = describeError(error)
+    let rollbackOk = true
+    if (rootCreated) {
+      try {
         await fs.rm(projectRoot, { recursive: true, force: true })
+      } catch {
+        rollbackOk = false
       }
-      rollbackSteps.push(createStep('ROLLBACK_REMOVE_PROJECT_ROOT', 'success', projectRoot, null, '已移除本次新建项目根目录'))
-    } catch (error) {
-      rollbackSuccess = false
-      rollbackSteps.push(createStep('ROLLBACK_REMOVE_PROJECT_ROOT', 'failed', projectRoot, 'ROLLBACK_ROOT_REMOVE_FAILED', error.message))
     }
-  }
-
-  return {
-    attempted: true,
-    success: rollbackSuccess,
-    steps: rollbackSteps,
-    error: rollbackSuccess ? null : 'ROLLBACK_PARTIAL_FAILED',
+    if (!targetExisted) {
+      // 本次顺手建出来的「放在哪」目录如果还是空的，也一并撤掉
+      await fs.rmdir(targetPath).catch(() => {})
+    }
+    return {
+      success: false,
+      error: 'EXECUTION_FAILED',
+      data: { failedStep: step, reason, rollback: { success: rollbackOk, path: projectRoot } },
+    }
   }
 }
 
 module.exports = {
-  normalizeTemplateSelection,
-  validateProjectName,
-  hasAccess,
-  findNearestExistingDir,
+  INITIAL_COMMIT_MESSAGE,
   createValidationError,
-  createStep,
-  normalizeExecutionError,
-  runGitInit,
-  checkGitAvailable,
-  appendMemoryProtocol,
   validateProjectInitParams,
-  runSafeRollback,
+  executeProjectInit,
+  checkGitAvailable,
 }
