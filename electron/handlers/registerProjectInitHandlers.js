@@ -6,8 +6,7 @@
  * - 业务全部委托给 projectInitService，这里只做组装与异常兜底
  *
  * 返回形状：{ success, data, error }；校验通道另带 valid，便于界面实时判断。
- * 模板目录固定为 templates/<PROJECT_INIT_TEMPLATE_DIR>（config/projectInitConfig），不再用 main.js 传入的
- * templateBaseDir / pathExists（旧参数随旧模板目录在合并后单独清理）。
+ * 模板目录固定为 templates/<PROJECT_INIT_TEMPLATE_DIR>（config/projectInitConfig）。
  *
  * @module electron/handlers/registerProjectInitHandlers
  */

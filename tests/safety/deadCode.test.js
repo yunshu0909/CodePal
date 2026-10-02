@@ -40,6 +40,11 @@ const REMOVED_FILES = [
   'templates/project-init-v0.9',
   'templates/project-init-v1.2.5',
   'templates/project-init-v2',
+  // 新建项目重做（2026-10-02，specs/v2.1.6-新建项目）：旧模板与旧组件
+  'templates/project-init-v3',
+  'src/components/ProjectInitSuccessModal.jsx',
+  'src/pages/projectInit/ProjectTreePreview.jsx',
+  'src/styles/project-init.css',
   'scripts/repair-v17.js',
   'scripts/make-v17-test-snapshot.js',
   'scripts/network/runVpnDiagnosticsDemo.js',
@@ -73,7 +78,7 @@ describe('B2-2 死代码清理', () => {
   })
 
   it('D-2 仍在用的保留：k28 模板、组件预览页、分段控件', () => {
-    for (const keep of ['templates/k28-status-light', 'templates/project-init-v3', 'src/pages/ComponentPreviewPage.jsx', 'src/components/SegmentedControl/SegmentedControl.jsx']) {
+    for (const keep of ['templates/k28-status-light', 'templates/project-init-v4', 'src/pages/ComponentPreviewPage.jsx', 'src/components/SegmentedControl/SegmentedControl.jsx']) {
       expect(existsSync(path.join(root, keep))).toBe(true)
     }
   })

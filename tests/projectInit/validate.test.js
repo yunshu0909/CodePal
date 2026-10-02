@@ -7,7 +7,7 @@
  * @module tests/projectInit/validate
  */
 import { describe, it, expect, afterEach } from 'vitest'
-import { mkdirSync, chmodSync, existsSync } from 'node:fs'
+import { mkdirSync, chmodSync } from 'node:fs'
 // 共用小工具各测试文件各带一份（TDD 只允许声明过的测试文件在 RED 前出现）
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
@@ -15,7 +15,6 @@ import os from 'node:os'
 import path from 'node:path'
 
 const require = createRequire(import.meta.url)
-const root = path.resolve(__dirname, '..', '..')
 const tempDirs = []
 
 /** 新建一个临时目录，测试结束时 cleanupTemp() 统一删 */
@@ -42,16 +41,12 @@ const identity = (p) => p.replace(/^~(?=$|\/)/, os.homedir())
 
 afterEach(() => cleanupTemp())
 
-const exists = async (p) => existsSync(p)
-
-/** 新旧两种签名都能调：新版 (params, expandHome)，旧版多出 pathExists、模板目录与配置 */
+/** 调创建前校验，统一取出错误列表 */
 async function validate(params) {
   const svc = loadService()
   if (!svc) return null
-  let cfg = {}
-  try { cfg = require('../../electron/config/projectInitConfig.js') } catch { cfg = {} }
-  const res = await svc.validateProjectInitParams(params, identity, exists, path.join(root, 'templates', 'project-init-v3'), cfg)
-  return { valid: res.valid, errors: res.errors || res.data?.errors || [] }
+  const res = await svc.validateProjectInitParams(params, identity)
+  return { valid: res.valid, errors: res.errors }
 }
 
 const base = (dir, extra = {}) => ({ projectName: 'my-app', targetPath: dir, codeDirName: 'code', gitMode: 'dual', ...extra })

@@ -725,13 +725,11 @@ registerImportPageHandlers({
 })
 
 /**
- * 注册 V0.9 新建项目初始化相关 IPC handlers
+ * 注册新建项目相关 IPC handlers（模板目录由模块按 config/projectInitConfig 自己找）
  */
 registerProjectInitHandlers({
   ipcMain,
   expandHome,
-  pathExists,
-  templateBaseDir: path.resolve(__dirname, '..', 'templates', 'project-init-v3'),
 })
 
 // DSH 用量扫描放到独立进程：原生 zstd 解压在本机会因内存状态触发 SIGTRAP，
