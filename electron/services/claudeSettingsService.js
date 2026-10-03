@@ -175,7 +175,8 @@ function managedSettingsPaths() {
 /**
  * 读取托管设置（多个来源时后者覆盖前者）
  * @param {string[]} [paths] - 覆盖候选路径（测试注入用）；缺省走平台默认
- * @returns {Promise<Record<string, any>|null>} 无托管设置时返回 null
+ * @returns {Promise<{data: Record<string, any>|null, unknown: boolean}>} data 为合并后的托管设置（没有时为 null）；
+ *   unknown 为 true 表示有来源存在却读不出，无法判断是否被托管
  */
 async function readManagedSettings(paths = null) {
   let merged = null

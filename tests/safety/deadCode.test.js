@@ -205,3 +205,18 @@ describe('Skills 旧引擎退役（v2.1.9）', () => {
     expect(leftovers, 'ONE_ENGINE_REMOVED App 仍有后台导入 / 推送').toEqual([])
   })
 })
+
+// Skills 要处理（specs/v2.1.11-Skills要处理-实现）：#61 删掉的标签与用量组件留下的样式文件补登记（#61 延后项）
+const REMOVED_CSS_61 = [
+  'src/components/TagFilterChips/TagFilterChips.css',
+  'src/components/TagManagementModal/TagManagementModal.css',
+  'src/components/TagSelector/TagSelector.css',
+  'src/components/skillUsage/skillUsage.css',
+]
+
+describe('#61 删掉的样式文件不复活', () => {
+  it('TC-017 标签与用量组件的 4 个样式文件不存在', () => {
+    const still = REMOVED_CSS_61.filter((rel) => existsSync(path.join(root, rel)))
+    expect(still).toEqual([])
+  })
+})

@@ -2,7 +2,7 @@
 
 > AI 编程工具负责写代码，CodePal 负责写代码之外的一切 —— 用量与订阅、会话状态、对话回顾、Skills 管理、用别家模型开 Claude Code。专为 **Claude Code / Codex** 用户打造。
 
-[![macOS](https://img.shields.io/badge/macOS-Apple%20Silicon-black?logo=apple)](https://github.com/yunshu0909/CodePal/releases) [![version](https://img.shields.io/badge/version-v2.1.9-blue)](https://github.com/yunshu0909/CodePal/releases/latest) [![license](https://img.shields.io/badge/license-ISC-green)](#license)
+[![macOS](https://img.shields.io/badge/macOS-Apple%20Silicon-black?logo=apple)](https://github.com/yunshu0909/CodePal/releases) [![version](https://img.shields.io/badge/version-v2.1.11-blue)](https://github.com/yunshu0909/CodePal/releases/latest) [![license](https://img.shields.io/badge/license-ISC-green)](#license)
 
 <p align="center">
   <img src="docs/images/usage.webp" width="860" alt="CodePal 用量监测：按月历看每天用了多少 Token">
@@ -107,9 +107,10 @@ CodePal 按用途分 4 组：**用量账单 · 项目开发 · 技能中心 · �
 <p align="center"><img src="docs/images/skill-detail.webp" width="760" alt="Skill 详情：每个工具一个开关，近 30 天调用记录"></p>
 
 - **装载总览**：Claude Code、Codex 各装了几个 Skill、约占多少上下文 tokens，按来源拆开（自己开的 / claude.ai 同步 / Codex 自带）
-- 左栏按使用分组：近 30 天在用（按次数排）、外部、近 30 天没用，一眼看出哪些可以关
+- 左栏按使用分组：要处理、近 30 天在用（按次数排）、近 30 天没用，一眼看出哪些可以关；同一个工具里装了两份会标出来
+- **要处理**：项目里的 Skill、全局目录里资产库没有的、和资产库内容不一样的副本都列在这里，每一份写明在哪、和资产库差在哪几个文件；逐份**收进资产库**（不一样时自己选留哪一份）或**忽略**
+- 收进时原件先放进备份，**可以撤回**到收进之前；离开页面、重启 CodePal 都还能撤；中途断了能继续恢复，现场对不上就停下、不覆盖
 - 详情里每个工具一个开关，点了就生效，写完按工具自己的读法核对，**要么生效、要么失败并保留原状态**；Codex 开关走 Codex 官方接口
-- 「要处理」提醒：外部 Skill 没收进资产库、同一个工具里装了两份
 - 中央资产库统一存放 Skill，删除时资产库和各工具里的一起删
 
 ---
@@ -194,7 +195,6 @@ npm run dist:win    # Windows (x64) NSIS 安装包
 | Vite | ^7.3.1 | 前端构建 |
 | Vitest | ^4.0.18 | 单元测试 |
 | react-markdown | ^10.1.0 | 对话回顾、文档查阅的 Markdown 渲染 |
-| chokidar | ^4.0.3 | 文件监听（Skills 中央仓库） |
 | smol-toml | 1.9.0 | 按 TOML 语义读写 Codex 配置 |
 
 ---

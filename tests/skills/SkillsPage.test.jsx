@@ -170,12 +170,34 @@ async function renderPage(options) {
   return view
 }
 
-const listItem = (name) => screen.getAllByRole('option').find((item) => within(item).queryByText(name, { exact: true }))
+/** 左栏一条；不在当前页签就依次点页签去找（v2.1.11 左栏改页签） */
+const listItem = (name) => {
+  const find = () => screen.queryAllByRole('option').find((item) => within(item).queryByText(name, { exact: true }))
+  let hit = find()
+  for (const tab of screen.queryAllByRole('tab')) {
+    if (hit) break
+    fireEvent.click(tab)
+    hit = find()
+  }
+  return hit
+}
 const selectSkill = async (name) => {
   fireEvent.click(listItem(name))
   await screen.findByRole('heading', { name, level: 2 })
 }
 const detail = () => document.querySelector('.np-pane--detail')
+// v2.1.11 左栏页签：页签文字（名字 + 条数）、选中的页签、列表里当前列出的名字（遇到只读小标题前为止 / 之后）
+const tabTexts = () => screen.queryAllByRole('tab').map((tab) => tab.textContent)
+const currentTab = () => screen.queryAllByRole('tab').find((tab) => tab.getAttribute('aria-selected') === 'true')?.textContent
+const bodyNames = (container, part = 'before') => {
+  const out = { before: [], after: [] }
+  let side = 'before'
+  for (const node of container.querySelectorAll('.np-pane--list .np-pane-body > *')) {
+    if (node.classList.contains('np-lg')) side = 'after'
+    else if (node.getAttribute('role') === 'option') out[side].push(node.querySelector('b').textContent)
+  }
+  return out[part]
+}
 const toolRow = (label) => within(detail()).getAllByText(label, { exact: true }).map((node) => node.closest('.np-row')).find(Boolean)
 const toastText = async (text) => waitFor(() => expect(document.body.textContent).toContain(text))
 
@@ -201,7 +223,8 @@ afterEach(() => {
 })
 
 describe('外壳与列表', () => {
-  it('TC-014 NATIVE_SPLIT 新样式外壳、工具栏 Skills、没有旧按钮和数字格；左栏第一条装载总览选中；四个分组；右栏总览', async () => {
+  // v2.1.11（Skills 要处理）起「外部」组、栏头与全部收进资产库下线，全局目录里资产库没有的进「要处理」（tests/skills/inbox/InboxPage.test.jsx）
+  it('TC-014 NATIVE_SPLIT 新样式外壳、工具栏 Skills、没有旧按钮和数字格；左栏第一条装载总览选中；在用 / 没用两个页签，只读跟在没用末尾；右栏总览', async () => {
     const { container } = await renderPage()
     expect(container.querySelector('.page-shell--native')).not.toBeNull()
     expect(screen.getByRole('heading', { level: 1, name: 'Skills' })).toBeTruthy()
@@ -213,33 +236,25 @@ describe('外壳与列表', () => {
     const first = screen.getAllByRole('option')[0]
     expect(first.textContent).toContain('装载总览')
     expect(first.getAttribute('aria-selected')).toBe('true')
+    // v2.1.11 左栏页签（用户 10-03 定）：没有要处理时不出「要处理」，停在「在用」
+    expect(tabTexts()).toEqual(['在用3', '没用4'])
+    expect(currentTab()).toBe('在用3')
+    fireEvent.click(screen.getByRole('tab', { name: /没用/ }))
     const groups = [...container.querySelectorAll('.np-pane--list .np-lg')].map((node) => node.textContent)
-    expect(groups[0]).toMatch(/^在用 · 近 30 天\s*3$/)
-    expect(groups[1]).toMatch(/^外部\s*2$/)
-    expect(groups[2]).toMatch(/^近 30 天没用\s*4$/)
-    expect(groups[3]).toMatch(/^只读 · 同步来的和系统自带的\s*2$/)
+    expect(groups).toHaveLength(1)
+    expect(groups[0]).toMatch(/^只读 · 同步来的和系统自带的\s*2$/)
+    expect(groups.some((title) => title.startsWith('外部'))).toBe(false)
     expect(within(detail()).getByRole('heading', { level: 2, name: '装载总览' })).toBeTruthy()
   })
 
-  it('TC-015 GROUPING 在用按次数多到少；没在用里还在装载的排前；0 次不写；外部只含外部；只读含同步和系统；插件带的不出现', async () => {
+  it('TC-015 GROUPING 在用按次数多到少；没在用里还在装载的排前；0 次不写；只读含同步和系统；插件带的不出现', async () => {
     const { container } = await renderPage()
-    const names = (groupIndex) => {
-      const groupsNodes = [...container.querySelectorAll('.np-pane--list .np-lg')]
-      const start = groupsNodes[groupIndex]
-      const out = []
-      let node = start.nextElementSibling
-      while (node && !node.classList.contains('np-lg')) {
-        if (node.getAttribute('role') === 'option') out.push(node.querySelector('b').textContent)
-        node = node.nextElementSibling
-      }
-      return out
-    }
-    expect(names(0)).toEqual(['page-solution-design', 'viral-title', 'readable-output'])
-    expect(names(1)).toEqual(['baseplate-deck', 'slides-pec2026'])
-    const unused = names(2)
+    expect(bodyNames(container)).toEqual(['page-solution-design', 'viral-title', 'readable-output'])
+    fireEvent.click(screen.getByRole('tab', { name: /没用/ }))
+    const unused = bodyNames(container)
     expect(unused.slice(0, 3).sort()).toEqual(['logo-design', 'memory-init', 'weekly-report'])
     expect(unused[3]).toBe('aippt')
-    expect(names(3)).toEqual(['pptx', 'imagegen'])
+    expect(bodyNames(container, 'after')).toEqual(['pptx', 'imagegen'])
     expect(listItem('aippt').textContent).not.toMatch(/0\s*次/)
     expect(listItem('page-solution-design').textContent).toMatch(/7\s*次/)
     expect(screen.queryByText('dev-workflow:page-solution-design')).toBeNull()
@@ -247,7 +262,7 @@ describe('外壳与列表', () => {
 })
 
 describe('右栏', () => {
-  it('TC-016 OVERVIEW 两张工具卡与来源行；要处理：外部一行带全部收进、两份一行点了选中它', async () => {
+  it('TC-016 OVERVIEW 两张工具卡与来源行；要处理：两份一行点了选中它', async () => {
     await renderPage()
     const pane = detail()
     expect(pane.textContent).toContain('Claude Code')
@@ -257,8 +272,7 @@ describe('右栏', () => {
       expect(within(pane).getAllByText(label).length).toBeGreaterThan(0)
     }
     expect(within(pane).getByText('要处理')).toBeTruthy()
-    expect(within(pane).getByText('2 个外部 Skill 不在资产库')).toBeTruthy()
-    expect(within(pane).getByRole('button', { name: '全部收进资产库' })).toBeTruthy()
+    expect(within(pane).queryByRole('button', { name: '全部收进资产库' })).toBeNull()
     fireEvent.click(within(pane).getByText('Codex 里有两份，内容不一样'))
     await screen.findByRole('heading', { level: 2, name: 'logo-design' })
     expect(listItem('logo-design').getAttribute('aria-selected')).toBe('true')
@@ -280,18 +294,6 @@ describe('右栏', () => {
     expect(within(pane).getByText('~/.claude/skills/page-solution-design')).toBeTruthy()
     expect(within(pane).getByRole('button', { name: '删除' })).toBeTruthy()
     for (const gone of ['从 Claude Code 移除', '移除', '同步']) expect(within(pane).queryByRole('button', { name: gone })).toBeNull()
-  })
-
-  it('TC-018 EXTERNAL_DETAIL 外部 Skill：右上收进资产库；Codex 开关禁用并说明；位置多一行实际位置', async () => {
-    await renderPage()
-    await selectSkill('baseplate-deck')
-    const pane = detail()
-    expect(pane.textContent).toContain('外部，不在资产库')
-    expect(within(pane.querySelector('.np-pane-hd')).getByRole('button', { name: '收进资产库' })).toBeTruthy()
-    const codex = toolRow('Codex')
-    expect(within(codex).getByRole('switch').getAttribute('aria-disabled')).toBe('true')
-    expect(codex.textContent).toContain('收进资产库后才能装到 Codex')
-    expect(pane.textContent).toContain('→ /Users/me/Documents/projects/知识库/分享/PPT/skill/baseplate-deck')
   })
 
   it('TC-019 READONLY_DETAIL 只读 Skill：没有开关，装载中 + 去哪关；没有删除', async () => {
@@ -358,41 +360,6 @@ describe('动作', () => {
     await selectSkill('page-solution-design')
     fireEvent.click(within(toolRow('Claude Code')).getByRole('switch'))
     await toastText('操作失败，请检查工具目录权限')
-  })
-
-  it('TC-024 ADOPT 单个收进：收进中 → 成功移到用法组仍选中 / 失败；全部收进：全部成功 / 部分成功', async () => {
-    const adopted = snapshot({
-      skills: baseSkills().map((skill) => (skill.name === 'baseplate-deck'
-        ? { ...skill, managed: true, tools: { 'claude-code': on(), codex: none() }, locations: [loc('central', `${CENTRAL}/baseplate-deck`), loc('claude-code', '~/.claude/skills/baseplate-deck')] }
-        : skill)),
-    })
-    let finish
-    await renderPage({ execute: () => new Promise((resolve) => { finish = () => resolve({ success: true, data: {}, snapshot: adopted, error: null }) }) })
-    await selectSkill('baseplate-deck')
-    fireEvent.click(screen.getByRole('button', { name: '收进资产库' }))
-    await screen.findByRole('button', { name: '收进中…' })
-    expect(api.executeSkillCommand).toHaveBeenCalledWith(expect.objectContaining({ skillName: 'baseplate-deck', toolId: 'claude-code', action: 'adopt' }))
-    await act(async () => finish())
-    await toastText('已从 Claude Code 收进资产库：baseplate-deck')
-    expect(listItem('baseplate-deck').getAttribute('aria-selected')).toBe('true')
-    expect(detail().textContent).toContain('个人 · 近 30 天 1 次')
-
-    cleanup(); resetToastForTests()
-    await renderPage({ execute: async () => ({ success: false, error: 'COPY_FAILED', snapshot: null }) })
-    await selectSkill('baseplate-deck')
-    fireEvent.click(screen.getByRole('button', { name: '收进资产库' }))
-    await toastText('收进资产库失败，原外部 Skill 已保留')
-
-    cleanup(); resetToastForTests()
-    await renderPage()
-    fireEvent.click(screen.getByRole('button', { name: '全部收进资产库' }))
-    await toastText('已将 2 个外部 Skill 收进资产库')
-
-    cleanup(); resetToastForTests()
-    let calls = 0
-    await renderPage({ execute: async () => { calls += 1; return calls === 1 ? { success: true, snapshot: null } : { success: false, error: 'COPY_FAILED', snapshot: null } } })
-    fireEvent.click(screen.getByRole('button', { name: '全部收进资产库' }))
-    await toastText('已收进 1 个，0 个来源冲突、1 个失败')
   })
 
   it('TC-025 DELETE_FLOW 确认框；取消不调；确认后删除中 → 成功回总览；失败 Toast', async () => {
@@ -497,7 +464,7 @@ describe('状态', () => {
     expect(within(toolRow('Codex')).getByRole('switch').getAttribute('aria-disabled')).toBe('false')
   })
 
-  it('TC-028 EMPTY_LIBRARY 资产库为空：总览 + 一句 + 只读组；有外部 Skill 时外部组照常且能收进', async () => {
+  it('TC-028 EMPTY_LIBRARY 资产库为空：总览 + 一句 + 只读组', async () => {
     const onlyReadOnly = baseSkills().filter((skill) => ['pptx', 'imagegen'].includes(skill.name))
     const { container } = await renderPage({ snap: snapshot({ skills: onlyReadOnly }), usage: [] })
     expect(screen.getByText('资产库还没有 Skill')).toBeTruthy()
@@ -505,23 +472,18 @@ describe('状态', () => {
     expect(groups).toHaveLength(1)
     expect(groups[0]).toMatch(/^只读/)
 
-    cleanup()
-    const withExternal = baseSkills().filter((skill) => !skill.managed)
-    await renderPage({ snap: snapshot({ skills: withExternal }), usage: [] })
-    expect(screen.getByText('资产库还没有 Skill')).toBeTruthy()
-    expect(listItem('baseplate-deck')).toBeTruthy()
-    await selectSkill('baseplate-deck')
-    expect(screen.getByRole('button', { name: '收进资产库' })).toBeTruthy()
   })
 
-  it('TC-029 SEARCH 过滤名字和用途、命中字橙底、总览隐藏、右栏不变；无结果一句 + 清除搜索', async () => {
+  it('TC-029 SEARCH 过滤名字和用途、命中字橙底、三组一起列、总览常驻、页签变淡写搜到几个、右栏不变；无结果一句 + 清除搜索', async () => {
     const { container } = await renderPage()
     await selectSkill('page-solution-design')
     const input = screen.getByPlaceholderText('搜索名称和用途')
     fireEvent.change(input, { target: { value: 'PPT' } })
-    await waitFor(() => expect(screen.queryAllByRole('option').some((item) => item.textContent.includes('装载总览'))).toBe(false))
-    const shown = screen.getAllByRole('option').map((item) => item.querySelector('b').textContent)
-    expect(shown).toEqual(expect.arrayContaining(['aippt', 'baseplate-deck', 'slides-pec2026']))
+    // v2.1.11：装载总览常驻栏头（用户 10-03），搜索时页签变淡、数字换成搜到几个
+    await waitFor(() => expect(screen.getAllByRole('tab').every((tab) => tab.disabled)).toBe(true))
+    expect(screen.getAllByRole('option')[0].textContent).toContain('装载总览')
+    const shown = bodyNames(container).concat(bodyNames(container, 'after'))
+    expect(shown).toEqual(expect.arrayContaining(['aippt']))
     expect(shown).not.toContain('viral-title')
     expect(container.querySelector('.np-pane--list .np-hit')).not.toBeNull()
     expect(within(detail()).getByRole('heading', { level: 2, name: 'page-solution-design' })).toBeTruthy()
@@ -531,6 +493,7 @@ describe('状态', () => {
     fireEvent.click(screen.getByRole('button', { name: '清除搜索' }))
     await waitFor(() => expect(input.value).toBe(''))
     expect(screen.getAllByRole('option')[0].textContent).toContain('装载总览')
+    expect(screen.getAllByRole('tab').some((tab) => tab.disabled)).toBe(false)
   })
 
   it('TC-030 KEYBOARD ↑↓ 换选中；⌘F 聚焦搜索；Esc 清空搜索', async () => {
@@ -590,25 +553,25 @@ describe('状态', () => {
     await waitFor(() => expect(listItem('page-solution-design').textContent).toMatch(/8\s*次/))
   })
 
-  it('TC-042 USAGE_ERROR 次数读不出：写 —；详情一句 + 重试；资产库两组合成一组，外部、只读照常', async () => {
+  it('TC-042 USAGE_ERROR 次数读不出：写 —；详情一句 + 重试；资产库两组合成一组（只剩它时不出页签），只读照常', async () => {
     api = makeApi()
     api.aggregateSkillUsage = vi.fn(async () => ({ success: false, error: 'READ_FAILED' }))
     window.electronAPI = api
     const Page = await loadPage()
     const { container } = render(<Page />)
     await screen.findByText('装载总览', { selector: '.np-li b' })
+    // v2.1.11 页签：读不出次数时是「要处理 | 资产库」；这里没有要处理，只剩资产库一组，页签整排不出
     await waitFor(() => {
       const groups = [...container.querySelectorAll('.np-pane--list .np-lg')].map((node) => node.textContent)
-      expect(groups.map((text) => text.replace(/\s*\d+$/, ''))).toEqual(['资产库', '外部', '只读 · 同步来的和系统自带的'])
+      expect(groups.map((text) => text.replace(/\s*\d+$/, ''))).toEqual(['只读 · 同步来的和系统自带的'])
     })
-    expect(screen.getAllByRole('option').length).toBe(1 + baseSkills().length)
+    expect(screen.queryAllByRole('tab')).toHaveLength(0)
+    expect(screen.getAllByRole('option').length).toBe(1 + baseSkills().length - 2)
     await selectSkill('page-solution-design')
     expect(detail().textContent).toContain('个人 · 近 30 天 — 次')
     expect(within(detail()).getByText('调用数据读取失败')).toBeTruthy()
     fireEvent.click(within(detail()).getByRole('button', { name: '重试' }))
     await waitFor(() => expect(api.aggregateSkillUsage).toHaveBeenCalledTimes(2))
-    await selectSkill('baseplate-deck')
-    expect(screen.getByRole('button', { name: '收进资产库' })).toBeTruthy()
   })
 
   it('TC-043 SYNCED_ERROR_UI 同步目录读不出：只这一行写 — + 一句', async () => {

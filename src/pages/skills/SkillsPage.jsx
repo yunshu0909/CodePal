@@ -3,8 +3,11 @@
  *
  * 负责：
  * - 读快照（useSkillControl）与近 30 天次数（useSkillUsage），编排左栏列表与右栏总览 / 详情
- * - 开关、收进资产库（单个 / 全部）、删除、重新读取；结果一律走全局 toast，删除确认走 confirmDialog
+ * - 开关、删除、重新读取；结果一律走全局 toast，删除与撤回连带确认走 confirmDialog
  * - 开关失败的三种结局：已保留原状态 / 已按实际状态显示 / 当前状态读不出
+ * - Skills 要处理（v2.1.11，照定稿 specs/v2.1.10-Skills要处理与收进/Skills要处理-定稿/）：要处理的详情、收进确认框、
+ *   忽略、撤回、继续恢复、取消忽略，以及装载总览下的收进记录 / 已忽略 / 找到的项目三个视图；
+ *   各种结果（done / done-unverified / not-run / rolled-back / partial / needs-confirm）的提示与之后选中谁（E1–E3）
  * - 键盘：左栏 ↑↓（在 SkillList）、⌘F 聚焦搜索、Esc 清除搜索
  *
  * @module pages/skills/SkillsPage
@@ -19,15 +22,39 @@ import useSkillUsage from '../../hooks/useSkillUsage'
 import SkillList from './SkillList'
 import SkillOverview from './SkillOverview'
 import SkillDetail from './SkillDetail'
-import { OVERVIEW_ID, TOOLS, buildGroups, isExternal, toolStatus } from './skillsModel'
+import InboxDetail from './InboxDetail'
+import CollectDialog from './CollectDialog'
+import RecentOpsView from './RecentOpsView'
+import IgnoredView from './IgnoredView'
+import ProjectsView from './ProjectsView'
+import {
+  OVERVIEW_ID,
+  TOOLS,
+  VIEW_IDS,
+  buildGroups,
+  collectTargetOf,
+  groupOfSelected,
+  gateCollectTarget,
+  inboxId,
+  inboxItemsOf,
+  inboxNameOf,
+  isExternal,
+  isOverviewLike,
+  latestOperation,
+  resolveTab,
+  tabOfGroup,
+  tabOptionsOf,
+  toolStatus,
+  undoReasonText,
+  visibleTabsOf,
+} from './skillsModel'
 import './skills.css'
 
 const TOOL_LABEL = Object.fromEntries(TOOLS.map((tool) => [tool.id, tool.label]))
 
-/** 外部 Skill 从哪个工具收进来：唯一一个标成外部、可写的工具 */
-function adoptSourceTool(skill) {
-  const tools = Object.entries(skill.tools || {}).filter(([, state]) => state?.state === 'external' && state.mutable !== false)
-  return tools.length === 1 ? tools[0][0] : null
+/** 命令返回的新快照里，这个名字还在要处理里吗 */
+function stillInInbox(result, name) {
+  return inboxItemsOf(result?.snapshot || result?.data?.snapshot || null).some((item) => item.name === name)
 }
 
 /** 调用记录：选中一个 Skill 时读它近 30 天的记录 */
@@ -70,32 +97,64 @@ export default function SkillsPage({ refreshSignal = 0 }) {
     refresh,
     execute,
     setActivation,
-    adoptExternalSkill,
-    adoptExternalSkills,
   } = useSkillControl(refreshSignal)
   const [usageToken, setUsageToken] = useState(0)
-  const [adoptingAll, setAdoptingAll] = useState(false)
+  const [collectTarget, setCollectTarget] = useState(null)
   const searchRef = useRef(null)
 
   const skills = snapshot?.skills || []
+  const inbox = useMemo(() => inboxItemsOf(snapshot), [snapshot])
   const usageNames = useMemo(
     () => skills.filter((skill) => skill.managed || isExternal(skill)).map((skill) => skill.name).sort(),
     [skills],
   )
   const { status: usageStatus, usageMap } = useSkillUsage(usageNames, 30, usageToken)
   const usageFailed = usageStatus === 'error'
-  const groups = useMemo(() => buildGroups(skills, { usageMap, usageFailed, query: query.trim() }), [skills, usageMap, usageFailed, query])
-  const selectedSkill = selectedId === OVERVIEW_ID ? null : skills.find((skill) => skill.name === selectedId) || null
+  const groups = useMemo(() => buildGroups(skills, { usageMap, usageFailed, query: query.trim(), inbox }), [skills, usageMap, usageFailed, query, inbox])
+  // 左栏页签（2026-10-03 用户定）：出哪几个按不带搜索词的分组算；次数没读到时分不出在用 / 没用，先不定
+  const baseGroups = useMemo(() => buildGroups(skills, { usageMap, usageFailed, inbox }), [skills, usageMap, usageFailed, inbox])
+  const usageReady = usageStatus !== 'loading' || usageMap.size > 0
+  const searching = Boolean(query.trim())
+  const [chosenTab, setChosenTab] = useState(null)
+  const visibleTabs = useMemo(() => visibleTabsOf(baseGroups, usageFailed), [baseGroups, usageFailed])
+  const tab = snapshot ? resolveTab(chosenTab, baseGroups, usageFailed) : null
+  const tabOptions = useMemo(() => tabOptionsOf(visibleTabs, groups), [visibleTabs, groups])
+  const selectedInboxName = inboxNameOf(selectedId)
+  const selectedItem = selectedInboxName ? inbox.find((item) => item.name === selectedInboxName) || null : null
+  const selectedSkill = isOverviewLike(selectedId) || selectedInboxName ? null : skills.find((skill) => skill.name === selectedId) || null
   const records = useRecords(selectedSkill && (selectedSkill.managed || isExternal(selectedSkill)) ? selectedSkill.name : null, usageToken)
   // 详情沿用全局提示，避免为后台读取新增详情布局。
   useEffect(() => {
     if (selectedSkill && refreshState === 'error') toast.error('读取失败，下面是上次读到的结果')
   }, [selectedSkill, refreshState])
 
-  // 选中的 Skill 没了（删了）：回到总览
+  // 选中的没了：要处理的一条处理完了 → 资产库里有它就跟过去，没有回总览；Skill 删了 → 回总览
   useEffect(() => {
-    if (snapshot && selectedId !== OVERVIEW_ID && !skills.some((skill) => skill.name === selectedId)) setSelectedId(OVERVIEW_ID)
-  }, [snapshot, skills, selectedId, setSelectedId])
+    if (!snapshot || isOverviewLike(selectedId)) return
+    if (selectedInboxName) {
+      if (inbox.some((item) => item.name === selectedInboxName)) return
+      setSelectedId(skills.some((skill) => skill.name === selectedInboxName && skill.managed) ? selectedInboxName : OVERVIEW_ID)
+      return
+    }
+    if (!skills.some((skill) => skill.name === selectedId)) setSelectedId(OVERVIEW_ID)
+  }, [snapshot, skills, inbox, selectedId, selectedInboxName, setSelectedId])
+
+  // 第一次读到（含次数）时定下停在哪：有要处理先停要处理；之后要处理清空也不自己跳回来
+  useEffect(() => {
+    if (tab && usageReady && chosenTab === null) setChosenTab(tab)
+  }, [tab, usageReady, chosenTab])
+
+  // 选中项换了（收进后跟到资产库那条、总览点「要处理」、搜索里选中后清掉搜索）：页签跟过去，让选中的那行看得见。
+  // 只在选中项、搜索、读到与否变化时跟；后台刷新不把用户自己点的页签拉回去
+  const groupsRef = useRef(baseGroups)
+  groupsRef.current = baseGroups
+  const ready = Boolean(snapshot) && usageReady
+  useEffect(() => {
+    if (searching || !ready) return
+    const groupId = groupOfSelected(groupsRef.current, selectedId)
+    const next = groupId ? tabOfGroup(groupId, visibleTabsOf(groupsRef.current, usageFailed)) : null
+    if (next) setChosenTab(next)
+  }, [selectedId, searching, ready, usageFailed])
 
   // ⌘F / Ctrl+F 聚焦搜索框
   useEffect(() => {
@@ -137,35 +196,136 @@ export default function SkillsPage({ refreshSignal = 0 }) {
     toast.error(result.error === 'PERMISSION_DENIED' ? '操作失败，请检查工具目录权限' : '操作失败，已保留原状态')
   }, [setActivation, refresh])
 
-  const handleAdopt = useCallback(async (skill) => {
-    const toolId = adoptSourceTool(skill)
-    const result = toolId ? await adoptExternalSkill({ skillName: skill.name, toolId }) : { success: false }
-    if (result.success) {
-      toast.success(`已从 ${TOOL_LABEL[toolId]} 收进资产库：${skill.displayName || skill.name}`)
-      return
+  // 收进：确认框里点「收进」→ 执行 → 按结果关框、提示、决定选中谁（定稿 C3、C4、C14、E2）
+  const handleCollect = useCallback(async (item, copy, keep) => {
+    const result = await execute({
+      action: 'collect',
+      skillName: item.name,
+      toolId: copy.toolId,
+      sourceId: copy.sourceId,
+      keep,
+      expect: { sourceDigest: copy.digest, libraryDigest: item.libraryDigest ?? null },
+      pendingKey: `${item.name}:collect:${copy.sourceId}`,
+    })
+    const outcome = result?.data?.outcome
+    // 没执行：确认框留着（C4 ①）。内容变了：按返回的新快照更新框里的这一份和资产库版本，清空选择（C14）；
+    // 位置被占：写收不了；其余可重试的写原因
+    if (!result.success && outcome === 'not-run') {
+      if (result.error === 'CONTENT_CHANGED') {
+        let latest = result.snapshot || result.data?.snapshot || null
+        if (!latest) {
+          const reread = await refresh({ silent: true })
+          latest = reread?.success ? reread.data : null
+        }
+        const fresh = latest ? collectTargetOf(latest, item.name, copy.sourceId) : { item, copy }
+        if (!fresh) return { close: false, notice: { kind: 'retry', code: 'SOURCE_NOT_FOUND' } }
+        setCollectTarget(fresh)
+        return { close: false, notice: { kind: 'changed' } }
+      }
+      if (result.error === 'SLOT_OCCUPIED') return { close: false, notice: { kind: 'blocked' } }
+      return { close: false, notice: { kind: 'retry', code: result.error } }
     }
-    toast.error('收进资产库失败，原外部 Skill 已保留')
-  }, [adoptExternalSkill])
+    setCollectTarget(null)
+    if (result.success && outcome === 'done-unverified') {
+      notifyToast({ message: '已收进，但状态没读出来，请点「重新读取」', type: 'warning' })
+    } else if (result.success) {
+      toast.success(`已从 ${TOOL_LABEL[copy.toolId]} 收进资产库：${item.name}`)
+      if (!stillInInbox(result, item.name)) setSelectedId(item.name)
+    } else if (outcome === 'partial') {
+      toast.error('收进没做完，也没能全部恢复；请点「继续恢复」')
+    } else {
+      toast.error('收进失败，已恢复原样')
+    }
+    return { close: true }
+  }, [execute, refresh, setSelectedId])
 
-  const handleAdoptAll = useCallback(async () => {
-    const operations = []
-    let conflicts = 0
-    for (const skill of skills.filter(isExternal)) {
-      const toolId = adoptSourceTool(skill)
-      if (toolId) operations.push({ skillName: skill.name, toolId })
-      else conflicts += 1
-    }
-    setAdoptingAll(true)
-    const result = await adoptExternalSkills(operations)
-    setAdoptingAll(false)
-    const adopted = result.adopted?.length || 0
-    const failed = result.failed?.length || 0
-    if (failed === 0 && conflicts === 0) {
-      toast.success(`已将 ${adopted} 个外部 Skill 收进资产库`)
+  // 忽略一份：点即生效；这个名字处理完时选中要处理里的下一个（定稿 C5、E2）
+  const handleIgnore = useCallback(async (item, copy) => {
+    const order = inbox.map((entry) => entry.name)
+    const result = await execute({ action: 'ignore', skillName: item.name, sourceId: copy.sourceId, pendingKey: `${item.name}:ignore:${copy.sourceId}` })
+    if (!result.success) {
+      toast.error('操作失败，已保留原状态')
       return
     }
-    notifyToast({ message: `已收进 ${adopted} 个，${conflicts} 个来源冲突、${failed} 个失败`, type: failed > 0 ? 'error' : 'warning' })
-  }, [skills, adoptExternalSkills])
+    if (stillInInbox(result, item.name)) {
+      toast.success('已忽略 1 份')
+      return
+    }
+    toast.success(`已忽略 ${item.name}`)
+    const remaining = inboxItemsOf(result.snapshot || result.data?.snapshot)
+    const after = order.slice(order.indexOf(item.name) + 1).find((name) => remaining.some((entry) => entry.name === name))
+    const next = after || remaining[0]?.name
+    setSelectedId(next ? inboxId(next) : OVERVIEW_ID)
+  }, [execute, inbox, setSelectedId])
+
+  // 撤回：连带别的工具时先确认（定稿 C6、C7、C23）
+  const handleUndo = useCallback(async (op) => {
+    const run = (confirmed) => execute({
+      action: 'undo',
+      skillName: op.name,
+      operationId: op.operationId,
+      ...(confirmed ? { confirmed: true } : {}),
+      pendingKey: `${op.name}:undo:${op.operationId}`,
+    })
+    let result = await run(false)
+    if (result.success && result.data?.outcome === 'needs-confirm') {
+      const tools = (result.data.needsConfirm?.toolIds || []).map((toolId) => TOOL_LABEL[toolId]).join('、')
+      const ok = await confirmDialog({
+        title: `撤回 ${op.name}？`,
+        description: `${tools} 后来也打开了它。撤回后资产库里没有这一份了，${tools} 里也会没有它。`,
+        confirmText: '撤回',
+      })
+      if (!ok) return
+      result = await run(true)
+    }
+    if (result.success) {
+      toast.success(`已撤回 ${op.name}，原件放回原处`)
+      if (stillInInbox(result, op.name)) setSelectedId(inboxId(op.name))
+      return
+    }
+    if (result.data?.outcome === 'partial') {
+      toast.error('撤回没做完；请点「继续恢复」')
+      return
+    }
+    // 撤不了：什么都没动，原因写在卡和收进记录上（定稿 C7，不另弹提示）；别的失败照原文提示
+    if (!result.data?.reason) toast.error('操作失败，已保留原状态')
+  }, [execute, setSelectedId])
+
+  // 继续恢复没做完的收进或撤回（定稿 C20）
+  const handleResume = useCallback(async (op) => {
+    const result = await execute({ action: 'resume', skillName: op.name, operationId: op.operationId, pendingKey: `${op.name}:resume:${op.operationId}` })
+    if (result.success) {
+      toast.success('已恢复到收进之前')
+      return
+    }
+    toast.error(`恢复停住了：${undoReasonText(result.data?.reason, op.from?.toolId)}`)
+  }, [execute])
+
+  // 取消忽略：按范围重新判断（定稿 C8）
+  const handleUnignore = useCallback(async (entry) => {
+    const result = await execute({ action: 'unignore', skillName: entry.name, ignoreId: entry.ignoreId, pendingKey: `${entry.name}:unignore:${entry.ignoreId}` })
+    if (!result.success) {
+      toast.error('操作失败，已保留原状态')
+      return
+    }
+    const reason = result.data?.reason
+    if (reason === 'source-gone') notifyToast({ message: '这一份已经不在了，已删掉忽略记录', type: 'warning' })
+    else if (reason === 'same-as-library') toast.success('已取消忽略；它和资产库一样，可以在它的「启用」里换成链接')
+    else toast.success('已取消忽略，回到要处理')
+    const left = (result.snapshot || result.data?.snapshot)?.ignored
+    if (Array.isArray(left) && left.length === 0) setSelectedId(OVERVIEW_ID)
+  }, [execute, setSelectedId])
+
+  // 资产库已有的详情里「换成链接」：就是收进占着位置的那一份（一样的那种确认框）
+  const openGateCollect = useCallback((skill, toolId) => {
+    const gate = skill.gate?.[toolId]
+    if (!gate?.copy) return
+    setCollectTarget(gateCollectTarget(skill.name, gate))
+  }, [])
+
+  const openFirstInbox = useCallback(() => {
+    if (inbox[0]) setSelectedId(inboxId(inbox[0].name))
+  }, [inbox, setSelectedId])
 
   const handleDelete = useCallback(async (skill) => {
     const tools = TOOLS.filter((tool) => (skill.locations || []).some((location) => location.toolId === tool.id)).map((tool) => tool.label)
@@ -199,8 +359,32 @@ export default function SkillsPage({ refreshSignal = 0 }) {
   let detail
   if (failed) {
     detail = <div className="np-pane np-pane--detail"><div className="np-pane-empty">选一个 Skill 查看</div></div>
+  } else if (selectedId === VIEW_IDS.recent) {
+    detail = <RecentOpsView operations={snapshot?.operations || []} pendingKeys={pendingKeys} onUndo={handleUndo} onResume={handleResume} />
+  } else if (selectedId === VIEW_IDS.ignored) {
+    detail = <IgnoredView ignored={snapshot?.ignored || []} pendingKeys={pendingKeys} onUnignore={handleUnignore} />
+  } else if (selectedId === VIEW_IDS.projects) {
+    detail = <ProjectsView projects={snapshot?.projects} />
+  } else if (selectedItem) {
+    const libraryEntry = skills.find((skill) => skill.name === selectedItem.name && skill.managed) || null
+    const op = latestOperation(snapshot, selectedItem.name)
+    detail = (
+      <InboxDetail
+        item={selectedItem}
+        skill={libraryEntry}
+        snapshot={snapshot}
+        op={op}
+        pendingKeys={pendingKeys}
+        onCollect={(copy) => setCollectTarget({ item: selectedItem, copy })}
+        onIgnore={(copy) => handleIgnore(selectedItem, copy)}
+        onUndo={() => op && handleUndo(op)}
+        onResume={() => op && handleResume(op)}
+        onToggle={(toolId, enabled) => libraryEntry && handleToggle(libraryEntry, toolId, enabled)}
+        onFixGate={(toolId) => libraryEntry && openGateCollect(libraryEntry, toolId)}
+      />
+    )
   } else if (selectedSkill) {
-    const adoptTool = adoptSourceTool(selectedSkill)
+    const op = latestOperation(snapshot, selectedSkill.name)
     detail = (
       <SkillDetail
         skill={selectedSkill}
@@ -212,9 +396,12 @@ export default function SkillsPage({ refreshSignal = 0 }) {
         pluginNames={selectedSkill.managed ? selectedSkill.plugins || [] : []}
         pendingKeys={pendingKeys}
         onToggle={(toolId, enabled) => handleToggle(selectedSkill, toolId, enabled)}
-        onAdopt={() => handleAdopt(selectedSkill)}
-        adoptConflict={isExternal(selectedSkill) && !adoptTool}
-        adopting={Boolean(adoptTool && pendingKeys.has(`${selectedSkill.name}:${adoptTool}`))}
+        onFixGate={(toolId) => openGateCollect(selectedSkill, toolId)}
+        op={op}
+        showNext={inbox.length > 0 && !inbox.some((item) => item.name === selectedSkill.name)}
+        onUndo={() => op && handleUndo(op)}
+        onResume={() => op && handleResume(op)}
+        onNext={openFirstInbox}
         onDelete={() => handleDelete(selectedSkill)}
       />
     )
@@ -226,8 +413,8 @@ export default function SkillsPage({ refreshSignal = 0 }) {
         refreshState={refreshState}
         onRefresh={handleRefresh}
         onSelect={setSelectedId}
-        onAdoptAll={handleAdoptAll}
-        adoptingAll={adoptingAll}
+        onOpenInbox={openFirstInbox}
+        onOpenView={(view) => setSelectedId(VIEW_IDS[view])}
       />
     )
   }
@@ -239,6 +426,9 @@ export default function SkillsPage({ refreshSignal = 0 }) {
           status={status}
           snapshot={snapshot}
           groups={groups}
+          tabs={usageReady ? tabOptions : null}
+          tab={tab}
+          onTabChange={setChosenTab}
           selectedId={selectedId}
           onSelect={setSelectedId}
           query={query}
@@ -250,6 +440,16 @@ export default function SkillsPage({ refreshSignal = 0 }) {
         />
         {detail}
       </div>
+      {collectTarget && (
+        <CollectDialog
+          item={collectTarget.item}
+          copy={collectTarget.copy}
+          firstCollect={snapshot?.central?.exists === false}
+          libraryDisplay={snapshot?.central?.displayPath}
+          onCancel={() => setCollectTarget(null)}
+          onConfirm={(keep) => handleCollect(collectTarget.item, collectTarget.copy, keep)}
+        />
+      )}
     </PageShell>
   )
 }

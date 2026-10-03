@@ -3,22 +3,30 @@
  *
  * 负责：
  * - 栏头「HH:MM 读取」+「重新读取」（读取中 / 失败原位换字）
- * - 每个工具一张卡：装载的 Skill 数、约多少 tokens、来源色条与来源行（插件不算）
+ * - 每个工具一张卡：装载的 Skill 数、约多少 tokens、来源色条与来源行（插件不算）；资产库外装着的单列「不在资产库」一行
  * - 工具没找到 / 读不出 / 同步目录读不出的就地表达
- * - 「要处理」：外部 Skill 没收进（全部收进资产库）、同一工具装了两份（点了跳到它）
+ * - 第三块（v2.1.11）：N 个 Skill 要处理（点了选中第一个）、从 K 个项目里找到、收进记录 N 次、已忽略 N 份（各开一个右栏视图）；
+ *   同一工具装了两份（点了跳到它）；没有要处理时标题叫「找到的项目」
  *
  * @module pages/skills/SkillOverview
  */
 
 import React from 'react'
 import Button from '../../components/Button/Button'
-import { formatTokens, hasDuplicate, isExternal, syncedUnreadable, toolStatus } from './skillsModel'
+import { formatTokens, hasDuplicate, inboxItemsOf, isExternal, syncedUnreadable, toolStatus } from './skillsModel'
 import { ToolIcon } from './SkillDetail'
 
 const pad = (value) => String(value).padStart(2, '0')
 
 function ChevronIcon() {
   return <svg className="sk-chev" viewBox="0 0 10 10" aria-hidden="true"><path d="M3.5 2 6.5 5l-3 3" /></svg>
+}
+
+/** 「不在资产库」那一行的说明：要处理里还有就照定稿写；只剩忽略的只提已忽略；都没有只说收进后能开关 */
+function outsideNote(snapshot) {
+  if (inboxItemsOf(snapshot).length > 0) return '在「要处理」或「已忽略」里，收进后在这页开关'
+  if ((snapshot?.ignored || []).length > 0) return '在「已忽略」里，收进后在这页开关'
+  return '收进后在这页开关'
 }
 
 /**
@@ -59,8 +67,14 @@ function ToolCard({ toolId, label, snapshot, loading, onRetry }) {
   const readOnlyKey = toolId === 'claude-code' ? 'synced' : 'system'
   const readOnlyCount = load[readOnlyKey]
   const syncedBroken = toolId === 'claude-code' && syncedUnreadable(snapshot)
+  // 资产库外装着的（全局目录里资产库没有的）：收进前在这页没有开关，单列一行，个人只算资产库里的。
+  // 主进程不带要处理清单的旧快照没有这一层区分，照旧都算个人
+  const outside = snapshot?.inbox
+    ? (snapshot?.skills || []).filter((skill) => isExternal(skill) && skill.tools?.[toolId]?.enabled === true).length
+    : 0
   const rows = [
-    { key: 'personal', label: '个人', ds: '在这页开关', value: load.personal, seg: 'sk-seg-personal' },
+    { key: 'personal', label: '个人', ds: '在这页开关', value: Math.max(0, load.personal - outside), seg: 'sk-seg-personal' },
+    ...(outside > 0 ? [{ key: 'outside', label: '不在资产库', ds: outsideNote(snapshot), value: outside, seg: 'sk-seg-outside' }] : []),
     toolId === 'claude-code'
       ? { key: 'synced', label: 'claude.ai 同步', ds: syncedBroken ? 'claude.ai 同步的 Skill 读不出' : '在 claude.ai 的设置里关', bad: syncedBroken, value: syncedBroken ? '—' : readOnlyCount, seg: 'sk-seg-readonly' }
       : { key: 'system', label: '系统自带', ds: 'Codex 自带，关不了', value: readOnlyCount, seg: 'sk-seg-readonly' },
@@ -94,22 +108,44 @@ function ToolCard({ toolId, label, snapshot, loading, onRetry }) {
   )
 }
 
+/** 第三块里一行整行可点的记录 */
+function RecRow({ label, ds, onClick, end }) {
+  return (
+    <div
+      className="np-row np-row--rec"
+      role="button"
+      tabIndex={0}
+      onClick={onClick}
+      onKeyDown={(event) => { if (event.key === 'Enter') onClick() }}
+    >
+      <div className="lf"><div className="lb">{label}</div><div className="ds">{ds}</div></div>
+      <span className="np-rec-end">{end}<ChevronIcon /></span>
+    </div>
+  )
+}
+
 /**
  * @param {object} props
  * @param {object|null} props.snapshot
  * @param {boolean} props.loading - 首次读取中
  * @param {'idle'|'busy'|'error'} props.refreshState
  * @param {() => void} props.onRefresh
- * @param {(name: string) => void} props.onSelect
- * @param {() => void} props.onAdoptAll
- * @param {boolean} props.adoptingAll
+ * @param {(name: string) => void} props.onSelect - 点两份那一行：选中那个 Skill
+ * @param {() => void} props.onOpenInbox - 点「N 个 Skill 要处理」：选中第一个
+ * @param {(view: 'projects'|'recent'|'ignored') => void} props.onOpenView - 打开总览下的视图
  * @returns {JSX.Element}
  */
-export default function SkillOverview({ snapshot, loading, refreshState, onRefresh, onSelect, onAdoptAll, adoptingAll }) {
+export default function SkillOverview({ snapshot, loading, refreshState, onRefresh, onSelect, onOpenInbox, onOpenView }) {
   const readAt = snapshot?.generatedAt ? new Date(snapshot.generatedAt) : null
-  const externals = (snapshot?.skills || []).filter(isExternal)
   const duplicates = (snapshot?.skills || []).filter(hasDuplicate)
-  const todoCount = (externals.length > 0 ? 1 : 0) + duplicates.length
+  const items = inboxItemsOf(snapshot)
+  const copies = items.reduce((sum, item) => sum + (item.copies || []).length, 0)
+  const projects = snapshot?.projects || null
+  const found = projects?.found || []
+  const operations = snapshot?.operations || []
+  const ignored = snapshot?.ignored || []
+  const todoCount = items.length + duplicates.length
+  const showBlock = todoCount > 0 || Boolean(projects) || operations.length > 0 || ignored.length > 0
   const describeDuplicate = (skill) => {
     const toolId = Object.entries(skill.tools || {}).find(([, state]) => state?.duplicate)?.[0]
     return `${toolId === 'codex' ? 'Codex' : 'Claude Code'} 里有两份，内容不一样`
@@ -132,18 +168,31 @@ export default function SkillOverview({ snapshot, loading, refreshState, onRefre
         {refreshState === 'error' && <div className="np-errline sk-block">读取失败，下面是上次读到的结果</div>}
         <ToolCard toolId="claude-code" label="Claude Code" snapshot={snapshot} loading={loading} onRetry={onRefresh} />
         <ToolCard toolId="codex" label="Codex" snapshot={snapshot} loading={loading} onRetry={onRefresh} />
-        {!loading && todoCount > 0 && (
+        {!loading && showBlock && (
           <>
-            <div className="np-glabel">要处理<span className="cnt">{todoCount}</span></div>
+            {todoCount > 0
+              ? <div className="np-glabel">要处理<span className="cnt">{todoCount}</span></div>
+              : <div className="np-glabel">找到的项目</div>}
             <div className="np-card np-card--form">
-              {externals.length > 0 && (
-                <div className="np-row">
-                  <div className="lf">
-                    <div className="lb">{externals.length} 个外部 Skill 不在资产库</div>
-                    <div className="ds">{externals.map((skill) => skill.name).join('、')}</div>
-                  </div>
-                  <Button size="sm" className="np-btn" onClick={onAdoptAll} disabled={adoptingAll}>{adoptingAll ? '收进中…' : '全部收进资产库'}</Button>
-                </div>
+              {items.length > 0 && (
+                <RecRow
+                  label={`${items.length} 个 Skill 要处理`}
+                  ds={`${copies} 份，在全局目录和 ${found.length} 个项目里；左栏「要处理」逐个看`}
+                  onClick={onOpenInbox}
+                />
+              )}
+              {projects && (
+                <RecRow
+                  label={`从 ${found.length} 个项目里找到`}
+                  ds={`看了你用 Claude Code、Codex 打开过的 ${projects.scanned} 个目录`}
+                  onClick={() => onOpenView('projects')}
+                />
+              )}
+              {operations.length > 0 && (
+                <RecRow label={`收进记录 ${operations.length} 次`} ds="收进过的都在这里，可以撤回" onClick={() => onOpenView('recent')} />
+              )}
+              {ignored.length > 0 && (
+                <RecRow label={`已忽略 ${ignored.length} 份`} ds="不再出现在要处理里，点开可以取消忽略" onClick={() => onOpenView('ignored')} />
               )}
               {duplicates.map((skill) => (
                 <div

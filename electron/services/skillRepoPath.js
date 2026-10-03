@@ -43,8 +43,11 @@ async function readConfigAt(repoPath, homeDir, deps) {
   }
   try {
     const config = JSON.parse(text)
-    const value = config && typeof config === 'object' && typeof config.repoPath === 'string' && config.repoPath ? config.repoPath : null
-    return { state: 'ok', repoPath: value }
+    const isObject = config && typeof config === 'object'
+    const value = isObject && typeof config.repoPath === 'string' && config.repoPath ? config.repoPath : null
+    // 显式写成空字符串或 null（和「没写」不同）：旧版退回这一层自己的位置
+    const explicitEmpty = Boolean(isObject && Object.prototype.hasOwnProperty.call(config, 'repoPath') && (config.repoPath === '' || config.repoPath === null))
+    return { state: 'ok', repoPath: value, explicitEmpty }
   } catch {
     return { state: 'failed', repoPath: null }
   }
@@ -60,7 +63,10 @@ async function readConfigAt(repoPath, homeDir, deps) {
 async function resolveSkillRepoPath({ homeDir }, deps = {}) {
   const anchored = normalizeRepoPath((await readConfigAt(DEFAULT_REPO_PATH, homeDir, deps)).repoPath)
   if (anchored === DEFAULT_REPO_PATH) return DEFAULT_REPO_PATH
-  return normalizeRepoPath((await readConfigAt(anchored, homeDir, deps)).repoPath)
+  const second = await readConfigAt(anchored, homeDir, deps)
+  // 第二层配置里 repoPath 显式写成空字符串或 null：退回这一层自己的位置（旧版规则，#61 审核延后项）
+  if (second.explicitEmpty) return anchored
+  return normalizeRepoPath(second.repoPath)
 }
 
 module.exports = { DEFAULT_REPO_PATH, resolveSkillRepoPath }

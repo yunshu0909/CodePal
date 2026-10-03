@@ -2,6 +2,7 @@
  * Skill 控制中心状态 Hook
  * - 从本次运行共享缓存订阅，回访第一帧显示最近结果，再核对实际状态
  * - 所有读取和命令由同一协调器处理，卸载仅退订，不丢失进行中的操作
+ * - 命令只传名字、工具、动作和各种 ID；资产库路径由主进程解析（v2.1.11）
  * @module hooks/useSkillControl
  */
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
@@ -34,9 +35,10 @@ export default function useSkillControl(refreshSignal = 0) {
     return { repoPath: resolvedPath, target: cache.entry(resolvedPath) }
   }, [cache])
 
-  const load = useCallback((path) => {
+  // 资产库路径由主进程自己按配置解析（v2.1.11 起不再从页面传）；页面这边的路径只用来区分缓存
+  const load = useCallback(() => {
     if (!api?.getSkillControlSnapshot) return Promise.resolve({ success: false, error: 'API_NOT_AVAILABLE' })
-    return api.getSkillControlSnapshot({ repoPath: path, projectRoots: [] })
+    return api.getSkillControlSnapshot({})
   }, [api])
 
   const resolveActiveContext = useCallback(() => hintRef.current
@@ -47,7 +49,7 @@ export default function useSkillControl(refreshSignal = 0) {
     try {
       const resolved = resolveActiveContext()
       const context = resolved?.then ? await resolved : resolved
-      return await cache.refresh(context.target, () => load(context.repoPath), { acceptWriteSnapshot })
+      return await cache.refresh(context.target, () => load(), { acceptWriteSnapshot })
     } catch (error) {
       return cache.refresh(cache.entry(null), () => ({ success: false, error: error?.message || 'SKILL_CONTROL_SCAN_FAILED' }))
     }
@@ -59,14 +61,14 @@ export default function useSkillControl(refreshSignal = 0) {
     return () => { mounted.current = false }
   }, [refresh, refreshSignal])
 
-  const execute = useCallback(async ({ skillName, toolId, action, source, ...options }) => {
+  const execute = useCallback(async ({ skillName, toolId, action, source, pendingKey, ...options }) => {
     try {
       const context = await resolveActiveContext()
-      const result = await cache.execute(context.target, `${skillName}:${toolId}`, () => {
+      const result = await cache.execute(context.target, pendingKey || `${skillName}:${toolId}`, () => {
         if (!api?.executeSkillCommand) return { success: false, error: 'API_NOT_AVAILABLE' }
-        return api.executeSkillCommand({ repoPath: context.repoPath, skillName, toolId, action, source, projectRoots: [], ...options })
+        return api.executeSkillCommand({ skillName, toolId, action, source, ...options })
       })
-      if (result.success && !result.snapshot) await cache.refresh(context.target, () => load(context.repoPath))
+      if (result.success && !result.snapshot) await cache.refresh(context.target, () => load())
       return result
     } catch (error) {
       return { success: false, error: error?.message || 'SKILL_CONTROL_COMMAND_FAILED' }
@@ -83,21 +85,5 @@ export default function useSkillControl(refreshSignal = 0) {
     action: enabled ? 'enable' : 'disable',
   }), [execute])
 
-  const adoptExternalSkill = useCallback(async ({ skillName, toolId, source }) => {
-    const result = await execute({ skillName, toolId, source: source || { origin: 'user', mutable: true }, action: 'adopt' })
-    return result.success ? { ...result, adopted: [{ skillName, toolId }] } : { ...result, adopted: [], failed: [{ skillName, toolId, error: result.error }] }
-  }, [execute])
-
-  const adoptExternalSkills = useCallback(async (items) => {
-    const adopted = []
-    const failed = []
-    for (const item of Array.isArray(items) ? items : []) {
-      const result = await adoptExternalSkill(item)
-      if (result.success) adopted.push(item)
-      else failed.push({ ...item, error: result.error })
-    }
-    return { success: failed.length === 0, adopted, failed }
-  }, [adoptExternalSkill])
-
-  return { ...state, refresh, execute, setQuery, setSelectedId, setActivation, adoptExternalSkill, adoptExternalSkills }
+  return { ...state, refresh, execute, setQuery, setSelectedId, setActivation }
 }

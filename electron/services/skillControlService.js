@@ -9,8 +9,13 @@
  * - 快照带每个工具的装载汇总（Skill 数 + 约多少 tokens，插件不算）、同一工具两份、每个位置的完整路径
  * - 删除：资产库和各工具里指向它的那份一起删，任何一步失败全部恢复
  * - 每一份来源带不含路径的 sourceId；命令带 sourceId 时只对那一份来源操作（收进、停用），启用和删除不支持按来源
- * - 动到 Codex 的写操作（toolId 为 codex，或删除时为 all）在所有拒绝检查通过之后、真正写入之前调用调用方给的
- *   补关钩子（beforeCodexWriteFn）；被拒绝的操作（来源找不到、只读、要删的不在资产库、要收的已在资产库或原件不在）不调用
+ * - 动到 Codex 的写操作（toolId 为 codex，删除时为 all 或 Codex 目录里有它）在所有拒绝检查通过之后、真正写入之前
+ *   调用调用方给的补关钩子（beforeCodexWriteFn）；被拒绝的操作（来源找不到、只读、要删的不在资产库、要收的已在资产库或原件不在、
+ *   只有只读来源的启用）不调用
+ * - Skills 要处理（v2.1.11）：快照多要处理清单、找到的项目、已忽略、收进记录与资产库已有的占位原因（gate）；
+ *   命令多收进 / 忽略 / 取消忽略 / 撤回 / 继续恢复（实现在 electron/modules/skills/）；工具的全局位置被占着时不能启用；
+ *   名字下有没做完的收进或撤回时这个名字的写操作一律先停着
+ * - 单个操作后的读取可以只重读动到的名字和工具（params.only + overrides.discoveryCache），其余沿用上次读到的结果
  *
  * @module electron/services/skillControlService
  */
@@ -107,13 +112,19 @@ async function buildSkillManifest(skillPath, deps = {}) {
   return { hash: digest.digest('hex'), fileCount, directoryCount, totalBytes }
 }
 
-/** 扫描一个只包含 Skill 子目录的根目录。 */
-async function scanSkillRoot(basePath, deps = {}) {
+/**
+ * 扫描一个只包含 Skill 子目录的根目录。
+ * @param {string} basePath
+ * @param {object} [deps]
+ * @param {Set<string>|null} [names] - 只扫这几个名字（单个操作后只重读动到的那一个）
+ */
+async function scanSkillRoot(basePath, deps = {}, names = null) {
   try {
     const entries = await (deps.readdirFn || fs.readdir)(basePath, { withFileTypes: true })
     const candidates = entries
       .filter((entry) => entry.isDirectory() || entry.isSymbolicLink())
       .filter((entry) => isSafeSkillName(entry.name))
+      .filter((entry) => !names || names.has(entry.name))
       .sort((left, right) => left.name.localeCompare(right.name))
     const skills = new Map()
     for (const entry of candidates) {
@@ -333,29 +344,64 @@ function buildLoad(toolId, sources, errors) {
   return load
 }
 
+/**
+ * 资产库扫描：全量，或只重读几个名字再并进上次的结果
+ * @returns {Promise<{available: boolean, exists: boolean, error: string|null, skills: Map}>}
+ */
+async function scanCentral(repoPath, overrides, only, cache) {
+  if (!only) return scanSkillRoot(repoPath, overrides)
+  const fresh = await scanSkillRoot(repoPath, overrides, new Set(only.names))
+  if (!fresh.available) return fresh
+  const skills = new Map([...cache.central.skills].filter(([name]) => !only.names.includes(name)))
+  for (const [name, skill] of fresh.skills) skills.set(name, skill)
+  return { ...fresh, exists: fresh.exists, skills: new Map([...skills].sort(([a], [b]) => a.localeCompare(b))) }
+}
+
+/**
+ * 一个工具的发现结果：全量，或只重读几个名字并进上次的结果，或这次没动到就沿用上次的
+ */
+async function discoverTool(toolId, adapter, discoverParams, overrides, only, cache) {
+  const cached = cache?.tools?.[toolId]
+  if (only && cached && !only.toolIds.includes(toolId)) return cached
+  try {
+    const names = only && cached ? new Set(only.names) : null
+    const result = await adapter.discover({ ...discoverParams, ...(names ? { names } : {}) }, overrides)
+    // 双重边界保护：即使未来某个 adapter 意外返回 Plugin 子 Skill，也不进入 Skill 控制中心。
+    const fresh = {
+      toolId,
+      sources: (result?.sources || []).filter((source) => source.origin !== 'plugin'),
+      errors: (result?.errors || []).filter((error) => error.origin !== 'plugin'),
+      pluginSkills: Array.isArray(result?.pluginSkills) ? result.pluginSkills : [],
+      listed: result?.listed === undefined ? undefined : result.listed,
+    }
+    if (!names) return fresh
+    return {
+      ...fresh,
+      sources: [...cached.sources.filter((source) => !names.has(source.name)), ...fresh.sources],
+      pluginSkills: cached.pluginSkills,
+      listed: fresh.listed === undefined || fresh.listed === null ? cached.listed : fresh.listed,
+    }
+  } catch (error) {
+    return { toolId, sources: [], errors: [{ origin: 'tool', code: mapFsError(error) }] }
+  }
+}
+
 /** 聚合中央仓库、Codex 与 Claude Code 的中立 Skill 快照。 */
 async function getSkillControlSnapshot(params = {}, overrides = {}) {
   const homeDir = params.homeDir || overrides.homeDir || os.homedir()
   const repoPath = expandHome(params.repoPath, homeDir)
   if (typeof repoPath !== 'string' || !repoPath) throw codedError('INVALID_REPO_PATH')
-  const central = await scanSkillRoot(repoPath, overrides)
+  const cache = overrides.discoveryCache || null
+  // 只重读几个名字：要有同一个资产库的上次完整结果才行，否则照常全量读
+  const only = params.only && cache?.repoPath === repoPath && cache.central ? params.only : null
+  const central = await scanCentral(repoPath, overrides, only, cache)
   if (!central.available) throw codedError(central.error || 'CENTRAL_REPO_UNAVAILABLE')
   const adapters = loadAdapters(overrides)
   const discoverParams = { homeDir, projectRoots: params.projectRoots || [], repoPath }
-  const results = await Promise.all(Object.entries(adapters).map(async ([toolId, adapter]) => {
-    try {
-      const result = await adapter.discover(discoverParams, overrides)
-      // 双重边界保护：即使未来某个 adapter 意外返回 Plugin 子 Skill，也不进入 Skill 控制中心。
-      return [toolId, {
-        toolId,
-        sources: (result?.sources || []).filter((source) => source.origin !== 'plugin'),
-        errors: (result?.errors || []).filter((error) => error.origin !== 'plugin'),
-        pluginSkills: Array.isArray(result?.pluginSkills) ? result.pluginSkills : [],
-      }]
-    } catch (error) {
-      return [toolId, { toolId, sources: [], errors: [{ origin: 'tool', code: mapFsError(error) }] }]
-    }
-  }))
+  const results = await Promise.all(Object.entries(adapters).map(async ([toolId, adapter]) => [
+    toolId,
+    await discoverTool(toolId, adapter, discoverParams, overrides, only, cache),
+  ]))
 
   const discovery = Object.fromEntries(results)
   const errors = results.flatMap(([toolId, result]) => result.errors.map((item) => ({ toolId, ...item })))
@@ -460,12 +506,59 @@ async function getSkillControlSnapshot(params = {}, overrides = {}) {
     skill.locations = locations
   }
 
+  // Skills 要处理：找到的项目、清单、占位原因、已忽略、收进记录
+  const inboxModule = require('../modules/skills/inboxScan')
+  const { discoverProjects } = require('../modules/skills/projectDiscovery')
+  const { readIgnores } = require('../modules/skills/ignoreStore')
+  const { describeOperations } = require('../modules/skills/collectService')
+  const projects = only && cache.projects ? cache.projects : await discoverProjects({ homeDir }, overrides)
+  const ignores = await readIgnores(homeDir)
+  const claudeOverrides = new Map((discovery['claude-code']?.sources || []).map((source) => [source.name, source.overrideState]))
+  const codexListed = discovery.codex?.listed === undefined ? [] : discovery.codex.listed
+  const inboxParams = { homeDir, repoPath, projects, ignores, claudeOverrides, codexListed }
+  let inbox
+  if (only && cache.inbox) {
+    const fresh = await inboxModule.buildInbox({ ...inboxParams, names: only.names }, overrides)
+    inbox = inboxModule.mergeInbox(cache.inbox, fresh, only.names, projects)
+  } else {
+    inbox = await inboxModule.buildInbox(inboxParams, overrides)
+  }
+  const operations = await describeOperations({ homeDir, repoPath, deps: overrides }, only && cache.operations
+    ? { names: only.names, cached: new Map(cache.operations.map((op) => [op.operationId, op])) }
+    : {})
+  for (const skill of skills) {
+    if (skill.managed && inbox.gates[skill.name]) skill.gate = inbox.gates[skill.name]
+  }
+  if (cache) {
+    Object.assign(cache, {
+      repoPath,
+      central,
+      tools: Object.fromEntries(results),
+      projects,
+      inbox,
+      operations,
+    })
+  }
+
   const managedSkills = skills.filter((skill) => skill.managed)
+  const repoDisplay = `${displayPath(repoPath.replace(/\/+$/, ''), homeDir)}/`
   return {
     generatedAt: new Date().toISOString(),
     partial: errors.length > 0,
     errors,
-    central: { available: true, exists: central.exists, skillCount: central.skills.size },
+    central: { available: true, exists: central.exists, skillCount: central.skills.size, displayPath: repoDisplay },
+    inbox: { items: inbox.items },
+    projects: inbox.projects,
+    ignored: ignores.map((entry) => ({
+      ignoreId: entry.ignoreId,
+      name: entry.name,
+      toolId: entry.toolId,
+      scope: entry.scope,
+      projectName: entry.projectName,
+      displayPath: entry.displayPath,
+      stillLoaded: entry.scope === 'global',
+    })),
+    operations,
     tools,
     skills,
     summary: {
@@ -531,38 +624,135 @@ async function deleteSkillEverywhere({ repoPath, homeDir, skillName }, deps = {}
   return { success: true, deleted: targets.map((target) => displayPath(target, homeDir)) }
 }
 
+/**
+ * 要处理里的一份：按名字只扫这个名字，按 sourceId 取（含已忽略、全局一样的那份）
+ * @returns {Promise<object|null>} 带绝对路径的内部记录
+ */
+async function findInboxCopy({ homeDir, repoPath }, name, sourceId, deps = {}) {
+  if (!isSafeSkillName(name) || typeof sourceId !== 'string') return null
+  const { discoverProjects } = require('../modules/skills/projectDiscovery')
+  const { buildInbox } = require('../modules/skills/inboxScan')
+  const { readIgnores } = require('../modules/skills/ignoreStore')
+  const projects = await discoverProjects({ homeDir }, deps)
+  const inbox = await buildInbox({ homeDir, repoPath, projects, ignores: await readIgnores(homeDir), names: [name] }, deps)
+  return inbox.copiesById.get(sourceId) || null
+}
+
+/** 忽略一份：只记下来，不动文件、不动开关 */
+async function ignoreCopy(params, ctx) {
+  const { addIgnore } = require('../modules/skills/ignoreStore')
+  const { assertNoPartial } = require('../modules/skills/collectService')
+  if (!isSafeSkillName(params.skillName)) throw codedError('INVALID_SKILL_NAME')
+  await assertNoPartial(ctx.homeDir, params.skillName)
+  const copy = await ctx.findCopy(params.skillName, params.sourceId)
+  if (!copy) throw Object.assign(codedError('SOURCE_NOT_FOUND'), { outcome: 'not-run' })
+  const entry = await addIgnore(ctx.homeDir, copy)
+  return { outcome: 'done', ignoreId: entry.ignoreId, name: entry.name }
+}
+
+/**
+ * 取消忽略：删掉记录，再按范围重新判断——项目里的回到要处理；全局目录里和资产库一样的不回（reason=same-as-library）；
+ * 原件已不在只删记录（reason=source-gone）
+ */
+async function unignoreCopy(params, ctx) {
+  const { removeIgnore } = require('../modules/skills/ignoreStore')
+  const { readEntries, compareEntries } = require('../modules/skills/skillDigest')
+  const entry = await removeIgnore(ctx.homeDir, params.ignoreId)
+  if (!entry) throw Object.assign(codedError('IGNORE_NOT_FOUND'), { outcome: 'not-run' })
+  let reason = null
+  if (!(await lstatOrNull(entry.absolutePath, ctx.deps))) {
+    reason = 'source-gone'
+  } else if (entry.scope === 'global') {
+    const libraryPath = path.join(ctx.repoPath, entry.name)
+    if (await pathExists(path.join(libraryPath, 'SKILL.md'), ctx.deps)) {
+      const [library, copy] = await Promise.all([readEntries(libraryPath, ctx.deps), readEntries(entry.absolutePath, ctx.deps)]).catch(() => [null, null])
+      if (library && copy && compareEntries(library, copy).relation === 'same') reason = 'same-as-library'
+    }
+  }
+  return { outcome: 'done', name: entry.name, ...(reason ? { reason } : {}) }
+}
+
+async function lstatOrNull(target, deps = {}) {
+  try {
+    return await (deps.lstatFn || fs.lstat)(target)
+  } catch {
+    return null
+  }
+}
+
+/** Codex 的目录里有没有这个名字（删除会连带删掉它们，要先补关） */
+async function codexHasEntry(homeDir, skillName, deps) {
+  for (const root of [path.join(homeDir, '.agents', 'skills'), path.join(homeDir, '.codex', 'skills')]) {
+    if (await lstatOrNull(path.join(root, skillName), deps)) return true
+  }
+  return false
+}
+
 /** 执行统一 Skill 命令，并在 adapter 写入后由调用方重新读取原生状态。 */
 async function executeSkillCommand(params = {}, overrides = {}) {
-  if (!isSafeSkillName(params.skillName)) throw codedError('INVALID_SKILL_NAME')
-  assertMutableSource(params.source)
   const homeDir = params.homeDir || overrides.homeDir || os.homedir()
   const repoPath = expandHome(params.repoPath, homeDir)
   if (!repoPath) throw codedError('INVALID_REPO_PATH')
+  const collectModule = require('../modules/skills/collectService')
+  const ctx = {
+    homeDir,
+    repoPath,
+    deps: overrides,
+    findCopy: (name, sourceId) => findInboxCopy({ homeDir, repoPath }, name, sourceId, overrides),
+  }
+  // Skills 要处理的五个动作
+  if (params.action === 'collect') return collectModule.collect(params, ctx)
+  if (params.action === 'undo') return collectModule.undo(params, ctx)
+  if (params.action === 'resume') return collectModule.resume(params, ctx)
+  if (params.action === 'ignore') return ignoreCopy(params, ctx)
+  if (params.action === 'unignore') return unignoreCopy(params, ctx)
+
+  if (!isSafeSkillName(params.skillName)) throw codedError('INVALID_SKILL_NAME')
+  assertMutableSource(params.source)
+  // 名字下有没做完的收进或撤回：先继续恢复，其他写操作一律先停着
+  await collectModule.assertNoPartial(homeDir, params.skillName)
   // 按来源这次只支持收进和停用：启用照旧从资产库链接出去，删除照旧整组删
   const hasSourceId = params.sourceId !== undefined && params.sourceId !== null
   if (hasSourceId && (params.action === 'enable' || params.action === 'delete')) throw codedError('SOURCE_ACTION_UNSUPPORTED')
   if (params.action === 'delete') {
     // 先确认要删的在资产库里，再补关：删不了的不该改 Codex 配置（删除会连带 ~/.codex、~/.agents 里的那份）
     if (!(await pathExists(path.join(repoPath, params.skillName, 'SKILL.md'), overrides))) throw codedError('SKILL_NOT_FOUND')
-    if (params.toolId === 'codex' || params.toolId === 'all') await overrides.beforeCodexWriteFn?.()
-    return deleteSkillEverywhere({ repoPath, homeDir, skillName: params.skillName }, overrides)
+    if (params.toolId === 'codex' || params.toolId === 'all' || await codexHasEntry(homeDir, params.skillName, overrides)) {
+      await overrides.beforeCodexWriteFn?.()
+    }
+    const result = await deleteSkillEverywhere({ repoPath, homeDir, skillName: params.skillName }, overrides)
+    return { ...result, outcome: 'done' }
   }
   const adapter = loadAdapters(overrides)[params.toolId]
   if (!adapter) throw codedError('TOOL_NOT_SUPPORTED')
-  const discovery = await adapter.discover({ homeDir, projectRoots: params.projectRoots || [], repoPath }, overrides)
+  // 只为选来源重读这个名字：不读别的 Skill，Codex 也不为此调接口
+  const discovery = await adapter.discover({ homeDir, projectRoots: params.projectRoots || [], repoPath, names: new Set([params.skillName]), skipApi: true }, overrides)
   const matchingSources = (discovery?.sources || []).filter((source) => source.name === params.skillName)
   const chosenSource = selectSource(params, matchingSources)
+  if (params.action === 'enable') {
+    const libraryPath = path.join(repoPath, params.skillName)
+    if (await pathExists(path.join(libraryPath, 'SKILL.md'), overrides)) {
+      // 工具的全局位置被一份不是资产库链接的占着（真文件夹，或指向别处的链接）：先在「要处理」里处理它，
+      // 不能借开关绕过「留哪份」（定稿 C13）；两个工具一样，后台写入前再核对一次
+      const { assertSlotFree } = require('../modules/skills/slotGuard')
+      await assertSlotFree({ homeDir, toolId: params.toolId, name: params.skillName, libraryPath })
+    } else if (matchingSources.length > 0 && !matchingSources.some((source) => source.mutable)) {
+      // 只有只读来源、资产库也没有：启用不了，补关之前就拒绝
+      throw codedError('ORIGIN_READ_ONLY')
+    }
+  }
   if (params.action === 'adopt') {
     const adoptParams = { ...params, repoPath, homeDir, source: chosenSource || params.source }
     // 收不了的（已在资产库、原件不在）先拒绝，再补关
     await adoptPaths(adoptParams, overrides)
     if (params.toolId === 'codex') await overrides.beforeCodexWriteFn?.()
-    return adoptExternalSkill(adoptParams, overrides)
+    return { ...(await adoptExternalSkill(adoptParams, overrides)), outcome: 'done' }
   }
   if (params.toolId === 'codex') await overrides.beforeCodexWriteFn?.()
   if (!adapter.apply) throw codedError('TOOL_NOT_SUPPORTED')
   // renderer 传来的 source 只作意图提示；真正写入位置始终采用刚刚重读到的来源。
-  return adapter.apply({ ...params, repoPath, homeDir, source: chosenSource || params.source }, overrides)
+  const result = await adapter.apply({ ...params, repoPath, homeDir, source: chosenSource || params.source }, overrides)
+  return { ...result, outcome: 'done' }
 }
 
 /**

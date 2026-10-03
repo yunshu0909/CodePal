@@ -1,6 +1,6 @@
 {
   "name": "skill-manager",
-  "version": "2.1.9",
+  "version": "2.1.11",
   "description": "管理和推送你的 Skills 到各个工具",
   "main": "electron/main.js",
   "scripts": {
@@ -88,7 +88,6 @@
   },
   "dependencies": {
     "@iarna/toml": "^2.2.5",
-    "chokidar": "^4.0.3",
     "dotenv": "^17.3.1",
     "electron-store": "^11.0.2",
     "highlight.js": "^11.11.1",

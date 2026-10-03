@@ -2,13 +2,14 @@
  * 接管 Claude statusLine 确认弹窗样式
  *
  * 原样迁自已删除的 DualUsageCard.css（Claude Code 设置页重做），弹窗行为与文案不变。
+ * v2.1.11 换成新样式颜色（定稿 G2）：正文 --fg-2、提示框 --fg-3 + --card 底色、圆角 8、去边框。
  */
 
 .claude-takeover-copy {
   display: flex;
   flex-direction: column;
   gap: var(--space-4);
-  color: var(--text-secondary);
+  color: var(--fg-2);
   font-size: var(--text-sm);
   line-height: 1.7;
 }
@@ -23,11 +24,10 @@
 }
 
 .claude-takeover-copy__note {
-  padding: var(--space-3);
-  border: 1.5px solid var(--border-default);
-  border-radius: var(--radius-md);
-  background: var(--bg-subtle);
-  color: var(--text-tertiary);
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--card);
+  color: var(--fg-3);
   font-size: var(--text-xs);
 }
 

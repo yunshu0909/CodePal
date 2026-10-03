@@ -57,7 +57,17 @@ async function renderPage() {
   await screen.findByText('装载总览', { selector: '.np-li b' })
 }
 
-const option = (name) => screen.getAllByRole('option').find((item) => within(item).queryByText(name, { exact: true }))
+/** 左栏一条；不在当前页签就依次点页签去找（v2.1.11 左栏改页签） */
+const option = (name) => {
+  const find = () => screen.queryAllByRole('option').find((item) => within(item).queryByText(name, { exact: true }))
+  let hit = find()
+  for (const tab of screen.queryAllByRole('tab')) {
+    if (hit) break
+    fireEvent.click(tab)
+    hit = find()
+  }
+  return hit
+}
 
 afterEach(() => cleanup())
 

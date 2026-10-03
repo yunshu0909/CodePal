@@ -45,13 +45,14 @@ function flattenScan(scan, origin, mutable, extra = {}) {
   return [...scan.skills.values()].map((skill) => ({ ...skill, origin, mutable, ...extra }))
 }
 
-async function scanLegacyCommands(commandsRoot, deps = {}) {
-  const sources = flattenScan(await scanSkillRoot(commandsRoot, deps), 'command', false)
+async function scanLegacyCommands(commandsRoot, deps = {}, names = null) {
+  const sources = flattenScan(await scanSkillRoot(commandsRoot, deps, names), 'command', false)
   try {
     const entries = await fs.readdir(commandsRoot, { withFileTypes: true })
     for (const entry of entries) {
       if (!entry.isFile() || !entry.name.endsWith('.md')) continue
       const name = entry.name.slice(0, -3)
+      if (names && !names.has(name)) continue
       const content = await fs.readFile(path.join(commandsRoot, entry.name))
       sources.push({
         name,
@@ -71,7 +72,7 @@ async function scanLegacyCommands(commandsRoot, deps = {}) {
  * 扫 claude.ai 同步来的 Skill：~/.claude/skills/synced/<账号>/<Skill>/SKILL.md，只读
  * @returns {Promise<{sources: Array, error: string|null}>}
  */
-async function scanSyncedSkills(userRoot, deps = {}) {
+async function scanSyncedSkills(userRoot, deps = {}, names = null) {
   const syncedRoot = path.join(userRoot, 'synced')
   let accounts
   try {
@@ -82,22 +83,25 @@ async function scanSyncedSkills(userRoot, deps = {}) {
   }
   const sources = []
   for (const account of accounts.filter((entry) => entry.isDirectory() || entry.isSymbolicLink())) {
-    const scan = await scanSkillRoot(path.join(syncedRoot, account.name), deps)
+    const scan = await scanSkillRoot(path.join(syncedRoot, account.name), deps, names)
     if (!scan.available) return { sources: [], error: scan.error }
     sources.push(...flattenScan(scan, 'synced', false))
   }
   return { sources, error: null }
 }
 
-/** 发现 Claude Code 独立 Skill，项目范围严格来自显式 allowlist。 */
-async function discoverClaudeSkills({ homeDir, projectRoots = [] }, deps = {}) {
+/**
+ * 发现 Claude Code 独立 Skill，项目范围严格来自显式 allowlist。
+ * names 给了就只读这几个名字（单个操作后只重读动到的那一个）。
+ */
+async function discoverClaudeSkills({ homeDir, projectRoots = [], names = null }, deps = {}) {
   const userRoot = path.join(homeDir, '.claude', 'skills')
   const commandsRoot = path.join(homeDir, '.claude', 'commands')
   const settingsPath = path.join(homeDir, '.claude', 'settings.json')
   const [userScan, settings, synced] = await Promise.all([
-    scanSkillRoot(userRoot, deps),
+    scanSkillRoot(userRoot, deps, names),
     (deps.readSettingsFn || readSettings)(settingsPath),
-    scanSyncedSkills(userRoot, deps),
+    scanSyncedSkills(userRoot, deps, names),
   ])
   const errors = []
   if (synced.error) errors.push({ origin: 'synced', code: synced.error })
@@ -105,11 +109,11 @@ async function discoverClaudeSkills({ homeDir, projectRoots = [] }, deps = {}) {
   if (settings.__codepalInvalidJson) errors.push({ origin: 'settings', code: 'INVALID_JSON' })
   const sources = [...flattenScan(userScan, 'user', true), ...synced.sources]
   for (const projectRoot of [...new Set(projectRoots.filter((item) => typeof item === 'string' && path.isAbsolute(item)))]) {
-    const projectScan = await scanSkillRoot(path.join(projectRoot, '.claude', 'skills'), deps)
+    const projectScan = await scanSkillRoot(path.join(projectRoot, '.claude', 'skills'), deps, names)
     if (!projectScan.available) errors.push({ origin: 'project', code: projectScan.error })
     sources.push(...flattenScan(projectScan, 'project', false, { project: path.basename(projectRoot) }))
   }
-  try { sources.push(...await scanLegacyCommands(commandsRoot, deps)) } catch (error) {
+  try { sources.push(...await scanLegacyCommands(commandsRoot, deps, names)) } catch (error) {
     errors.push({ origin: 'command', code: error.code === 'EACCES' ? 'PERMISSION_DENIED' : 'READ_FAILED' })
   }
   for (const source of sources) source.overrideState = overrideState(settings, source.name)

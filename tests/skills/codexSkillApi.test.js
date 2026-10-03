@@ -276,11 +276,12 @@ describe('Codex 开关走官方接口', () => {
       .rejects.toMatchObject({ code: 'CODEX_API_FAILED' })
     expect(fsSync.existsSync(path.join(homeDir, '.agents', 'skills', 'gamma'))).toBe(false)
 
+    // 全局位置已有自己的一份：开启前就按占位挡住（v2.1.11 定稿 C13），原来就在的不动
     const existing = await writeSkill(path.join(homeDir, '.agents', 'skills'), 'gamma', 'own copy')
     const existingText = await fs.readFile(path.join(existing, 'SKILL.md'), 'utf8')
     api.faults.writeFails = 1
     await expect(service.executeSkillCommand({ repoPath, homeDir, toolId: 'codex', skillName: 'gamma', action: 'enable' }, deps()))
-      .rejects.toMatchObject({ code: 'CODEX_API_FAILED' })
+      .rejects.toMatchObject({ code: 'SLOT_OCCUPIED' })
     expect(await fs.readFile(path.join(existing, 'SKILL.md'), 'utf8')).toBe(existingText)
   })
 })
@@ -321,8 +322,13 @@ describe('旧写法补关', () => {
   })
 
   // v2.1.9 起读就是读（specs/v2.1.9-Skills只留一套引擎 TC-004）：补关从读快照挪到 Codex 写操作里
-  it('TC-008 LEGACY_MIGRATION 读快照不补关、如实显示开着；下一次动 Codex 时先补关', async () => {
+  // v2.1.11（Skills 要处理）起主进程不再收页面传来的资产库路径、自己按配置解析：这里在临时家目录的锚点配置里写上资产库位置
+  // （同时照旧传 repoPath，新旧两种接口都走到同一个资产库）；断言不变。由 specs/v2.1.11-Skills要处理-实现 的 TC-024 守着
+  it('TC-024 LEGACY_MIGRATION（原 TC-008）读快照不补关、如实显示开着；下一次动 Codex 时先补关', async () => {
     const { registerSkillControlHandlers } = require('../../electron/handlers/registerSkillControlHandlers')
+    await fs.mkdir(path.join(homeDir, 'Documents', 'SkillManager'), { recursive: true })
+    await fs.writeFile(path.join(homeDir, 'Documents', 'SkillManager', '.config.json'), JSON.stringify({ repoPath }))
+    await fs.writeFile(path.join(repoPath, '.config.json'), JSON.stringify({ repoPath }))
     await writeSkill(repoPath, 'lark-base')
     await writeSkill(repoPath, 'other')
     const link = await deployLink('lark-base')

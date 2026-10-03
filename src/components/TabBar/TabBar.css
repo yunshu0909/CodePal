@@ -1,0 +1,59 @@
+/**
+ * TabBar 样式（通用组件，设计总纲 3.16）
+ *
+ * 文字页签：字 12.5，未选次级灰，选中正文黑 600 + 底下 2px 蓝线；整行底下 0.5px 细线
+ */
+
+.tabbar {
+  display: flex;
+  gap: 14px;
+  padding: 0 8px;
+  box-shadow: inset 0 -.5px 0 rgba(0, 0, 0, .1);
+  font-family: var(--font-np);
+}
+
+.tabbar__item {
+  appearance: none;
+  display: inline-flex;
+  align-items: baseline;
+  padding: 4px 0 6px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--fg-2);
+  font: inherit;
+  font-size: 12.5px;
+  line-height: 16px;
+  white-space: nowrap;
+  cursor: default;
+}
+
+.tabbar__item.is-selected {
+  color: var(--fg);
+  font-weight: 600;
+  box-shadow: inset 0 -2px 0 var(--blue);
+}
+
+.tabbar__count {
+  margin-left: 4px;
+  font-family: var(--num);
+  font-weight: 400;
+  color: var(--fg-3);
+}
+
+.tabbar__item:disabled {
+  opacity: .5;
+}
+
+.tabbar__item:focus {
+  outline: none;
+}
+
+.tabbar__item:focus-visible {
+  border-radius: 4px;
+  box-shadow: 0 0 0 3px rgba(43, 127, 255, .25), 0 0 0 .5px var(--blue);
+}
+
+.tabbar__item.is-selected:focus-visible {
+  box-shadow: inset 0 -2px 0 var(--blue), 0 0 0 3px rgba(43, 127, 255, .25);
+}

@@ -149,7 +149,8 @@ describe('Skills page cache contract', () => {
     api.getSkillControlSnapshot.mockReturnValueOnce(new Promise(() => {}))
     const next = render(<SkillsPage />)
     expect(screen.getByText('sample', { selector: '.np-li b' }), 'UNMOUNTED_COMPLETION').toBeInTheDocument()
-    expect(next.container.querySelector('.np-sk'), 'UNMOUNTED_COMPLETION').toBeNull()
+    // v2.1.11 左栏页签：次数没读到时只有页签那一行是骨架（定稿），列表本身不出骨架
+    expect(next.container.querySelector('.np-pane-body .np-sk, .np-pane--detail .np-sk'), 'UNMOUNTED_COMPLETION').toBeNull()
   })
   it('TC-011 REFRESH_COORDINATION manual refresh joins a background read and retains data', async () => {
     const { next } = await revisit()

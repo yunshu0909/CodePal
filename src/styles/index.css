@@ -73,7 +73,7 @@ body {
 
 .resize-handle:hover,
 .resize-handle:active {
-  background: var(--color-primary, #2563eb);
+  background: var(--blue);
 }
 
 /* ===== Import Page ===== */

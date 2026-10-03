@@ -98,7 +98,11 @@ describe.skipIf(SKIP)('Skill 管理页真实渲染', () => {
 
   const shot = (name) => win.screenshot({ path: path.join(SHOTS, `${name}.png`) })
   const openSkill = async (name) => {
-    await win.locator('.np-pane--list [role="option"]', { hasText: name }).first().click()
+    // v2.1.11 左栏改页签：不在当前页签就依次点页签去找
+    const row = win.locator('.np-pane--list [role="option"]', { hasText: name }).first()
+    const tabs = win.locator('.np-pane--list [role="tab"]')
+    for (let index = 0; index < await tabs.count() && !(await row.count()); index += 1) await tabs.nth(index).click()
+    await row.click()
     await win.locator('.np-pane--detail h2', { hasText: name }).waitFor()
   }
 

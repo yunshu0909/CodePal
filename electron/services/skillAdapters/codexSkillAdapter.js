@@ -73,15 +73,21 @@ function findListed(listed, skillMdPath) {
   return listed.find((skill) => skill.path === target)
 }
 
-/** 发现 Codex 独立 Skill；开关以官方接口为准。Plugin 子 Skill 由各工具官方管理，不进 Skill 控制中心。 */
-async function discoverCodexSkills({ homeDir }, deps = {}) {
+/**
+ * 发现 Codex 独立 Skill；开关以官方接口为准。Plugin 子 Skill 由各工具官方管理，不进 Skill 控制中心。
+ * - names 给了就只读这几个名字
+ * - skipApi：只为选来源时不调接口（开关状态不需要）
+ * - 刚写完的核对已经列过一次（deps.codexListMemo）就直接用，不为刷新再调一次接口
+ * 返回里带 listed（接口列出的全部，读不出为 null），给要处理清单的装载状态用。
+ */
+async function discoverCodexSkills({ homeDir, names = null, skipApi = false }, deps = {}) {
   const officialRoot = path.join(homeDir, '.agents', 'skills')
   const legacyRoot = path.join(homeDir, '.codex', 'skills')
   const systemRoot = path.join(legacyRoot, '.system')
   const [official, legacy, system] = await Promise.all([
-    scanSkillRoot(officialRoot, deps),
-    scanSkillRoot(legacyRoot, deps),
-    scanSkillRoot(systemRoot, deps),
+    scanSkillRoot(officialRoot, deps, names),
+    scanSkillRoot(legacyRoot, deps, names),
+    scanSkillRoot(systemRoot, deps, names),
   ])
   const errors = []
   for (const [origin, scan] of [['user', official], ['legacy', legacy], ['system', system]]) {
@@ -92,9 +98,10 @@ async function discoverCodexSkills({ homeDir }, deps = {}) {
     ...flattenScan(legacy, 'legacy', true).filter((item) => item.name !== '.system'),
     ...flattenScan(system, 'system', false),
   ]
-  let listed = null
+  if (skipApi) return { toolId: 'codex', sources, errors, pluginSkills: [] }
+  let listed = deps.codexListMemo?.take?.() || null
   try {
-    listed = await getCodexSkillApi(deps).list({ homeDir })
+    if (!listed) listed = await getCodexSkillApi(deps).list({ homeDir })
   } catch (error) {
     // 没装 Codex：整个工具不可用；接口起不来：开关状态读不出
     const code = error?.code === 'CODEX_NOT_FOUND' ? 'CODEX_NOT_FOUND' : 'CODEX_API_FAILED'
@@ -111,7 +118,7 @@ async function discoverCodexSkills({ homeDir }, deps = {}) {
       source.configEnabled = hit ? hit.enabled : true
     }
   }
-  return { toolId: 'codex', sources, errors, pluginSkills }
+  return { toolId: 'codex', sources, errors, pluginSkills, listed }
 }
 
 /**
@@ -133,7 +140,10 @@ async function setAndVerify({ homeDir, skillMdPath, enabled }, deps) {
   await withConfigLock(() => api.write({ homeDir, skillMdPath, enabled }))
   let after
   try {
-    after = findListed(await api.list({ homeDir }), skillMdPath)
+    const afterList = await api.list({ homeDir })
+    after = findListed(afterList, skillMdPath)
+    // 留给写完后的刷新用：刚核对过的这份列表就是最新状态，不再为刷新另调一次接口
+    deps.codexListMemo?.set?.(afterList)
   } catch (error) {
     throw codedError('STATE_UNKNOWN', error)
   }
