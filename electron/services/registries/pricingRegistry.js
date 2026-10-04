@@ -36,6 +36,8 @@ const HARDCODED_PRICING_FALLBACK = Object.freeze({
     'k3-256k': 'kimi-k3',
   },
   models: {
+    'gpt-6-1-sol': { displayName: 'GPT-6.1 Sol', input: 2, output: 10, cacheRead: 0.1, cacheWrite: 2.5 },
+    'claude-sonnet-5-5': { displayName: 'Claude Sonnet 5.5', input: 2, output: 10, cacheRead: 0.2, cacheWrite: 2.5 },
     'claude-opus-5-5': { displayName: 'Claude Opus 5.5', input: 4, output: 20, cacheRead: 0.2, cacheWrite: 5 },
     'claude-opus-5': { displayName: 'Claude Opus 5', input: 5, output: 25, cacheRead: 0.5, cacheWrite: 6.25 },
     'gpt-6-astra': { displayName: 'GPT-6 Astra', input: 10, output: 50, cacheRead: 1, cacheWrite: 12.5 },
