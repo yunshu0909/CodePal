@@ -47,6 +47,7 @@ export default function usePlanData(notify) {
       codex: Promise.resolve()
     });
   const refreshRef = useRef(null);
+  const metadataReady = useRef({ claude: false, codex: false });
   const toast = useRef(notify);
   toast.current = notify;
   const patch = useCallback((id, fn) => {
@@ -121,16 +122,20 @@ export default function usePlanData(notify) {
     }));
     return true;
   }, [patch]);
-  const refresh = useCallback(async id => {
+  const refresh = useCallback(async (id, ledgerOnly = false) => {
     const ticket = ++reads.current[id],
       version = current(id).plan.version;
     try {
       const result = await window.electronAPI.readPlan({
-        planId: id
+        planId: id,
+        ...(ledgerOnly && metadataReady.current[id] ? { includeMetadata: false } : {})
       });
       if (!alive.current || ticket !== reads.current[id] || version !== current(id).plan.version) return;
       if (!result?.success) throw new Error('read');
-      if (apply(id, result.data)) void query(id);
+      if (apply(id, result.data)) {
+        if (result.data.metadata) metadataReady.current[id] = true;
+        void query(id);
+      }
     } catch {
       if (!alive.current || ticket !== reads.current[id]) return;
       patch(id, () => ({
@@ -147,7 +152,7 @@ export default function usePlanData(notify) {
   useEffect(() => {
     alive.current = true;
     IDS.forEach(id => void refresh(id));
-    const remove = window.electronAPI?.onUsageStatisticsChanged?.(() => IDS.forEach(id => void refresh(id)));
+    const remove = window.electronAPI?.onUsageStatisticsChanged?.(() => IDS.forEach(id => void refresh(id, true)));
     return () => {
       alive.current = false;
       IDS.forEach(id => {

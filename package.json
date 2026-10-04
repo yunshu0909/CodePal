@@ -1,6 +1,6 @@
 {
   "name": "skill-manager",
-  "version": "2.1.12",
+  "version": "2.1.13",
   "description": "管理和推送你的 Skills 到各个工具",
   "main": "electron/main.js",
   "scripts": {
@@ -15,7 +15,7 @@
     "dist:mac": "npm run clean:release && npm run build && electron-builder --mac --arm64",
     "dist:win": "npm run clean:release && npm run build && electron-builder --win nsis --x64",
     "preview": "vite preview",
-    "test": "npm run test:root && npm run test:v2 && npm run test:v21 && npm run test:safety && npm run test:statusline && npm run test:usage-model-cost && npm run test:dsh-usage && npm run test:session-status && npm run test:usage-calendar && npm run test:plan && npm run test:shared-usage && npm run test:network && npm run test:sessions && npm run test:models && npm run test:docs && npm run test:skills && npm run test:project-init",
+    "test": "npm run test:root && npm run test:v2 && npm run test:v21 && npm run test:safety && npm run test:statusline && npm run test:usage-model-cost && npm run test:dsh-usage && npm run test:session-status && npm run test:usage-calendar && npm run test:plan && npm run test:shared-usage && npm run test:network && npm run test:sessions && npm run test:models && npm run test:docs && npm run test:skills && npm run test:project-init && npm run test:reads",
     "test:dsh-usage": "vitest run tests/dshZstdFrames.test.js tests/dshUsageRecords.test.js tests/dshUsageScan.test.js tests/dshUsageAggregation.test.js tests/dshPricing.test.js tests/dshIsolation.test.js",
     "test:v2": "vitest run --root . tests/v2/skillControlService.test.js",
     "test:statusline": "vitest run --config tests/statusLine/vitest.config.js",
@@ -36,7 +36,8 @@
     "test:sessions": "vitest run tests/sessions",
     "test:models": "vitest run tests/models --testTimeout=20000",
     "test:docs": "vitest run tests/docs",
-    "test:skills": "vitest run tests/skills"
+    "test:skills": "vitest run tests/skills",
+    "test:reads": "vitest run tests/reads"
   },
   "keywords": [
     "electron",

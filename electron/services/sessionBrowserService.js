@@ -25,6 +25,9 @@ const TAIL_BYTES = 256 * 1024
 const TITLE_MAX = 80
 const TARGET_MAX = 60
 const SNIPPET_SIDE = 40
+const META_LIMIT = 10_000
+const META_MAX_AGE_MS = 10 * 60_000
+const metadataIndex = new Map()
 const SAFE_ID = /^[a-zA-Z0-9_-]+$/
 
 /**
@@ -150,10 +153,10 @@ function tildify(dir) {
  * 一个对话文件的元数据（只读头 64KB、尾 256KB）
  * @param {string} projectId - 编码后的项目目录名
  * @param {string} file - 对话文件路径
+ * @param {object} stat - 本次枚举得到的文件状态，避免重复读取
  * @returns {Promise<object|null>} 一句真实提问都没有时返回 null
  */
-async function readSessionMeta(projectId, file) {
-  const stat = await fsp.stat(file)
+async function readSessionMeta(projectId, file, stat) {
   let cwd = null
   let entrypoint = null
   let firstPrompt = null
@@ -221,6 +224,39 @@ async function readSessionMeta(projectId, file) {
   }
 }
 
+/** Identity is rechecked on every listing; no body bytes or credential data enter the index. */
+function metadataIdentity(stat) {
+  return JSON.stringify([stat.dev, stat.ino, stat.size, stat.mtimeMs, stat.ctimeMs, stat.birthtimeMs])
+}
+
+async function indexedSessionMeta(root, projectId, file) {
+  const stat = await fsp.stat(file)
+  const identity = metadataIdentity(stat)
+  const key = JSON.stringify([root, projectId, file])
+  const prior = metadataIndex.get(key)
+  if (prior?.identity === identity && (prior.pending || Date.now() < prior.expires)) {
+    return structuredClone(await (prior.pending || Promise.resolve(prior.value)))
+  }
+  const entry = { identity, pending: null, value: null, expires: 0 }
+  metadataIndex.delete(key)
+  metadataIndex.set(key, entry)
+  while (metadataIndex.size > META_LIMIT) metadataIndex.delete(metadataIndex.keys().next().value)
+  entry.pending = readSessionMeta(projectId, file, stat).then(async value => {
+    const after = await fsp.stat(file)
+    if (metadataIndex.get(key) === entry) {
+      if (identity === metadataIdentity(after)) {
+        entry.value = value
+        entry.expires = Date.now() + META_MAX_AGE_MS
+      } else metadataIndex.delete(key)
+    }
+    return value
+  }).catch(error => {
+    if (metadataIndex.get(key) === entry) metadataIndex.delete(key)
+    throw error
+  }).finally(() => { entry.pending = null })
+  return structuredClone(await entry.pending)
+}
+
 /**
  * 跨项目的最近对话
  * @param {{projectsDir?: string}} [options]
@@ -257,14 +293,21 @@ async function listRecent(options = {}) {
         if (signal?.aborted) throw cancelledError()
         try {
           const file = await confinedFile(realRoot, entry.name, name.slice(0, -6))
-          const meta = await readSessionMeta(entry.name, file)
+          const meta = await indexedSessionMeta(realRoot, entry.name, file)
+          if (signal?.aborted) throw cancelledError()
           if (meta) meta.sessionId = name.slice(0, -6)
           if (meta) sessions.push(source ? { ...meta, projectId: `codepal:${entry.name}`, source, auto: true } : meta)
-        } catch {
+        } catch (error) {
+          if (error.code === 'CANCELLED') throw error
           // A damaged or escaped file cannot hide other valid conversations.
         }
       }
     }
+  }
+  if (signal?.aborted) throw cancelledError()
+  // Expiry cleanup is request-driven; no watcher or timer remains after leaving the page.
+  for (const [key, entry] of metadataIndex) {
+    if (!entry.pending && Date.now() >= entry.expires) metadataIndex.delete(key)
   }
   sessions.sort((a, b) => (a.modifiedAt < b.modifiedAt ? 1 : a.modifiedAt > b.modifiedAt ? -1 : 0))
   return { projectsDirExists: seenRoots.size > 0, sessions }

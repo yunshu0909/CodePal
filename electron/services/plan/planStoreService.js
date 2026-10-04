@@ -16,6 +16,7 @@ const {
   setCyclePrice
 } = require('./planCycleService');
 const LEDGER_KEY = 'planLedgerV1';
+const EARLIEST_TIMEOUT_MS = 2_000;
 const emptyPlan = () => ({
   cycles: [],
   version: 0,
@@ -46,6 +47,10 @@ function createPlanStoreService({
   earliestFn = async () => null
 }) {
   let queue = Promise.resolve();
+  let writeEpoch = 0;
+  const ledgerReads = new Map();
+  const earliestReads = new Map();
+  const metadataReads = new Map();
   const serialize = fn => {
     const result = queue.then(fn);
     queue = result.catch(() => {});
@@ -79,6 +84,8 @@ function createPlanStoreService({
     kind = 'read',
     options = {}
   } = {}) {
+    // Advance at enqueue time, including failed writes; later reads never join a prewrite read.
+    if (kind !== 'read') writeEpoch += 1;
     return serialize(async () => {
       const ledger = load();
       if (!validPlanId(id)) throw Error('INVALID_PLAN');
@@ -95,7 +102,7 @@ function createPlanStoreService({
         duplicate: true
       };
       guard(id, operationId, options, p);
-      const next = transform(p, today);
+      const next = await transform(p, today);
       checkPlan(next);
       const changed = JSON.stringify(next) !== JSON.stringify(p);
       if (changed) {
@@ -121,26 +128,58 @@ function createPlanStoreService({
     const snapshot = await fn;
     let metadata = unknownMetadata();
     try {
-      metadata = await metadataFn(id);
+      metadata = await inFlight(metadataReads, id, () => metadataFn(id));
     } catch {}
     return {
       ...snapshot,
       metadata
     };
   }
-  // 取最早日期失败只是本次不补历史，不能让读取本身失败
+  // Bound each caller's wait without cancelling or duplicating the shared discovery.
+  // Failure or timeout skips this backfill; the next read can discover history again.
   async function earliestOf(id) {
+    let deadline;
     try {
-      return await earliestFn(id);
+      const pending = inFlight(earliestReads, id, () => earliestFn(id));
+      const expired = new Promise(resolve => {
+        deadline = setTimeout(() => resolve(null), EARLIEST_TIMEOUT_MS);
+        deadline.unref?.();
+      });
+      return await Promise.race([pending, expired]);
     } catch {
       return null;
+    } finally {
+      clearTimeout(deadline);
     }
   }
+  function inFlight(map, key, run) {
+    let pending = map.get(key);
+    if (!pending) {
+      pending = Promise.resolve().then(run).finally(() => {
+        if (map.get(key) === pending) map.delete(key);
+      });
+      map.set(key, pending);
+    }
+    return pending.then(value => structuredClone(value));
+  }
+  // Reserve the authority-queue slot immediately, before awaiting historical discovery.
+  function readLedger(id) {
+    if (!validPlanId(id)) return Promise.reject(Error('INVALID_PLAN'));
+    const key = JSON.stringify([id, beijingDate(new Date(nowFn())), writeEpoch]);
+    let pending = ledgerReads.get(key);
+    if (!pending) {
+      const earliest = earliestOf(id);
+      pending = publish(id, async (p, today) => backfillPlan(reconcilePlan(p, today), await earliest))
+        .finally(() => {
+          if (ledgerReads.get(key) === pending) ledgerReads.delete(key);
+        });
+      ledgerReads.set(key, pending);
+    }
+    return pending.then(snapshot => structuredClone(snapshot));
+  }
   return {
-    read: async id => {
-      const earliest = await earliestOf(id);
-      return withMetadata(id, publish(id, (p, today) => backfillPlan(reconcilePlan(p, today), earliest)));
-    },
+    readLedger,
+    read: id => withMetadata(id, readLedger(id)),
     save: async (id, draft, operationId, options) => {
       const renewalOnly = draft && Object.keys(draft).length === 1 && typeof draft.autoRenew === 'boolean';
       if (!renewalOnly) validateDraft(draft);

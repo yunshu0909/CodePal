@@ -8,7 +8,7 @@ let changed
 const calendarData=(month='2026-09',total=10)=>({month,today:'2026-09-17',earliestDate:'2026-08-01',days:{[month+'-16']:{status:'ready',total,models:{}}},total,complete:true,failedDays:0})
 beforeEach(()=>{vi.useFakeTimers({toFake:['Date']});vi.setSystemTime(new Date('2026-09-17T04:00Z'));changed=null;window.electronAPI={aggregateUsageCalendar:vi.fn(async p=>({success:true,data:calendarData(p.month)})),onUsageCalendarProgress:()=>()=>{},onUsageStatisticsChanged:fn=>{changed=fn;return()=>{}},readPlan:vi.fn(async({planId})=>({success:true,data:{plan:{version:1,cycles:planId==='claude'?[{id:'current',start:'2026-09-06',end:'2026-10-06',price:20}]:[],stopped:false},metadata:{type:'Pro'},today:'2026-09-17'}})),queryPlan:vi.fn(async({cycleId})=>({success:true,data:{version:1,cycleId,total:40,models:[]}}))}})
 afterEach(()=>{cleanup();vi.useRealTimers()})
-it('S10 calendar return preserves historical month/date and does not query again without a new batch',async()=>{
+it('TC-009 S10 calendar return preserves historical month/date and does not query again without a new batch',async()=>{
   const {result,rerender}=renderHook(({active})=>useCalendar(active),{initialProps:{active:true}})
   await waitFor(()=>expect(result.current.loading).toBe(false))
   act(()=>result.current.setMonth('2026-08'));await waitFor(()=>expect(result.current.data?.month).toBe('2026-08'));act(()=>result.current.setSelected('2026-08-16'))

@@ -4,7 +4,7 @@
  * 负责：
  * - （两处换新颜色有可见变化，2026-10-02 用户选择挪到 #62 和设计确认一起做，本版不改样式）
  * - TC-009：claudeSettingsService 里只有已停用代码在调的 API 配置残留函数删掉，其余导出照常
- * - TC-019（v2.1.11 起）：产品版本三处一致，当前 2.1.12
+ * - TC-019（v2.1.11 起）：产品版本三处一致，随任务升号并保持一致
  *
  * @module tests/oneEngineCleanup.test
  */
@@ -30,12 +30,12 @@ describe('顺带清扫', () => {
   })
 
   // 产品版本随每个任务升号（specs/v2.1.11-Skills要处理-实现 起由 TC-019 守着；原 TC-011 的 2.1.9 断言随之改为当前版本）
-  it('SC-001 TC-050 TC-019 VERSION_2112 package.json、package-lock.json 与 README 徽章都是 2.1.12', () => {
+  it('TC-013 SC-001 TC-050 TC-019 VERSION_CONSISTENCY package.json、package-lock.json 与 README 徽章版本一致', () => {
     const pkg = JSON.parse(read('package.json'))
     const lock = JSON.parse(read('package-lock.json'))
-    expect(pkg.version, 'VERSION_2112 package.json').toBe('2.1.12')
-    expect(lock.version, 'VERSION_2112 package-lock.json').toBe('2.1.12')
-    expect(lock.packages[''].version).toBe('2.1.12')
-    expect(read('README.md'), 'VERSION_2112 README 徽章').toContain('version-v2.1.12-blue')
+    expect(pkg.version, 'VERSION_CONSISTENCY package.json').toMatch(/^\d+\.\d+\.\d+$/)
+    expect(lock.version, 'VERSION_CONSISTENCY package-lock.json').toBe(pkg.version)
+    expect(lock.packages[''].version).toBe(pkg.version)
+    expect(read('README.md'), 'VERSION_CONSISTENCY README 徽章').toContain('version-v' + pkg.version + '-blue')
   })
 })

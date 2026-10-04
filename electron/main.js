@@ -113,7 +113,7 @@ const planService = {
 registerPlanHandlers({ ipcMain, service: planService })
 const usageScheduler = createUsageStatisticsScheduler({statistics:usageStatistics,getCycles:async()=>{
   const cycles=[]
-  for(const id of ['claude','codex']){const result=await planLedger.read(id);const cycle=result.plan.cycles.at(-1);if(cycle)cycles.push(cycle)}
+  for(const id of ['claude','codex']){const result=await planLedger.readLedger(id);const cycle=result.plan.cycles.at(-1);if(cycle)cycles.push(cycle)}
   return cycles
 },onError:()=>console.warn('[usage-statistics] background update failed')})
 usageStatistics.subscribe(snapshot=>{

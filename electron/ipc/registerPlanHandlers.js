@@ -8,7 +8,7 @@ const {
   validPlanId
 } = require('../services/plan/planStoreService');
 const fields = {
-  read: ['planId'],
+  read: ['planId', 'includeMetadata'],
   save: ['planId', 'price', 'billingDay', 'autoRenew', 'operationId', 'expectedVersion'],
   action: ['planId', 'action', 'operationId', 'expectedVersion', 'cycleId'],
   query: ['planId', 'cycleId'],
@@ -29,6 +29,7 @@ const priceErrors = {
 const goodOperation = id => typeof id === 'string' && id.length > 0 && id.length <= 200;
 function valid(kind, p) {
   if (!p || typeof p !== 'object' || Array.isArray(p) || !validPlanId(p.planId) || Object.keys(p).some(k => !fields[kind].includes(k))) return false;
+  if (kind === 'read' && p.includeMetadata !== undefined && typeof p.includeMetadata !== 'boolean') return false;
   if (p.expectedVersion !== undefined && (!Number.isInteger(p.expectedVersion) || p.expectedVersion < 0)) return false;
   if (kind === 'save' && !Object.hasOwn(p, 'price') && !Object.hasOwn(p, 'billingDay')) return typeof p.autoRenew === 'boolean' && goodOperation(p.operationId);
   if (kind === 'save') return typeof p.price === 'number' && Number.isFinite(p.price) && p.price > 0 && Number.isInteger(p.billingDay) && p.billingDay >= 1 && p.billingDay <= 31 && typeof p.autoRenew === 'boolean' && goodOperation(p.operationId);
@@ -59,7 +60,11 @@ function registerPlanHandlers({
       };
       try {
         let data;
-        if (kind === 'read') data = await service.read(p.planId);else if (kind === 'save') data = await service.save(p.planId, {
+        if (kind === 'read') {
+          data = p.includeMetadata === false
+            ? await service.readLedger(p.planId)
+            : await service.read(p.planId);
+        } else if (kind === 'save') data = await service.save(p.planId, {
           ...(Object.hasOwn(p, 'price') ? {price:p.price,billingDay:p.billingDay} : {}),
           autoRenew: p.autoRenew
         }, p.operationId, {
