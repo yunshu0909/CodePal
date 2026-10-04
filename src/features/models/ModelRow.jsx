@@ -13,8 +13,8 @@ import Button from '../../components/Button/Button'
 import ModelDetail from './ModelDetail'
 import { reasonText, testedAtParts } from './modelsView'
 
-const DISC_RIGHT = <svg className="mj-disc" viewBox="0 0 10 10" aria-hidden="true"><path d="M4 2.5 6.5 5 4 7.5" /></svg>
-const DISC_DOWN = <svg className="mj-disc" viewBox="0 0 10 10" aria-hidden="true"><path d="M2.5 4 5 6.5 7.5 4" /></svg>
+const DISC_RIGHT = <svg className="np-disc" viewBox="0 0 10 10" aria-hidden="true"><path d="M4 2.5 6.5 5 4 7.5" /></svg>
+const DISC_DOWN = <svg className="np-disc" viewBox="0 0 10 10" aria-hidden="true"><path d="M2.5 4 5 6.5 7.5 4" /></svg>
 
 /** 状态点：绿「可用」/ 灰「未测试」/ 红「不可用」/ 橙「读不到 Key」 */
 const STATUS = {

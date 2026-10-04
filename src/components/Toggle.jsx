@@ -20,7 +20,7 @@ import './Toggle.css'
  * @param {boolean} [props.disabled=false] - 是否禁用
  * @returns {React.ReactElement}
  */
-export default function Toggle({ checked, onChange, disabled = false }) {
+export default function Toggle({ checked, onChange, disabled = false, ...ariaProps }) {
   /**
    * 处理点击事件
    */
@@ -33,6 +33,14 @@ export default function Toggle({ checked, onChange, disabled = false }) {
   return (
     <div
       className={`toggle ${checked ? 'on' : ''} ${disabled ? 'disabled' : ''}`}
+      {...ariaProps}
+      tabIndex={disabled ? -1 : 0}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault()
+          handleClick()
+        }
+      }}
       onClick={handleClick}
       role="switch"
       aria-checked={checked}

@@ -308,6 +308,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
    */
   modelsList: () => ipcRenderer.invoke('models:list'),
 
+  /** Read available review models without credentials; changes accept model IDs only. */
+  /** @returns {Promise<object>} 无凭证来源列表的统一响应；主进程同步公开清单，不接受路径参数。 */
+  modelsHubList: () => ipcRenderer.invoke('models:hubList'),
+  /** @param {{id:string, enabled:boolean}} payload @returns {Promise<object>} 保存结果统一响应，失败由主进程回滚。 */
+  modelsHubSetEnabled: (payload) => ipcRenderer.invoke('models:hubSetEnabled', payload),
+  /** @param {{id:string, effort:string}} payload @returns {Promise<object>} 保存结果统一响应；只允许实际支持档位，成功同步公开清单。 */
+  modelsHubSetEffort: (payload) => ipcRenderer.invoke('models:hubSetEffort', payload),
+
   /**
    * 保存某家的 Key；第一次保存时自动加入预设默认模型
    * @param {{providerId: string, key: string}} payload

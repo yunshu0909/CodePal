@@ -1,0 +1,172 @@
+/** @vitest-environment node */
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import fs from 'node:fs'
+import path from 'node:path'
+import { createRequire } from 'node:module'
+import { makeSandbox, KEY } from './helpers'
+const require = createRequire(import.meta.url)
+const {
+  registerModelsHandlers,
+} = require('../../electron/modules/models/ipc.js')
+const store = require('../../electron/modules/models/store.js')
+let sb, original, handlers, lifecycle
+const file = (name) => path.join(sb.models, name)
+const read = (name) => JSON.parse(fs.readFileSync(file(name), 'utf8'))
+function open() {
+  handlers = {}
+  lifecycle = registerModelsHandlers({
+    ipcMain: {
+      handle: (ch, fn) => {
+        handlers[ch] = fn
+      },
+    },
+    getMainWindow: () => null,
+    loginPath: () => sb.bin,
+    hubOptions: {
+      homeDir: sb.home,
+      locateClaude: () => null,
+      locateCodex: () => null,
+    },
+  })
+}
+async function call(ch, args) {
+  expect(typeof handlers[ch]).toBe('function')
+  return await handlers[ch]({}, args)
+}
+beforeEach(() => {
+  sb = makeSandbox()
+  original = Object.fromEntries(
+    Object.keys(sb.env).map((k) => [k, process.env[k]]),
+  )
+  Object.assign(process.env, sb.env)
+  store.setKey('deepseek', KEY)
+  store.writeStatus('deepseek', 'deepseek-flash', { ok: true, source: 'test' })
+  open()
+})
+afterEach(() => {
+  lifecycle?.stop()
+  vi.restoreAllMocks()
+  for (const [k, v] of Object.entries(original)) {
+    if (v === undefined) delete process.env[k]
+    else process.env[k] = v
+  }
+  sb.cleanup()
+})
+function denyPublicRename() {
+  const rename = fs.renameSync
+  vi.spyOn(fs, 'renameSync').mockImplementation((from, to) => {
+    if (to === file('review-models.json')) {
+      const e = new Error('test write denied')
+      e.code = 'EACCES'
+      throw e
+    }
+    return rename(from, to)
+  })
+}
+it('SC-007 TC-056 保存清单失败恢复旧偏好和旧快照；真实错误返回原文', async () => {
+  await call('models:hubList')
+  const before = fs.readFileSync(file('hub.json'), 'utf8')
+  const publicBefore = fs.readFileSync(file('review-models.json'), 'utf8')
+  denyPublicRename()
+  const result = await call('models:hubSetEnabled', {
+    id: 'deepseek:deepseek-flash',
+    enabled: false,
+  })
+  expect(result).toMatchObject({
+    success: false,
+    error: {
+      code: 'write_denied',
+      message: '配置目录没有写入权限，检查权限后重试',
+    },
+  })
+  expect(fs.readFileSync(file('hub.json'), 'utf8')).toBe(before)
+  expect(fs.readFileSync(file('review-models.json'), 'utf8')).toBe(publicBefore)
+  expect(fs.readdirSync(sb.models).some((n) => n.endsWith('.tmp'))).toBe(false)
+})
+it('SC-011 TC-060 合法全关闭不是首次状态，重启不自动开启；0600/0644', async () => {
+  expect(
+    (
+      await call('models:hubSetEnabled', {
+        id: 'deepseek:deepseek-flash',
+        enabled: false,
+      })
+    ).success,
+  ).toBe(true)
+  expect(read('review-models.json').models).toEqual([])
+  const initializedAt = read('hub.json').initializedAt
+  lifecycle.stop()
+  open()
+  await call('models:hubList')
+  expect(read('hub.json')).toMatchObject({
+    schemaVersion: 1,
+    initializedAt,
+    reviewEnabled: { 'deepseek:deepseek-flash': false },
+  })
+  expect(read('review-models.json').models).toEqual([])
+  expect(fs.statSync(file('hub.json')).mode & 0o777).toBe(0o600)
+  expect(fs.statSync(file('review-models.json')).mode & 0o777).toBe(0o644)
+})
+it('SC-028 TC-077 第三方强度唯一来源；公开写失败恢复models.json与清单', async () => {
+  await call('models:hubList')
+  const configBefore = fs.readFileSync(file('models.json'), 'utf8')
+  const publicBefore = fs.readFileSync(file('review-models.json'), 'utf8')
+  denyPublicRename()
+  const result = await call('models:hubSetEffort', {
+    id: 'deepseek:deepseek-flash',
+    effort: 'low',
+  })
+  expect(result.success).toBe(false)
+  expect(fs.readFileSync(file('models.json'), 'utf8')).toBe(configBefore)
+  expect(fs.readFileSync(file('review-models.json'), 'utf8')).toBe(publicBefore)
+  vi.restoreAllMocks()
+  expect(
+    (
+      await call('models:hubSetEffort', {
+        id: 'deepseek:deepseek-flash',
+        effort: 'low',
+      })
+    ).success,
+  ).toBe(true)
+  expect(store.readConfig().providers.deepseek.models[0].effort).toBe('low')
+  expect(read('hub.json').effort['deepseek:deepseek-flash']).toBeUndefined()
+  expect(read('review-models.json').models[0].effort).toBe('low')
+  const before = fs.readFileSync(file('models.json'), 'utf8')
+  expect(
+    (
+      await call('models:hubSetEffort', {
+        id: 'deepseek:deepseek-flash',
+        effort: 'ultra',
+      })
+    ).success,
+  ).toBe(false)
+  expect(fs.readFileSync(file('models.json'), 'utf8')).toBe(before)
+})
+it('坏hub不覆盖；修好后可重读，异常形状也算坏文件', async () => {
+  for (const contents of [
+    '{broken',
+    '{"schemaVersion":1,"reviewEnabled":null,"effort":{}}',
+    '[]',
+  ]) {
+    fs.writeFileSync(file('hub.json'), contents)
+    expect(await call('models:hubList')).toMatchObject({
+      success: false,
+      error: { code: 'HUB_FILE_INVALID' },
+    })
+    expect(fs.readFileSync(file('hub.json'), 'utf8')).toBe(contents)
+  }
+  fs.rmSync(file('hub.json'))
+  expect((await call('models:hubList')).success).toBe(true)
+})
+
+it('SC-026 TC-075 第三方强度只写models.json并更新清单；非法值保持所有原文件', async () => {
+  await call('models:hubList')
+  const hubBefore = fs.readFileSync(file('hub.json'), 'utf8')
+  expect((await call('models:hubSetEffort', { id: 'deepseek:deepseek-flash', effort: 'low' })).success).toBe(true)
+  expect(store.readConfig().providers.deepseek.models[0].effort).toBe('low')
+  expect(fs.readFileSync(file('hub.json'), 'utf8')).toBe(hubBefore)
+  expect(read('hub.json').effort['deepseek:deepseek-flash']).toBeUndefined()
+  expect(read('review-models.json').models.find((m) => m.id === 'deepseek:deepseek-flash').effort).toBe('low')
+  const before = Object.fromEntries(['hub.json', 'models.json', 'review-models.json'].map((name) => [name, fs.readFileSync(file(name), 'utf8')]))
+  expect((await call('models:hubSetEffort', { id: 'deepseek:deepseek-flash', effort: 'ultra' })).success).toBe(false)
+  for (const [name, contents] of Object.entries(before)) expect(fs.readFileSync(file(name), 'utf8')).toBe(contents)
+})

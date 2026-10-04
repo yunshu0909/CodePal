@@ -263,6 +263,18 @@ function writeStatus(providerId, modelId, result) {
   ensureDir(resolveModelsHome())
   const record = { ok: Boolean(result.ok), reason: result.reason || null, message: result.message || null, at: new Date().toISOString(), source: result.source }
   if (result.runId) record.runId = result.runId
+  // Review calls update the latest result, while availability retains the latest explicit test.
+  let previous = null
+  try {
+    previous = JSON.parse(fs.readFileSync(statusFile(providerId, modelId), 'utf8'))
+  } catch {}
+  if (result.source === 'test') record.lastTest = { ok: record.ok, reason: record.reason, at: record.at }
+  else if (previous && Object.hasOwn(previous, 'lastTest')) record.lastTest = previous.lastTest
+  else if (previous) {
+    // Legacy availability used the previous top-level result. Carry it when writing a new review,
+    // without rewriting old records during reads or treating this new review as a new test.
+    record.lastTest = { ok: previous.ok === true, reason: previous.reason || null, at: previous.at || null }
+  } else record.lastTest = null
   writePrivate(statusFile(providerId, modelId), JSON.stringify(record))
   return record
 }

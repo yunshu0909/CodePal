@@ -24,7 +24,6 @@
 .mj-page .mj-toggle:focus { outline: none; }
 .mj-page .mj-toggle:focus-visible { border-radius: 4px; box-shadow: 0 0 0 3px rgba(43, 127, 255, .25); }
 .mj-page .mj-toggle > .lf { min-width: 0; }
-.mj-page .mj-disc { width: 10px; height: 10px; flex: none; fill: none; stroke: var(--fg-3); stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
 .mj-page .mj-name { overflow: hidden; text-overflow: ellipsis; }
 .mj-page .mj-num { font-family: var(--num); }
 
@@ -36,8 +35,6 @@
 .mj-page .mj-cmd { font-family: var(--mono); }
 
 /* 思考强度：弹出按钮下挂菜单，右对齐 */
-.mj-page .mj-effort { position: relative; flex: none; }
-.mj-page .mj-menu { top: 28px; right: 0; width: 160px; }
 
 /* 弹层：宽 280；Key 弹层锚在卡头按钮下（相对卡 top 44 / right 20），添加弹层锚在「＋ 添加模型」下（相对该行 top 36 / left 0）；
    margin 0：卡头后面紧跟的弹层不吃「卡头 → 第一块 10」 */

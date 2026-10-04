@@ -12,6 +12,7 @@
 export const SIDEBAR_ICONS = {
   permission: { color: 'var(--tool-claude)', path: 'M3 4.5 6.5 8 3 11.5M8 12h5' },
   'project-init': { color: 'var(--ic-blue)', path: 'M8 3v10M3 8h10' },
+  modelHub: { color: 'var(--ic-purple)', path: 'M3 4h10M3 8h10M3 12h6' },
   models: { color: 'var(--ic-teal)', path: 'M5.5 2.5v3M10.5 2.5v3M4 5.5h8v2.5a4 4 0 0 1-8 0zM8 12v2' },
   network: { color: 'var(--ic-green)', path: 'M8 2a6 6 0 1 0 0 12A6 6 0 0 0 8 2zM2 8h12M8 2c2 2 2 10 0 12M8 2c-2 2-2 10 0 12' },
   'session-status': { color: 'var(--ic-orange)', path: 'M1.5 8h3l2-4.5 3 9 2-4.5h3' },

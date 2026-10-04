@@ -641,3 +641,8 @@
 
 /* 只读目录树行（如新建项目的「会生成什么」）：不可点，没有悬停底色 */
 :is(.page-shell--native, .np-scope) .np-tr.np-tr--static:hover { background: none; }
+
+/* Shared disclosure geometry, used by model access and model hub. */
+:is(.page-shell--native, .np-scope) .np-disc { width: 10px; height: 10px; flex: none; fill: none; stroke: var(--fg-3); stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+:is(.page-shell--native, .np-scope) .np-popbtn:disabled { opacity: .5; }
+:is(.page-shell--native, .np-scope) .toggle:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }

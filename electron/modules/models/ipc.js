@@ -3,6 +3,7 @@
  *
  * 负责：
  * - 通道：models:list / setKey / test / addModel / updateModel / removeModel / recheckClaude / installCommands
+ *   models:hubList / hubSetEnabled / hubSetEffort（汇总设置与公开审核清单）
  * - 统一返回 { success, data, error: { code, message } }；渲染层只传 ID，永远拿不到 Key 原文
  * - 「测一下」起一个命令行子进程（和审核走同一个入口），结束后读回状态文件
  * - 监听 status/ 目录：命令行（含 dev-workflow 审核）写回结果时推 models:changed 给页面
@@ -16,6 +17,7 @@ const path = require('path')
 const crypto = require('crypto')
 const { spawn, spawnSync } = require('child_process')
 const store = require('./store')
+const { createModelHub } = require('./hub')
 const commands = require('./commands')
 const { PRESETS } = require('./presets')
 const { locateClaude, checkClaudeVersion, MIN_CLAUDE_VERSION } = require('./claudeCli')
@@ -77,7 +79,37 @@ function providerView(cfg, statuses, providerId) {
  * @param {() => string} [deps.loginPath] - 判断命令目录在不在 PATH 用
  * @returns {{stop: () => void}}
  */
-function registerModelsHandlers({ ipcMain, getMainWindow, cliPath = defaultCliPath(), appExecPath = process.execPath, loginPath = defaultLoginPath }) {
+function registerModelsHandlers({ ipcMain, getMainWindow, cliPath = defaultCliPath(), appExecPath = process.execPath, loginPath = defaultLoginPath, hubOptions = {} }) {
+  const hub = createModelHub(hubOptions)
+  const refreshHubQuietly = () => {
+    try {
+      hub.refresh()
+    } catch {
+      // 启动和外部状态刷新失败由下一次显式读取报告，不阻止接入管理启动。
+    }
+  }
+  const hubError = (error) => {
+    if (error.code === 'HUB_FILE_INVALID') return { success: false, data: null, error: { code: error.code, message: error.message } }
+    const translated = toError(error)
+    if (translated.code === 'unknown') translated.message = '出错了'
+    return { success: false, data: null, error: translated }
+  }
+  const hubChannels = [
+    ['models:hubList', () => hub.list()],
+    ['models:hubSetEnabled', (payload) => hub.setEnabled(payload)],
+    ['models:hubSetEffort', (payload) => hub.setEffort(payload)],
+  ]
+  for (const [channel, handler] of hubChannels) {
+    ipcMain.handle(channel, (_event, payload) => {
+      try {
+        return ok(handler(payload))
+      } catch (error) {
+        return hubError(error)
+      }
+    })
+  }
+  // First-use preferences and the review snapshot exist from startup, even without opening the page.
+  refreshHubQuietly()
   let claudeCache = null
   const claudeInfo = () => {
     if (!claudeCache) {
@@ -92,7 +124,10 @@ function registerModelsHandlers({ ipcMain, getMainWindow, cliPath = defaultCliPa
   }
 
   /** 装过命令就跟着配置同步；同步失败不影响本次操作结果 */
-  const syncQuietly = () => { try { commands.syncCommands() } catch {} }
+  const syncQuietly = () => {
+    try { commands.syncCommands() } catch {}
+    refreshHubQuietly()
+  }
 
   /** 终端命令状态：写操作后一并带回，页面不用整页重读就能更新「终端命令未安装」那一行 */
   const commandsView = () => {
@@ -140,6 +175,7 @@ function registerModelsHandlers({ ipcMain, getMainWindow, cliPath = defaultCliPa
         resolve({ success: false, data: null, error: { code: 'test_failed', message: stderr.trim().split('\n').pop() || '测试没有完成' } })
         return
       }
+      refreshHubQuietly()
       const { runId: _runId, ...lastResult } = record
       resolve(ok({ lastResult }))
     })
@@ -177,12 +213,15 @@ function registerModelsHandlers({ ipcMain, getMainWindow, cliPath = defaultCliPa
 
   ipcMain.handle('models:recheckClaude', () => {
     claudeCache = null
+    refreshHubQuietly()
     return ok(claudeInfo())
   })
 
   ipcMain.handle('models:installCommands', () => {
     try {
-      return ok(commands.installCommands({ appExecPath, cliPath }))
+      const result = commands.installCommands({ appExecPath, cliPath })
+      refreshHubQuietly()
+      return ok(result)
     } catch (err) {
       return bad(err, { install: true })
     }
@@ -200,6 +239,7 @@ function registerModelsHandlers({ ipcMain, getMainWindow, cliPath = defaultCliPa
         timers.delete(name)
         const key = name.slice(0, -5)
         const lastResult = store.readStatuses()[key]
+        refreshHubQuietly()
         const win = getMainWindow && getMainWindow()
         if (!lastResult || !win || (win.isDestroyed && win.isDestroyed())) return
         // 供应商 id 里没有 __，按第一个分隔符拆；模型名本身可以带 __

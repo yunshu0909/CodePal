@@ -23,8 +23,9 @@ const HARDCODED_MODEL_FALLBACK = Object.freeze({
   version: 'hardcoded-fallback',
   updatedAt: null,
   models: [
-    { id: 'opus[1m]', display: 'Opus 4.7', sublabel: '最强 · 1M' },
-    { id: 'sonnet[1m]', display: 'Sonnet 4.6', sublabel: '日常 · 1M' },
+    { id: 'fable', display: 'Fable 5.1', sublabel: '' },
+    { id: 'opus', display: 'Opus 5.5', sublabel: '最强 · 1M' },
+    { id: 'sonnet', display: 'Sonnet 5.5', sublabel: '日常 · 1M' },
     { id: 'haiku', display: 'Haiku 4.5', sublabel: '快速 · 200K' },
   ],
   effortLevels: [
@@ -32,6 +33,7 @@ const HARDCODED_MODEL_FALLBACK = Object.freeze({
     { id: 'medium', display: '中', desc: '平衡速度与质量，Claude 默认值', isDefault: true },
     { id: 'high', display: '高', desc: '深度思考，适合复杂编码任务' },
     { id: 'xhigh', display: '超高', desc: 'Claude 4.7 新增，推理最充分，适合复杂架构与调试' },
+    { id: 'max', display: 'max', desc: '' },
   ],
 })
 

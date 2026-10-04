@@ -49,8 +49,8 @@ afterEach(() => {
 })
 
 describe('models:* 接口', () => {
-  it('注册了八个通道', () => {
-    expect(Object.keys(handlers).sort()).toEqual(['models:addModel', 'models:installCommands', 'models:list', 'models:recheckClaude', 'models:removeModel', 'models:setKey', 'models:test', 'models:updateModel'])
+  it('注册了十一个通道', () => {
+    expect(Object.keys(handlers).sort()).toEqual(['models:addModel', 'models:hubList', 'models:hubSetEffort', 'models:hubSetEnabled', 'models:installCommands', 'models:list', 'models:recheckClaude', 'models:removeModel', 'models:setKey', 'models:test', 'models:updateModel'])
   })
 
   it('TC-A04 Key 不以 sk- 开头返回 invalid_input 且不写文件', async () => {
@@ -244,4 +244,14 @@ describe('models:* 接口', () => {
   it('recheckClaude 返回当前检测结果', async () => {
     expect((await call('models:recheckClaude')).data).toMatchObject({ found: true, version: '2.1.283' })
   })
+})
+
+
+it('SC-017 TC-066 未测通不列第三方，接入列表仍保留未测模型', async () => {
+  await call('models:setKey', { providerId: 'deepseek', key: KEY })
+  expect(typeof handlers['models:hubList']).toBe('function')
+  const hub = await call('models:hubList')
+  expect(hub.success).toBe(true)
+  expect(hub.data.vendors.some(v => v.id === 'deepseek')).toBe(false)
+  expect((await call('models:list')).data.providers.deepseek.models).toHaveLength(1)
 })

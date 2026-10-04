@@ -1,0 +1,88 @@
+/* Signed layout only; tokens and shared controls stay in Native+. */
+.mh-lf {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.mh-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mh-vd {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--fg-3);
+  white-space: nowrap;
+  flex: none;
+}
+.mh-fold {
+  cursor: default;
+}
+.mh-fold:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: -2px;
+  border-radius: 6px;
+}
+.mh-page .np-row.mh-sub {
+  padding-left: 16px;
+}
+.mh-page .np-row.mh-sub .lb {
+  font-weight: 400;
+}
+.mh-disc-space {
+  width: 10px;
+  height: 10px;
+  flex: none;
+}
+.mh-cnt {
+  font-family: var(--num);
+  font-size: 12.5px;
+  color: var(--fg-2);
+  white-space: nowrap;
+}
+.mh-page .mh-eff {
+  min-width: 88px;
+}
+.mh-effort-anchor {
+  position: relative;
+  flex: none;
+}
+.mh-page .mh-menu {
+  top: 28px;
+  right: 0;
+  width: 160px;
+}
+.mh-acts {
+  gap: 10px;
+}
+.mh-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 12px 4px 0;
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--fg-3);
+}
+.mh-foot.warn {
+  color: var(--orange-fg);
+}
+.mh-foot.bad {
+  color: var(--red-fg);
+}
+.mh-page .mh-foot .btn.btn--ghost.np-btn-text {
+  padding: 0;
+  height: 16px;
+}
+
+/* The signed prototype inherits its section label rhythm from the review sheet. */
+.mh-page .np-glabel {
+  line-height: 20px;
+}
+
+.mh-page .np-empty {
+  line-height: 20px;
+}

@@ -347,16 +347,18 @@ describe('TC-005 模块 E · 添加、改名、参数', () => {
     expect(screen.getByLabelText('模型名')).toHaveValue('deepseek-v4-pro')
   })
 
-  it('TC-E22 改思考强度即保存、不重测', async () => {
+  it('SC-026 TC-075 原接入移除强度控件，Key/模型名/上限/终端/移除仍保留', async () => {
     const { api } = await renderPage()
     expand()
-    fireEvent.click(screen.getByRole('button', { name: '思考强度' }))
-    // DeepSeek 只区分三档
-    expect(screen.getAllByRole('menuitemradio').map((b) => b.textContent.replace('✓', ''))).toEqual(['low', 'high', 'max'])
-    fireEvent.click(screen.getByRole('menuitemradio', { name: 'high' }))
-    await waitFor(() => expect(api.modelsUpdateModel).toHaveBeenCalledWith({ providerId: 'deepseek', modelId: 'deepseek-flash', patch: { effort: 'high' } }))
-    await waitFor(() => expect(toast.success).toHaveBeenCalledWith('已保存'))
-    expect(toast.success).toHaveBeenCalledTimes(1)
+    expect(screen.queryByRole('button', { name: '思考强度' })).toBeNull()
+    expect(screen.queryByText('思考强度')).toBeNull()
+    expect(screen.getByLabelText('模型名')).toHaveValue('deepseek-flash')
+    expect(screen.getByLabelText('上下文上限')).toHaveValue('1,000,000')
+    expect(screen.getByLabelText('输出上限')).toHaveValue('128,000')
+    expect(btn('更换 Key')).toBeInTheDocument()
+    expect(btn('复制命令')).toBeInTheDocument()
+    expect(btn('移除模型')).toBeInTheDocument()
+    expect(api.modelsUpdateModel).not.toHaveBeenCalled()
     expect(api.modelsTest).not.toHaveBeenCalled()
   })
 
@@ -524,7 +526,7 @@ describe('TC-005 模块 E · 侧栏', () => {
   it('TC-E18 环境配置组顺序；VALID_ACTIVE_MODULES 含 models', async () => {
     const { default: WorkbenchLayout } = await import('../../src/components/WorkbenchLayout')
     withUserAgent('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)', () => render(<WorkbenchLayout activeModule="usage"><div /></WorkbenchLayout>))
-    expect(envGroupLabels()).toEqual(['Claude Code 设置', '模型接入', '网络诊断'])
+    expect(envGroupLabels()).toEqual(['Claude Code 设置', '模型接入', '模型汇总', '网络诊断'])
     const { VALID_ACTIVE_MODULES } = await import('../../src/App.jsx')
     expect(VALID_ACTIVE_MODULES.has('models')).toBe(true)
   })

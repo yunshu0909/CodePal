@@ -2,20 +2,17 @@
  * 模型接入页 · 模型行的展开区
  *
  * 负责：
- * - 六行键值行：模型名 / 思考强度 / 上下文上限 / 输出上限 / 终端启动 / 移除
+ * - 五行键值行：模型名 / 上下文上限 / 输出上限 / 终端启动 / 移除
  * - 模型名、上限：失焦或回车保存，写入期间短暂禁用；非法时红边 + 红字不保存；Esc 还原原值
- * - 思考强度：选中即保存；复制命令拿全文；移除走全局确认对话框
+ * - 复制命令拿全文；移除走全局确认对话框
  *
  * @module features/models/ModelDetail
  */
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import Button from '../../components/Button/Button'
 import { toast } from '../../components/Toast'
-import usePopoverDismiss from '../../hooks/usePopoverDismiss'
 import { MAX_OUTPUT_CAP, formatInt, modelNameError, parsePositiveInt } from './modelsView'
-
-const CHEV = <svg className="chev" viewBox="0 0 10 10" aria-hidden="true"><path d="M3 4 5 2 7 4M3 6 5 8 7 6" /></svg>
 
 /**
  * 模型名输入
@@ -148,74 +145,17 @@ function LimitField({ label, field, value, max, onSave }) {
 }
 
 /**
- * 思考强度：弹出按钮 + 下拉菜单，选中即保存
- * @param {{value: string, efforts: string[], onSave: Function}} props
- */
-function EffortField({ value, efforts, onSave }) {
-  const [open, setOpen] = useState(false)
-  const [saving, setSaving] = useState(false)
-  const anchor = useRef(null)
-
-  const pick = async (effort) => {
-    setOpen(false)
-    if (effort === value) return
-    setSaving(true)
-    await onSave({ effort })
-    setSaving(false)
-  }
-
-  return (
-    <div className="np-row np-kv mj-sub">
-      <span className="lb">思考强度</span>
-      <span className="mj-effort">
-        <button
-          ref={anchor}
-          type="button"
-          className="np-popbtn"
-          aria-label="思考强度"
-          aria-haspopup="menu"
-          aria-expanded={open}
-          disabled={saving}
-          onClick={() => setOpen((v) => !v)}
-        >
-          {value}
-          {CHEV}
-        </button>
-        {open && <EffortMenu value={value} efforts={efforts} anchorRef={anchor} onPick={pick} onClose={() => setOpen(false)} />}
-      </span>
-    </div>
-  )
-}
-
-/** 思考强度下拉菜单；点外面、Esc 关闭 */
-function EffortMenu({ value, efforts, anchorRef, onPick, onClose }) {
-  const root = useRef(null)
-  usePopoverDismiss(root, onClose, anchorRef)
-  return (
-    <div ref={root} className="np-menu mj-menu" role="menu">
-      {efforts.map((effort) => (
-        <button key={effort} type="button" role="menuitemradio" aria-checked={effort === value} className="np-mitem" onClick={() => onPick(effort)}>
-          <span className="tx"><b>{effort}</b></span>
-          <span className="ck">{effort === value ? '✓' : ''}</span>
-        </button>
-      ))}
-    </div>
-  )
-}
-
-/**
  * 展开区
  * @param {Object} props
  * @param {object} props.model
  * @param {string[]} props.otherNames - 同一家其他模型的名字（重名校验）
- * @param {string[]} props.efforts - 这家可选的思考强度
  * @param {string} props.command - 终端启动命令（不在 PATH 时是完整路径）
  * @param {boolean} props.removing
  * @param {(patch: object) => Promise<{ok: boolean, inline?: boolean, message?: string}>} props.onUpdate
  * @param {() => void} props.onRemove
  * @returns {JSX.Element}
  */
-export default function ModelDetail({ model, otherNames, efforts, command, removing, onUpdate, onRemove }) {
+export default function ModelDetail({ model, otherNames, command, removing, onUpdate, onRemove }) {
   const copy = async () => {
     try {
       await navigator.clipboard.writeText(command)
@@ -228,7 +168,6 @@ export default function ModelDetail({ model, otherNames, efforts, command, remov
   return (
     <>
       <NameField model={model} otherNames={otherNames} onSave={onUpdate} />
-      <EffortField value={model.effort} efforts={efforts} onSave={onUpdate} />
       <LimitField label="上下文上限" field="contextTokens" value={model.contextTokens} onSave={onUpdate} />
       <LimitField label="输出上限" field="maxOutputTokens" value={model.maxOutputTokens} max={MAX_OUTPUT_CAP} onSave={onUpdate} />
       <div className="np-row np-kv mj-sub mj-cmdrow">

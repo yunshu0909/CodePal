@@ -152,3 +152,15 @@ describe('模型名规则（PRD US-06，TC-F09 的主进程规则）', () => {
     expect(store.updateModel('deepseek', 'deepseek-flash', { effort: 'low' })).toMatchObject({ effort: 'low' })
   })
 })
+
+
+it('SC-016 TC-065 lastTest只有test更新，审核保留；保留现行顶层与runId', () => {
+  const pass = store.writeStatus('deepseek', 'deepseek-flash', { ok: true, source: 'test', runId: 'test-run-1' })
+  expect(pass.lastTest).toMatchObject({ ok: true, reason: null, at: pass.at })
+  const review = store.writeStatus('deepseek', 'deepseek-flash', { ok: false, reason: 'balance', source: 'review', runId: 'review-run-2' })
+  expect(review).toMatchObject({ ok: false, source: 'review', runId: 'review-run-2', lastTest: pass.lastTest })
+  const fail = store.writeStatus('deepseek', 'deepseek-flash', { ok: false, reason: 'net', source: 'test' })
+  expect(fail.lastTest).toMatchObject({ ok: false, reason: 'net', at: fail.at })
+  const recovery = store.writeStatus('deepseek', 'deepseek-flash', { ok: true, source: 'review' })
+  expect(recovery.lastTest).toEqual(fail.lastTest)
+})
