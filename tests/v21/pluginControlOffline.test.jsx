@@ -109,7 +109,7 @@ describe('Plugins 管理下线', () => {
     const mod = await import('../../src/App.jsx')
     const ids = [...mod.VALID_ACTIVE_MODULES]
     expect(!ids.includes('plugins'), 'NO_PLUGINS_NAV 白名单仍含 plugins').toBe(true)
-    const expected = ['skills', 'usage', 'claude-usage', 'project-init', 'permission', 'models', 'network', 'session-status', 'sessions', 'doc-browser']
+    const expected = ['skills', 'usage', 'claude-usage', 'project-init', 'permission', 'models', 'modelHub', 'network', 'session-status', 'sessions', 'doc-browser']
     expect(
       ids.length === expected.length && expected.every((id) => ids.includes(id)),
       `NO_PLUGINS_NAV 白名单异常: ${ids.join(',')}`
