@@ -35,6 +35,8 @@
 .mj-page .mj-cmd { font-family: var(--mono); }
 
 /* 思考强度：弹出按钮下挂菜单，右对齐 */
+.mj-page .mj-effort { position: relative; flex: none; }
+.mj-page .mj-menu { top: 28px; right: 0; width: 160px; }
 
 /* 弹层：宽 280；Key 弹层锚在卡头按钮下（相对卡 top 44 / right 20），添加弹层锚在「＋ 添加模型」下（相对该行 top 36 / left 0）；
    margin 0：卡头后面紧跟的弹层不吃「卡头 → 第一块 10」 */

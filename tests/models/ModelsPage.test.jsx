@@ -531,3 +531,63 @@ describe('TC-005 模块 E · 侧栏', () => {
     expect(VALID_ACTIVE_MODULES.has('models')).toBe(true)
   })
 })
+
+describe('v2.1.16 · 接入页思考强度与终端命令指向', () => {
+  const withEfforts = (efforts, effort = 'max') => withModels({ ...MODEL, efforts, effort })
+
+  it('TC-105 有档位的模型展开后有「思考强度」和说明，选档保存并提示「已保存」', async () => {
+    const { api } = await renderPage(withEfforts(['low', 'high', 'max']))
+    expand()
+    const button = screen.getByRole('button', { name: '思考强度' })
+    expect(button).toHaveTextContent('max')
+    expect(screen.getByText('终端里启动这个模型时用；审核用的强度在模型汇总里改')).toBeInTheDocument()
+    fireEvent.click(button)
+    expect(screen.getAllByRole('menuitemradio').map((item) => item.getAttribute('aria-label'))).toEqual(['low', 'high', 'max'])
+    fireEvent.click(screen.getByRole('menuitemradio', { name: 'low' }))
+    await waitFor(() => expect(api.modelsUpdateModel).toHaveBeenCalledWith({ providerId: 'deepseek', modelId: 'deepseek-flash', patch: { effort: 'low' } }))
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith('已保存'))
+    expect(api.modelsTest).not.toHaveBeenCalled()
+    await waitFor(() => expect(screen.getByRole('button', { name: '思考强度' })).toHaveTextContent('low'))
+  })
+
+  it('TC-105 选回当前档不保存；没有档位的模型不显示这一行', async () => {
+    const { api } = await renderPage(withEfforts(['low', 'high', 'max']))
+    expand()
+    fireEvent.click(screen.getByRole('button', { name: '思考强度' }))
+    fireEvent.click(screen.getByRole('menuitemradio', { name: 'max' }))
+    expect(api.modelsUpdateModel).not.toHaveBeenCalled()
+    cleanup()
+    await renderPage(withEfforts([], null))
+    expand()
+    expect(screen.queryByRole('button', { name: '思考强度' })).toBeNull()
+    expect(screen.queryByText('思考强度')).toBeNull()
+    expect(screen.getByLabelText('模型名')).toHaveValue('deepseek-flash')
+  })
+
+  const elsewhere = (otherApp) => ({ ...base(), commands: { installed: true, missing: [], missingEntries: [], stale: false, onPath: true, binDir: '~/.local/bin', otherApp } })
+
+  it('TC-108 命令指向别的 CodePal：提示一行、版本与位置、要更新、主按钮安装命令', async () => {
+    const { api } = await renderPage(elsewhere({ version: '2.1.1', location: '/Applications/CodePal.app', dev: false }))
+    expect(screen.getByText('终端命令还在用另一个 CodePal')).toBeInTheDocument()
+    expect(screen.getByText('现在指向 2.1.1（/Applications/CodePal.app），这里新加的模型在终端里可能用不了；点安装命令改用当前这个')).toBeInTheDocument()
+    expect(screen.getByText('要更新')).toBeInTheDocument()
+    expect(screen.queryByText('终端命令未安装')).toBeNull()
+    expect(primaries()).toHaveLength(1)
+    expect(primaries()[0]).toHaveTextContent('安装命令')
+    fireEvent.click(btn('安装命令'))
+    await waitFor(() => expect(api.modelsInstallCommands).toHaveBeenCalledTimes(1))
+  })
+
+  it('TC-108 开发版与读不到版本的写法；没装命令时仍是「终端命令未安装」', async () => {
+    await renderPage(elsewhere({ version: '2.1.14', location: '/Users/me/codepal', dev: true }))
+    expect(screen.getByText('现在指向 2.1.14 开发版（/Users/me/codepal），这里新加的模型在终端里可能用不了；点安装命令改用当前这个')).toBeInTheDocument()
+    cleanup()
+    await renderPage(elsewhere({ version: null, location: '/Applications/Old.app', dev: false }))
+    expect(screen.getByText('现在指向 /Applications/Old.app，这里新加的模型在终端里可能用不了；点安装命令改用当前这个')).toBeInTheDocument()
+    cleanup()
+    await renderPage({ ...base(), commands: { installed: false, missing: ['deepseek-flash'], missingEntries: [], stale: false, onPath: true, binDir: '~/.local/bin', otherApp: null } })
+    expect(screen.getByText('终端命令未安装')).toBeInTheDocument()
+    expect(screen.getByText('未安装')).toBeInTheDocument()
+    expect(screen.queryByText('终端命令还在用另一个 CodePal')).toBeNull()
+  })
+})

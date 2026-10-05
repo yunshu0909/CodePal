@@ -18,7 +18,7 @@ import StateView from '../../components/StateView/StateView'
 import BlockCard from './BlockCard'
 import ProviderCard from './ProviderCard'
 import useModels from './useModels'
-import { PROVIDERS, claudeBlock, needsCommands, primaryAction } from './modelsView'
+import { PROVIDERS, claudeBlock, commandsBlock, primaryAction } from './modelsView'
 import './models.css'
 
 export default function ModelsPage() {
@@ -43,7 +43,7 @@ export default function ModelsPage() {
             {data && (
               <BlockCard
                 claude={claude}
-                showInstall={needsCommands(data)}
+                install={commandsBlock(data)}
                 primary={primary}
                 rechecking={models.rechecking}
                 installing={models.installing}

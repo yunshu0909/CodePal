@@ -2,15 +2,17 @@
  * 模型接入页 · 模型行的展开区
  *
  * 负责：
- * - 五行键值行：模型名 / 上下文上限 / 输出上限 / 终端启动 / 移除
+ * - 键值行：模型名 / 思考强度（这个模型有档位时）/ 上下文上限 / 输出上限 / 终端启动 / 移除
  * - 模型名、上限：失焦或回车保存，写入期间短暂禁用；非法时红边 + 红字不保存；Esc 还原原值
+ * - 思考强度：终端里启动这个模型时用的强度（存 models.json），选中即保存；审核用的强度在模型汇总里另存
  * - 复制命令拿全文；移除走全局确认对话框
  *
  * @module features/models/ModelDetail
  */
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import Button from '../../components/Button/Button'
+import EffortMenu from '../../components/EffortMenu'
 import { toast } from '../../components/Toast'
 import { MAX_OUTPUT_CAP, formatInt, modelNameError, parsePositiveInt } from './modelsView'
 
@@ -144,10 +146,55 @@ function LimitField({ label, field, value, max, onSave }) {
   )
 }
 
+const CHEV = <svg className="chev" viewBox="0 0 10 10" aria-hidden="true"><path d="M3 4 5 2 7 4M3 6 5 8 7 6" /></svg>
+
+/**
+ * 思考强度：弹出按钮 + 共用的强度菜单，选中即保存；选回当前档不保存
+ * @param {{value: string, efforts: string[], onSave: Function}} props
+ */
+function EffortField({ value, efforts, onSave }) {
+  const [open, setOpen] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const anchor = useRef(null)
+
+  const pick = async (effort) => {
+    setOpen(false)
+    if (effort === value) return
+    setSaving(true)
+    await onSave({ effort })
+    setSaving(false)
+  }
+
+  return (
+    <div className="np-row np-kv mj-sub">
+      <div className="lf">
+        <div className="lb">思考强度</div>
+        <div className="ds">终端里启动这个模型时用；审核用的强度在模型汇总里改</div>
+      </div>
+      <span className="mj-effort">
+        <button
+          ref={anchor}
+          type="button"
+          className="np-popbtn"
+          aria-label="思考强度"
+          aria-haspopup="menu"
+          aria-expanded={open}
+          disabled={saving}
+          onClick={() => setOpen((v) => !v)}
+        >
+          {value}
+          {CHEV}
+        </button>
+        {open && <EffortMenu value={value} efforts={efforts} anchorRef={anchor} onPick={pick} onClose={() => setOpen(false)} className="mj-menu" />}
+      </span>
+    </div>
+  )
+}
+
 /**
  * 展开区
  * @param {Object} props
- * @param {object} props.model
+ * @param {object} props.model - 含 efforts（主进程按模型给出的可选强度，空数组就不显示强度行）
  * @param {string[]} props.otherNames - 同一家其他模型的名字（重名校验）
  * @param {string} props.command - 终端启动命令（不在 PATH 时是完整路径）
  * @param {boolean} props.removing
@@ -168,6 +215,7 @@ export default function ModelDetail({ model, otherNames, command, removing, onUp
   return (
     <>
       <NameField model={model} otherNames={otherNames} onSave={onUpdate} />
+      {model.efforts?.length > 0 && <EffortField value={model.effort} efforts={model.efforts} onSave={onUpdate} />}
       <LimitField label="上下文上限" field="contextTokens" value={model.contextTokens} onSave={onUpdate} />
       <LimitField label="输出上限" field="maxOutputTokens" value={model.maxOutputTokens} max={MAX_OUTPUT_CAP} onSave={onUpdate} />
       <div className="np-row np-kv mj-sub mj-cmdrow">

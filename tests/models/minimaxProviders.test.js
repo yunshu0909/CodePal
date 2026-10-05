@@ -197,7 +197,7 @@ it('TC-010 MINIMAX_TC_010 later failed review cannot erase successful test avail
   expect(hub().list().vendors.find(vendor => vendor.id === plan).models).toHaveLength(1)
 })
 
-it('TC-011 MINIMAX_TC_011 hub preferences and model effort persist independently', () => {
+it('TC-103 MINIMAX_TC_011 hub effort and access effort are stored separately', () => {
   configured('011')
   tested(api, m3)
   tested(plan, flash)
@@ -208,11 +208,17 @@ it('TC-011 MINIMAX_TC_011 hub preferences and model effort persist independently
   h.setEnabled({ id: `${api}:${m3}`, enabled: true })
   h.setEnabled({ id: `${plan}:${flash}`, enabled: true })
   h.setEffort({ id: `${plan}:${flash}`, effort: 'medium' })
-  expect(store.readConfig().providers[plan].models[0].effort).toBe('medium')
+  expect(store.readConfig().providers[plan].models[0].effort).toBe('max')
   expect(store.readConfig().providers[api].models[0].effort).toBeNull()
+  const prefs = json('hub.json')
+  expect(prefs.effort[`${plan}:${flash}`]).toBe('medium')
+  expect(prefs.effort).not.toHaveProperty(`${api}:${m3}`)
   const reloaded = miniVendors(hub().list())
   expect(reloaded[1].models[0]).toMatchObject({ enabled: true, effort: 'medium' })
-  expect(reloaded[0].models[0].enabled).toBe(true)
+  expect(reloaded[0].models[0]).toMatchObject({ enabled: true, effort: null, efforts: [] })
+  const review = json('review-models.json').models
+  expect(review.find(m => m.id === `${plan}:${flash}`).effort).toBe('medium')
+  expect(review.find(m => m.id === `${api}:${m3}`).effort).toBeNull()
 })
 
 it('TC-012 MINIMAX_TC_012 untested or unconfigured providers are absent from hub', () => {

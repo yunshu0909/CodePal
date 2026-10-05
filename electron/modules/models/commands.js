@@ -8,7 +8,7 @@
  *   路径里的 $()、反引号不会被执行；命令里不含 Key
  * - 只动自己生成的文件（第二行带生成标记）；同名但不是 CodePal 生成的文件一律不覆盖
  * - 装过一次后，加模型 / 改名 / 移除时同步命令文件
- * - 状态：哪些模型缺命令、命令指向的 CodePal 是否还在、命令目录在不在 PATH 里
+ * - 状态：哪些模型缺命令、命令指向的 CodePal 是否还在、是不是当前运行的这一个、命令目录在不在 PATH 里
  *
  * 测试用覆盖口 CODEPAL_BIN_DIR。
  *
@@ -48,11 +48,50 @@ function shellQuote(s) {
   return `'${String(s).replace(/'/g, "'\\''")}'`
 }
 
-/** 解析命令第三行里的可执行文件路径（shellQuote 的逆操作） */
-function execPathOf(text) {
+/** 解析命令第三行里的可执行文件与命令行脚本路径（shellQuote 的逆操作）；不是生成格式返回 null */
+function targetOf(text) {
   const line = String(text).split('\n')[2] || ''
-  const m = line.match(/^ELECTRON_RUN_AS_NODE=1 exec '((?:[^']|'\\'')*)'/)
-  return m ? m[1].replace(/'\\''/g, "'") : null
+  const m = line.match(/^ELECTRON_RUN_AS_NODE=1 exec '((?:[^']|'\\'')*)' '((?:[^']|'\\'')*)'/)
+  const unquote = (v) => v.replace(/'\\''/g, "'")
+  return m ? { appExecPath: unquote(m[1]), cliPath: unquote(m[2]) } : null
+}
+
+/** 命令第三行里的可执行文件路径 */
+const execPathOf = (text) => targetOf(text)?.appExecPath ?? null
+
+const VERSION_RE = /^[0-9A-Za-z.+-]{1,40}$/
+
+/** 只读取版本号；文件缺失或格式不对时返回 null，不影响命令状态 */
+function readVersion(read) {
+  try {
+    const version = read()
+    return typeof version === 'string' && VERSION_RE.test(version) ? version : null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * 说明命令指向的是哪个 CodePal：打包版（脚本在 .app 的 app.asar.unpacked 里）读 Info.plist 的版本号；
+ * 开发版读代码目录的 package.json（Electron.app 自己的 Info.plist 是 Electron 的版本，不能用）
+ * @param {{appExecPath: string, cliPath: string}} target
+ * @returns {{version: string|null, location: string, dev: boolean}}
+ */
+function describeApp({ cliPath }) {
+  const marker = `${path.sep}Contents${path.sep}Resources${path.sep}app.asar.unpacked${path.sep}`
+  const i = cliPath.indexOf(marker)
+  if (i !== -1) {
+    const app = cliPath.slice(0, i)
+    const version = readVersion(() => {
+      const plist = fs.readFileSync(path.join(app, 'Contents', 'Info.plist'), 'utf8')
+      return plist.match(/<key>CFBundleShortVersionString<\/key>\s*<string>([^<]*)<\/string>/)?.[1]
+    })
+    return { version, location: app, dev: false }
+  }
+  // 开发版脚本在 <代码目录>/electron/modules/models/cli.cjs
+  const root = path.resolve(path.dirname(cliPath), '..', '..', '..')
+  const version = readVersion(() => JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')).version)
+  return { version, location: root, dev: true }
 }
 
 /**
@@ -194,15 +233,19 @@ function removeCommand(model, providerId = 'deepseek') {
 
 /**
  * 命令状态
- * @param {{pathEnv?: string}} [opts] - 用来判断 onPath 的 PATH（主进程传登录 shell 的 PATH）
- * @returns {{installed: boolean, missing: string[], missingEntries: string[], stale: boolean, onPath: boolean, binDir: string}}
- *   missing：缺命令的模型名；missingEntries：缺稳定入口 codepal-<供应商> 的供应商
+ * @param {{pathEnv?: string, current?: {appExecPath: string, cliPath: string}}} [opts]
+ *   pathEnv：用来判断 onPath 的 PATH（主进程传登录 shell 的 PATH）；current：当前运行的 CodePal，不传就不比
+ * @returns {{installed: boolean, missing: string[], missingEntries: string[], stale: boolean, onPath: boolean, binDir: string,
+ *   otherApp: {version: string|null, location: string, dev: boolean}|null}}
+ *   missing：缺命令的模型名；missingEntries：缺稳定入口 codepal-<供应商> 的供应商；
+ *   otherApp：现有命令交给别的 CodePal 执行（老版本可能不认识这里新加的供应商），点「安装命令」会改用当前这个
  */
-function commandsState({ pathEnv = process.env.PATH } = {}) {
+function commandsState({ pathEnv = process.env.PATH, current } = {}) {
   const cfg = store.readConfig()
   const missing = []
   const missingEntries = []
   let stale = false
+  let otherApp = null
   const wanted = wantedCommands(cfg)
   const counts = new Map()
   for (const w of wanted) {
@@ -214,6 +257,10 @@ function commandsState({ pathEnv = process.env.PATH } = {}) {
     const exec = isGenerated(text) ? execPathOf(text) : null
     const broken = exec !== null && !fs.existsSync(exec)
     if (broken) stale = true
+    const target = !broken && isGenerated(text) ? targetOf(text) : null
+    if (!otherApp && current && target && (target.appExecPath !== current.appExecPath || target.cliPath !== current.cliPath)) {
+      otherApp = describeApp(target)
+    }
     // 同步失败会保留旧文件；文件存在不代表它仍指向当前渠道。
     const targetMatches = isGenerated(text) && (text.split('\n')[2] || '').endsWith(` launch ${w.preset.id} ${w.modelArg} -- "$@"`)
     const unique = counts.get(w.name.toLowerCase()) === 1
@@ -223,7 +270,7 @@ function commandsState({ pathEnv = process.env.PATH } = {}) {
     else missingEntries.push(w.preset.id)
   }
   const onPath = String(pathEnv || '').split(path.delimiter).some((d) => d && path.resolve(d) === path.resolve(binDir()))
-  return { installed: Boolean(cfg.commandsInstalled), missing, missingEntries, stale, onPath, binDir: displayDir() }
+  return { installed: Boolean(cfg.commandsInstalled), missing, missingEntries, stale, onPath, binDir: displayDir(), otherApp }
 }
 
 module.exports = {

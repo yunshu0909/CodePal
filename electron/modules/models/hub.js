@@ -101,6 +101,35 @@ function currentSources(options) {
   }
 }
 
+const isSubscription = (vendorId) => vendorId === 'claude' || vendorId === 'codex'
+
+/**
+ * 接入模型第一次出现在汇总里时，把它此刻在模型接入里的强度抄一份进汇总设置：
+ * 拆分后两边各管各的（接入管终端，汇总管审核），抄这一次保证审核清单的值不因拆分改变。
+ * 已有条目、没有档位的模型（MiniMax M3）都不动。
+ * @returns {boolean} 有没有新抄的条目
+ */
+function seedProviderEfforts(sources, preferences) {
+  let changed = false
+  for (const vendor of sources.vendors) {
+    if (vendor.blocked || isSubscription(vendor.id)) continue
+    for (const model of vendor.models) {
+      const id = `${vendor.id}:${model.slug}`
+      if (Object.hasOwn(preferences.effort, id) || !model.efforts.includes(model.effort)) continue
+      preferences.effort[id] = model.effort
+      changed = true
+    }
+  }
+  return changed
+}
+
+/** 汇总里显示的强度：订阅默认 high；接入模型用汇总自己的设置，设置里没有或不再合法时退回接入的值 */
+function hubEffort(vendorId, model, preferences, id) {
+  const saved = preferences.effort[id]
+  if (isSubscription(vendorId)) return saved || 'high'
+  return model.efforts.includes(saved) ? saved : model.effort
+}
+
 function decorate(sources, preferences) {
   return {
     providerConfigError: sources.providerConfigError,
@@ -108,12 +137,11 @@ function decorate(sources, preferences) {
       ...vendor,
       models: vendor.models.map((model) => {
         const id = `${vendor.id}:${model.slug}`
-        const subscription = vendor.id === 'claude' || vendor.id === 'codex'
         return {
           ...model,
           id,
           enabled: preferences.reviewEnabled[id] === true,
-          effort: subscription ? preferences.effort[id] || 'high' : model.effort,
+          effort: hubEffort(vendor.id, model, preferences, id),
         }
       }),
     })),
@@ -144,8 +172,8 @@ function publicView(data) {
  * @param {object} [options] 主进程提供的可信homeDir、env及CLI定位函数，不接收渲染层路径。
  * @returns {{list: Function, refresh: Function, setEnabled: Function, setEffort: Function}}
  * list/refresh返回不含凭证的来源列表；保存返回{id, enabled}或{id, effort}。
- * 首次读取创建0600 hub.json；读取和成功保存原子更新0644 review-models.json。
- * 保存失败逐字节恢复原设置；坏hub抛HUB_FILE_INVALID，非法输入抛invalid_input/not_found。
+ * 首次读取创建0600 hub.json；接入模型第一次出现时把接入强度抄进hub.json；读取和成功保存原子更新0644 review-models.json。
+ * 读取或保存失败时hub.json逐字节退回操作前（原本没有就删掉）；坏hub抛HUB_FILE_INVALID，非法输入抛invalid_input/not_found。
  */
 function createModelHub(options = {}) {
   const homeDir = options.homeDir || os.homedir()
@@ -175,27 +203,50 @@ function createModelHub(options = {}) {
 
   function state() {
     const sources = currentSources(discovery)
-    return decorate(sources, initialize(sources))
+    const preferences = initialize(sources)
+    if (seedProviderEfforts(sources, preferences)) atomicWrite(hubFile, JSON.stringify(preferences, null, 2) + '\n', 0o600)
+    return decorate(sources, preferences)
+  }
+
+  /** 把汇总设置放回操作前的字节；原本没有就删掉，内容没变就不动 */
+  function restoreHub(before) {
+    const now = readBytes(hubFile)
+    if (before === null) {
+      if (now !== null) fs.rmSync(hubFile, { force: true })
+    } else if (now === null || !now.equals(before)) {
+      atomicWrite(hubFile, before, 0o600)
+    }
+  }
+
+  /**
+   * 一次读取或保存是一件事：期间可能新建 hub.json、补抄接入强度、写这次的改动，
+   * 任何一步失败（含非法输入、公开清单写失败）都把 hub.json 退回操作前，不留半套
+   */
+  function transaction(work) {
+    const before = readBytes(hubFile)
+    try {
+      return work()
+    } catch (error) {
+      restoreHub(before)
+      throw error
+    }
+  }
+
+  function publish() {
+    const data = state()
+    writeReviewModels(root, data.vendors)
+    return data
   }
 
   function refresh() {
-    const data = state()
-    writeReviewModels(root, data.vendors)
-    return publicView(data)
+    return transaction(() => publicView(publish()))
   }
 
-  /** Private updates are rolled back byte-for-byte if replacing the public file fails. */
-  function commit(file, update) {
-    const before = readBytes(file)
-    try {
-      update()
-      const data = state()
-      writeReviewModels(root, data.vendors)
-    } catch (error) {
-      if (before === null) fs.rmSync(file, { force: true })
-      else atomicWrite(file, before, 0o600)
-      throw error
-    }
+  function savePreference(mutate) {
+    const preferences = readPreferences(hubFile)
+    mutate(preferences)
+    atomicWrite(hubFile, JSON.stringify(preferences, null, 2) + '\n', 0o600)
+    publish()
   }
 
   function find(id) {
@@ -211,28 +262,25 @@ function createModelHub(options = {}) {
 
   function setEnabled({ id, enabled } = {}) {
     if (typeof enabled !== 'boolean') throw fault('invalid_input', '开关值不对')
-    find(id)
-    commit(hubFile, () => {
-      const preferences = readPreferences(hubFile)
-      preferences.reviewEnabled[id] = enabled
-      atomicWrite(hubFile, JSON.stringify(preferences, null, 2) + '\n', 0o600)
+    return transaction(() => {
+      find(id)
+      savePreference((preferences) => {
+        preferences.reviewEnabled[id] = enabled
+      })
+      return { id, enabled }
     })
-    return { id, enabled }
   }
 
+  /** 审核用的强度只写汇总设置；接入模型在终端用的强度（models.json）归模型接入页管，这里不碰 */
   function setEffort({ id, effort } = {}) {
-    const { vendor, model } = find(id)
-    if (typeof effort !== 'string' || !model.efforts.includes(effort)) throw fault('invalid_input', '思考强度不对')
-    if (vendor.id === 'claude' || vendor.id === 'codex') {
-      commit(hubFile, () => {
-        const preferences = readPreferences(hubFile)
+    return transaction(() => {
+      const { model } = find(id)
+      if (typeof effort !== 'string' || !model.efforts.includes(effort)) throw fault('invalid_input', '思考强度不对')
+      savePreference((preferences) => {
         preferences.effort[id] = effort
-        atomicWrite(hubFile, JSON.stringify(preferences, null, 2) + '\n', 0o600)
       })
-    } else {
-      commit(path.join(root, 'models.json'), () => store.updateModel(vendor.id, model.slug, { effort }))
-    }
-    return { id, effort }
+      return { id, effort }
+    })
   }
 
   return { list: refresh, refresh, setEnabled, setEffort }

@@ -127,7 +127,6 @@ export default function ProviderCard({ preset, provider, primaryKey, blocked, te
           removing={removing.has(`${pid}__${m.id}`)}
           expanded={expanded.has(m.id)}
           otherNames={names.filter((n) => n !== m.name)}
-          efforts={preset.efforts}
           command={commandText(m.name, commands, pid)}
           now={now}
           onToggle={() => toggle(m.id)}

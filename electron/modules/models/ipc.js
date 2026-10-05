@@ -19,7 +19,7 @@ const { spawn, spawnSync } = require('child_process')
 const store = require('./store')
 const { createModelHub } = require('./hub')
 const commands = require('./commands')
-const { PRESETS } = require('./presets')
+const { PRESETS, modelCapabilities } = require('./presets')
 const { locateClaude, checkClaudeVersion, MIN_CLAUDE_VERSION } = require('./claudeCli')
 
 const WRITE_DENIED = '配置目录没有写入权限，检查权限后重试'
@@ -57,6 +57,12 @@ function toError(err, { install = false } = {}) {
 const ok = (data) => ({ success: true, data, error: null })
 const bad = (err, opts) => ({ success: false, data: null, error: toError(err, opts) })
 
+/** 给模型带上这家这个模型可选的思考强度（按模型算，M3 这类没有档位的是空数组），页面照它显示菜单 */
+function withEfforts(providerId, model) {
+  const preset = PRESETS[providerId]
+  return { ...model, efforts: preset ? [...modelCapabilities(preset, model.name).efforts] : [] }
+}
+
 /** 某家给页面看的数据（不含 Key） */
 function providerView(cfg, statuses, providerId) {
   const prov = cfg.providers[providerId]
@@ -65,7 +71,7 @@ function providerView(cfg, statuses, providerId) {
   return {
     keySet,
     keyReadable,
-    models: prov.models.map((m) => ({ ...m, lastResult: statuses[`${providerId}__${m.id}`] || null })),
+    models: prov.models.map((m) => ({ ...withEfforts(providerId, m), lastResult: statuses[`${providerId}__${m.id}`] || null })),
   }
 }
 
@@ -131,7 +137,7 @@ function registerModelsHandlers({ ipcMain, getMainWindow, cliPath = defaultCliPa
 
   /** 终端命令状态：写操作后一并带回，页面不用整页重读就能更新「终端命令未安装」那一行 */
   const commandsView = () => {
-    try { return commands.commandsState({ pathEnv: loginPath() }) } catch { return null }
+    try { return commands.commandsState({ pathEnv: loginPath(), current: { appExecPath, cliPath } }) } catch { return null }
   }
 
   ipcMain.handle('models:list', () => {
@@ -140,7 +146,7 @@ function registerModelsHandlers({ ipcMain, getMainWindow, cliPath = defaultCliPa
       const statuses = store.readStatuses()
       const providers = {}
       for (const id of Object.keys(PRESETS)) providers[id] = providerView(cfg, statuses, id)
-      return ok({ claudeCode: claudeInfo(), commands: commands.commandsState({ pathEnv: loginPath() }), providers })
+      return ok({ claudeCode: claudeInfo(), commands: commands.commandsState({ pathEnv: loginPath(), current: { appExecPath, cliPath } }), providers })
     } catch (err) {
       return bad(err)
     }
@@ -193,7 +199,7 @@ function registerModelsHandlers({ ipcMain, getMainWindow, cliPath = defaultCliPa
 
   ipcMain.handle('models:updateModel', (_e, { providerId, modelId, patch } = {}) => {
     try {
-      const model = store.updateModel(providerId, modelId, patch || {})
+      const model = withEfforts(providerId, store.updateModel(providerId, modelId, patch || {}))
       syncQuietly()
       return ok({ model, commands: commandsView() })
     } catch (err) {

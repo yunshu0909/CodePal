@@ -131,14 +131,33 @@ export function claudeBlock(claudeCode) {
 }
 
 /**
- * 顶部「终端命令未安装」这一行要不要出现：至少一个模型，且有模型缺命令或某家缺稳定入口（审核走它）
+ * 顶部终端命令那一行要不要出现：至少一个模型，且有模型缺命令、某家缺稳定入口（审核走它），
+ * 或者现有命令交给别的 CodePal 执行（otherApp）
  * @param {object} data - models:list 的 data
  * @returns {boolean}
  */
 export function needsCommands(data) {
   const hasModel = Object.values(data.providers || {}).some((p) => p.keySet && p.models.length > 0)
   const c = data.commands || {}
-  return hasModel && Boolean((c.missing && c.missing.length) || (c.missingEntries && c.missingEntries.length))
+  return hasModel && Boolean((c.missing && c.missing.length) || (c.missingEntries && c.missingEntries.length) || c.otherApp)
+}
+
+/**
+ * 顶部终端命令那一行的内容；不需要时返回 null。命令指向别的 CodePal 时说清是哪一个，
+ * 因为那个版本可能不认识这里新加的模型，点「安装命令」改由当前这个执行
+ * @param {object} data - models:list 的 data
+ * @returns {{title: string, desc: string|null, status: string}|null}
+ */
+export function commandsBlock(data) {
+  if (!needsCommands(data)) return null
+  const other = data.commands?.otherApp
+  if (!other) return { title: '终端命令未安装', desc: null, status: '未安装' }
+  const where = other.version ? `${other.version}${other.dev ? ' 开发版' : ''}（${other.location}）` : other.location
+  return {
+    title: '终端命令还在用另一个 CodePal',
+    desc: `现在指向 ${where}，这里新加的模型在终端里可能用不了；点安装命令改用当前这个`,
+    status: '要更新',
+  }
 }
 
 /**

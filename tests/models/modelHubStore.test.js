@@ -106,8 +106,9 @@ it('SC-011 TC-060 合法全关闭不是首次状态，重启不自动开启；06
   expect(fs.statSync(file('hub.json')).mode & 0o777).toBe(0o600)
   expect(fs.statSync(file('review-models.json')).mode & 0o777).toBe(0o644)
 })
-it('SC-028 TC-077 第三方强度唯一来源；公开写失败恢复models.json与清单', async () => {
+it('TC-101 汇总改接入模型强度只写hub.json；公开写失败逐字节恢复hub.json与清单', async () => {
   await call('models:hubList')
+  const hubBefore = fs.readFileSync(file('hub.json'), 'utf8')
   const configBefore = fs.readFileSync(file('models.json'), 'utf8')
   const publicBefore = fs.readFileSync(file('review-models.json'), 'utf8')
   denyPublicRename()
@@ -116,6 +117,7 @@ it('SC-028 TC-077 第三方强度唯一来源；公开写失败恢复models.json
     effort: 'low',
   })
   expect(result.success).toBe(false)
+  expect(fs.readFileSync(file('hub.json'), 'utf8')).toBe(hubBefore)
   expect(fs.readFileSync(file('models.json'), 'utf8')).toBe(configBefore)
   expect(fs.readFileSync(file('review-models.json'), 'utf8')).toBe(publicBefore)
   vi.restoreAllMocks()
@@ -127,19 +129,9 @@ it('SC-028 TC-077 第三方强度唯一来源；公开写失败恢复models.json
       })
     ).success,
   ).toBe(true)
-  expect(store.readConfig().providers.deepseek.models[0].effort).toBe('low')
-  expect(read('hub.json').effort['deepseek:deepseek-flash']).toBeUndefined()
+  expect(fs.readFileSync(file('models.json'), 'utf8')).toBe(configBefore)
+  expect(read('hub.json').effort['deepseek:deepseek-flash']).toBe('low')
   expect(read('review-models.json').models[0].effort).toBe('low')
-  const before = fs.readFileSync(file('models.json'), 'utf8')
-  expect(
-    (
-      await call('models:hubSetEffort', {
-        id: 'deepseek:deepseek-flash',
-        effort: 'ultra',
-      })
-    ).success,
-  ).toBe(false)
-  expect(fs.readFileSync(file('models.json'), 'utf8')).toBe(before)
 })
 it('坏hub不覆盖；修好后可重读，异常形状也算坏文件', async () => {
   for (const contents of [
@@ -158,15 +150,72 @@ it('坏hub不覆盖；修好后可重读，异常形状也算坏文件', async (
   expect((await call('models:hubList')).success).toBe(true)
 })
 
-it('SC-026 TC-075 第三方强度只写models.json并更新清单；非法值保持所有原文件', async () => {
+it('TC-101 第三方强度写hub.json并更新清单，models.json不变；非法值保持所有原文件', async () => {
   await call('models:hubList')
-  const hubBefore = fs.readFileSync(file('hub.json'), 'utf8')
+  const configBefore = fs.readFileSync(file('models.json'), 'utf8')
   expect((await call('models:hubSetEffort', { id: 'deepseek:deepseek-flash', effort: 'low' })).success).toBe(true)
-  expect(store.readConfig().providers.deepseek.models[0].effort).toBe('low')
-  expect(fs.readFileSync(file('hub.json'), 'utf8')).toBe(hubBefore)
-  expect(read('hub.json').effort['deepseek:deepseek-flash']).toBeUndefined()
+  expect(fs.readFileSync(file('models.json'), 'utf8')).toBe(configBefore)
+  expect(store.readConfig().providers.deepseek.models[0].effort).toBe('max')
+  expect(read('hub.json').effort['deepseek:deepseek-flash']).toBe('low')
   expect(read('review-models.json').models.find((m) => m.id === 'deepseek:deepseek-flash').effort).toBe('low')
   const before = Object.fromEntries(['hub.json', 'models.json', 'review-models.json'].map((name) => [name, fs.readFileSync(file(name), 'utf8')]))
   expect((await call('models:hubSetEffort', { id: 'deepseek:deepseek-flash', effort: 'ultra' })).success).toBe(false)
   for (const [name, contents] of Object.entries(before)) expect(fs.readFileSync(file(name), 'utf8')).toBe(contents)
+})
+
+it('TC-102 首次拆分把接入现值抄进hub.json，审核清单值不变；之后接入改强度，汇总与清单不跟', async () => {
+  // 模拟升级前：汇总还没见过这个模型，接入页的强度是 high
+  lifecycle.stop()
+  fs.rmSync(file('hub.json'), { force: true })
+  store.updateModel('deepseek', 'deepseek-flash', { effort: 'high' })
+  open()
+  const list = await call('models:hubList')
+  const row = () => list.data.vendors.find((v) => v.id === 'deepseek').models[0]
+  expect(row().effort).toBe('high')
+  expect(read('hub.json').effort['deepseek:deepseek-flash']).toBe('high')
+  expect(read('review-models.json').models.find((m) => m.id === 'deepseek:deepseek-flash').effort).toBe('high')
+  const updated = await call('models:updateModel', { providerId: 'deepseek', modelId: 'deepseek-flash', patch: { effort: 'low' } })
+  expect(updated.success).toBe(true)
+  expect(store.readConfig().providers.deepseek.models[0].effort).toBe('low')
+  expect(read('hub.json').effort['deepseek:deepseek-flash']).toBe('high')
+  expect(read('review-models.json').models.find((m) => m.id === 'deepseek:deepseek-flash').effort).toBe('high')
+  const again = await call('models:hubList')
+  expect(again.data.vendors.find((v) => v.id === 'deepseek').models[0].effort).toBe('high')
+})
+
+it('TC-102 旧版本建的hub.json没有接入模型强度：补抄现值，已有开关保留', async () => {
+  const initializedAt = '2026-10-04T04:00:00.000Z'
+  fs.mkdirSync(sb.models, { recursive: true })
+  fs.writeFileSync(file('hub.json'), JSON.stringify({ schemaVersion: 1, initializedAt, reviewEnabled: { 'deepseek:deepseek-flash': true }, effort: {} }))
+  expect((await call('models:hubList')).success).toBe(true)
+  expect(read('hub.json')).toMatchObject({
+    schemaVersion: 1,
+    initializedAt,
+    reviewEnabled: { 'deepseek:deepseek-flash': true },
+    effort: { 'deepseek:deepseek-flash': 'max' },
+  })
+  expect(read('review-models.json').models.find((m) => m.id === 'deepseek:deepseek-flash').effort).toBe('max')
+})
+
+it('TC-113 首次复制时审核清单写失败：已有hub.json逐字节恢复，原本没有就恢复为没有；models.json与清单不变', async () => {
+  lifecycle.stop()
+  const oldHub = JSON.stringify({ schemaVersion: 1, initializedAt: '2026-10-04T04:00:00.000Z', reviewEnabled: { 'deepseek:deepseek-flash': true }, effort: {} })
+  fs.writeFileSync(file('hub.json'), oldHub)
+  const configBefore = fs.readFileSync(file('models.json'), 'utf8')
+  const publicBefore = fs.readFileSync(file('review-models.json'), 'utf8')
+  denyPublicRename()
+  open()
+  expect((await call('models:hubList')).success).toBe(false)
+  expect(fs.readFileSync(file('hub.json'), 'utf8')).toBe(oldHub)
+  expect(fs.readFileSync(file('models.json'), 'utf8')).toBe(configBefore)
+  expect(fs.readFileSync(file('review-models.json'), 'utf8')).toBe(publicBefore)
+  lifecycle.stop()
+  fs.rmSync(file('hub.json'))
+  open()
+  expect((await call('models:hubList')).success).toBe(false)
+  expect(fs.existsSync(file('hub.json'))).toBe(false)
+  expect(fs.readFileSync(file('review-models.json'), 'utf8')).toBe(publicBefore)
+  vi.restoreAllMocks()
+  expect((await call('models:hubList')).success).toBe(true)
+  expect(read('hub.json').effort['deepseek:deepseek-flash']).toBe('max')
 })
