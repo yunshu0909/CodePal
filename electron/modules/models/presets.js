@@ -23,6 +23,32 @@ const DEEPSEEK_DEFAULTS = Object.freeze({
   autoCompactWindow: 786432,
 })
 
+// MiniMax 官方 Claude Code 文档：M3 默认关闭思考；Flash 强制思考且支持五档。
+const MINIMAX_EFFORTS = Object.freeze(['low', 'medium', 'high', 'xhigh', 'max'])
+const MINIMAX_DEFAULTS = Object.freeze({
+  effort: null,
+  contextTokens: 1000000,
+  maxOutputTokens: MAX_OUTPUT_CAP,
+  autoCompactWindow: 786432,
+})
+const MINIMAX_FLASH_DEFAULTS = Object.freeze({ ...MINIMAX_DEFAULTS, effort: 'max' })
+const MINIMAX_MODELS = Object.freeze({
+  'MiniMax-M3': MINIMAX_DEFAULTS,
+  'MiniMax-M3.1-Flash-Preview': MINIMAX_FLASH_DEFAULTS,
+})
+
+function minimaxPreset(id, name, type, defaultModel) {
+  return Object.freeze({
+    id, name, type, defaultModel,
+    baseUrl: 'https://api.minimax.cn/anthropic',
+    authEnv: 'ANTHROPIC_API_KEY',
+    keyPrefix: '',
+    efforts: defaultModel === 'MiniMax-M3' ? Object.freeze([]) : MINIMAX_EFFORTS,
+    defaults: MINIMAX_DEFAULTS,
+    models: MINIMAX_MODELS,
+  })
+}
+
 /**
  * 新渠道共享 Claude Code 参数边界，各自持有不可变默认值。
  * @param {object} config - 官方地址、认证方式与模型
@@ -97,6 +123,8 @@ const PRESETS = Object.freeze({
     authEnv: 'ANTHROPIC_API_KEY', keyPrefix: '',
     defaultModel: 'kimi-for-coding', maxOutputTokens: 32768,
   }),
+  'minimax-api': minimaxPreset('minimax-api', 'MiniMax API', '按量', 'MiniMax-M3'),
+  'minimax-plan': minimaxPreset('minimax-plan', 'MiniMax M Plan', '套餐', 'MiniMax-M3.1-Flash-Preview'),
 })
 
 /**
@@ -110,4 +138,13 @@ function modelDefaults(preset, name) {
   return { ...(known ? preset.models[known] : preset.defaults) }
 }
 
-module.exports = { PRESETS, MAX_OUTPUT_CAP, modelDefaults }
+/** 模型能力在两个 MiniMax 渠道间相同；未知型号不推断可调档位。 */
+function modelCapabilities(preset, name) {
+  if (preset.id === 'minimax-api' || preset.id === 'minimax-plan') {
+    const flash = String(name).toLowerCase() === 'minimax-m3.1-flash-preview'
+    return { efforts: flash ? MINIMAX_EFFORTS : [], alwaysThinkingEnabled: flash }
+  }
+  return { efforts: preset.efforts, alwaysThinkingEnabled: preset.alwaysThinkingEnabled }
+}
+
+module.exports = { PRESETS, MAX_OUTPUT_CAP, modelDefaults, modelCapabilities }

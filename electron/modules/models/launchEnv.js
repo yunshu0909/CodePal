@@ -16,6 +16,7 @@
  */
 
 const path = require('path')
+const { modelCapabilities } = require('./presets')
 
 // 父环境里会把请求带去别家、或改变模型 / 能力的变量，启动前一律删掉
 const SCRUB_ENV_KEYS = Object.freeze([
@@ -80,6 +81,27 @@ function checkReservedFlags(mode, args) {
   }
 }
 
+/** MiniMax 后台档位覆盖必须按当前模型校验，并覆盖设置中的默认档位。 */
+function minimaxEffort(mode, model, capabilities, args) {
+  let effort = capabilities.efforts.includes(model.effort) ? model.effort : null
+  if (mode !== 'print') return effort
+  const list = beforeDoubleDash(args)
+  let supplied = false
+  for (let i = 0; i < list.length; i++) {
+    const argument = list[i]
+    if (argument !== '--effort' && !argument.startsWith('--effort=')) continue
+    const value = argument === '--effort' ? list[++i] : argument.slice('--effort='.length)
+    if (supplied || !capabilities.efforts.includes(value)) {
+      const error = new Error('思考强度不对')
+      error.code = 'invalid_input'
+      throw error
+    }
+    supplied = true
+    effort = value
+  }
+  return effort
+}
+
 /**
  * 构造 claude 子进程的环境与参数
  * @param {object} p
@@ -95,6 +117,9 @@ function checkReservedFlags(mode, args) {
  */
 function buildLaunch({ mode, preset, model, key, parentEnv, userArgs, modelsHome, maxRetries }) {
   checkReservedFlags(mode, userArgs)
+  const capabilities = modelCapabilities(preset, model.name)
+  const minimax = preset.id === 'minimax-api' || preset.id === 'minimax-plan'
+  const effort = minimax ? minimaxEffort(mode, model, capabilities, userArgs) : model.effort
   const env = { ...parentEnv }
   for (const k of SCRUB_ENV_KEYS) delete env[k]
   env.ANTHROPIC_BASE_URL = preset.baseUrl
@@ -112,9 +137,9 @@ function buildLaunch({ mode, preset, model, key, parentEnv, userArgs, modelsHome
   }
   const overlay = JSON.stringify({
     // GLM 要求开启思考；只覆盖本次启动，不改用户全局 settings。
-    ...(preset.alwaysThinkingEnabled ? { alwaysThinkingEnabled: true } : {}),
+    ...(minimax ? { alwaysThinkingEnabled: capabilities.alwaysThinkingEnabled } : preset.alwaysThinkingEnabled ? { alwaysThinkingEnabled: true } : {}),
     env: {
-      CLAUDE_CODE_EFFORT_LEVEL: model.effort,
+      ...(effort !== null ? { CLAUDE_CODE_EFFORT_LEVEL: effort } : {}),
       CLAUDE_CODE_MAX_CONTEXT_TOKENS: String(model.contextTokens),
       CLAUDE_CODE_AUTO_COMPACT_WINDOW: String(model.autoCompactWindow || Math.min(model.contextTokens, 786432)),
       CLAUDE_CODE_MAX_OUTPUT_TOKENS: String(model.maxOutputTokens),

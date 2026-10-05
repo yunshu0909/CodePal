@@ -3,7 +3,7 @@ const fs = require('fs')
 const os = require('os')
 const path = require('path')
 const store = require('./store')
-const { PRESETS } = require('./presets')
+const { PRESETS, modelCapabilities } = require('./presets')
 const { discoverSubscriptions } = require('./subscriptions')
 const { atomicWrite, writeReviewModels } = require('./reviewModels')
 
@@ -14,6 +14,8 @@ const COLORS = {
   'kimi-api': 'var(--ic-purple)',
   'zhipu-coding': 'var(--ic-green)',
   'kimi-coding': 'var(--ic-purple)',
+  'minimax-api': 'var(--ic-orange)',
+  'minimax-plan': 'var(--ic-orange)',
 }
 const object = (value) => value !== null && typeof value === 'object' && !Array.isArray(value)
 
@@ -71,13 +73,14 @@ function providerSources() {
     for (const preset of Object.values(PRESETS)) {
       const provider = config.providers[preset.id]
       if (!provider || provider.keySet !== true) continue
+      if (preset.id.startsWith('minimax-') && !store.keyState(preset.id).keyReadable) continue
       if (!Array.isArray(provider.models)) throw new Error('invalid provider models')
       const models = provider.models
         .filter((model) => tested(statuses[`${preset.id}__${model.id}`]))
         .map((model) => ({
           slug: model.id,
           displayName: model.name,
-          efforts: [...preset.efforts],
+          efforts: [...modelCapabilities(preset, model.name).efforts],
           effort: model.effort,
         }))
       if (models.length)

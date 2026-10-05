@@ -24,6 +24,8 @@ export const PROVIDERS = [
   { id: 'kimi-api', name: 'Kimi API', type: '按量', color: 'var(--ic-purple)', keyPrefix: '', efforts: ['low', 'high', 'max'] },
   { id: 'zhipu-coding', name: '智谱 Coding Plan', type: '套餐', color: 'var(--ic-green)', keyPrefix: '', efforts: ['low', 'high', 'max'] },
   { id: 'kimi-coding', name: 'Kimi Coding Plan', type: '套餐', color: 'var(--ic-purple)', keyPrefix: '', efforts: ['low', 'high', 'max'] },
+  { id: 'minimax-api', name: 'MiniMax API', type: '按量', color: 'var(--ic-orange)', keyPrefix: '', efforts: [] },
+  { id: 'minimax-plan', name: 'MiniMax M Plan', type: '套餐', color: 'var(--ic-orange)', keyPrefix: '', efforts: ['low', 'medium', 'high', 'xhigh', 'max'] },
 ]
 
 /** 输出上限最多填到这里：Claude Code 请求里的 max_tokens 最多 128,000，填更大也会被压回 */

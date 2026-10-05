@@ -17,7 +17,7 @@ const fs = require('fs')
 const os = require('os')
 const path = require('path')
 const crypto = require('crypto')
-const { PRESETS, MAX_OUTPUT_CAP, modelDefaults } = require('./presets')
+const { PRESETS, MAX_OUTPUT_CAP, modelDefaults, modelCapabilities } = require('./presets')
 
 const DIR_MODE = 0o700
 const FILE_MODE = 0o600
@@ -223,8 +223,13 @@ function updateModel(providerId, modelId, patch = {}) {
     // 改名算新实例：A→B→A 之后，改名前发起的调用也不能写回
     if (name !== model.name) next.uid = crypto.randomBytes(6).toString('hex')
   }
+  const preset = presetOf(providerId)
+  const capabilities = modelCapabilities(preset, next.name)
+  if (providerId.startsWith('minimax-') && next.name !== model.name && !capabilities.efforts.includes(next.effort)) {
+    next.effort = modelDefaults(preset, next.name).effort
+  }
   if ('effort' in patch) {
-    if (!presetOf(providerId).efforts.includes(patch.effort)) throw fail('invalid_input', '思考强度不对')
+    if (!capabilities.efforts.includes(patch.effort)) throw fail('invalid_input', '思考强度不对')
     next.effort = patch.effort
   }
   for (const k of ['contextTokens', 'maxOutputTokens']) {

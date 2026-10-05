@@ -61,7 +61,7 @@ function ModelRow({ vendor, model, nested = false, hub, menu, setMenu }) {
         {!nested && <span className="mh-vd">{vendor.name}</span>}
       </span>
       <span className="np-card-acts mh-acts">
-        <span className="mh-effort-anchor">
+        {model.efforts?.length > 0 && <span className="mh-effort-anchor">
           <button
             ref={anchor}
             type="button"
@@ -85,7 +85,7 @@ function ModelRow({ vendor, model, nested = false, hub, menu, setMenu }) {
               className="mh-menu"
             />
           )}
-        </span>
+        </span>}
         <Toggle
           checked={togglePending ? togglePending.enabled : model.enabled}
           disabled={Boolean(togglePending)}

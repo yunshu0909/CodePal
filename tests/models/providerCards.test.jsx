@@ -9,6 +9,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { makeSandbox, CLI } from './helpers'
 import ModelsPage from '../../src/features/models/ModelsPage'
+import ModelHubPage from '../../src/features/modelHub/ModelHubPage'
 vi.mock('../../src/components/Toast', () => ({ toast: { success: vi.fn(), error: vi.fn() } }))
 const require = createRequire(import.meta.url)
 const store = require('../../electron/modules/models/store.js')
@@ -20,6 +21,8 @@ const channels = [
   ['kimi-api', 'Kimi API', 'kimi-k3'],
   ['zhipu-coding', '智谱 Coding Plan', 'glm-5.3'],
   ['kimi-coding', 'Kimi Coding Plan', 'kimi-for-coding'],
+  ['minimax-api', 'MiniMax API', 'MiniMax-M3'],
+  ['minimax-plan', 'MiniMax M Plan', 'MiniMax-M3.1-Flash-Preview'],
 ]
 const model = name => ({ id: name, name, effort: 'high', contextTokens: 1048576, maxOutputTokens: 32768, lastResult: null })
 const card = name => within(screen.getByText(name).closest('section'))
@@ -40,7 +43,7 @@ afterEach(() => { cleanup(); delete window.electronAPI; vi.clearAllMocks(); vi.u
 describe('TC-004 CHANNEL_CARDS', () => {
   it('六卡按顺序显示，每张保存只测试自己的默认模型', async () => {
     const api = await mount()
-    expect(document.querySelectorAll('.mj-page section.np-card'), 'CHANNEL_CARDS').toHaveLength(6)
+    expect(document.querySelectorAll('.mj-page section.np-card'), 'CHANNEL_CARDS').toHaveLength(8)
     const titles = [...document.querySelectorAll('.np-card-title')].map(n => n.childNodes[1].textContent)
     expect(titles).toEqual(channels.map(c => c[1]))
     for (const [id, name, defaultModel] of channels.slice(1)) {
@@ -54,12 +57,12 @@ describe('TC-004 CHANNEL_CARDS', () => {
       expect(card(name).getByTitle(defaultModel)).toBeInTheDocument()
       expect(card('DeepSeek').getByText('可用')).toBeInTheDocument()
     }
-    expect(api.modelsSetKey).toHaveBeenCalledTimes(5)
-    expect(api.modelsTest).toHaveBeenCalledTimes(5)
+    expect(api.modelsSetKey).toHaveBeenCalledTimes(7)
+    expect(api.modelsTest).toHaveBeenCalledTimes(7)
   })
   it('复制的命令与真实安装文件一致，两个 glm-5.3 不串渠道', async () => {
     await mount(true)
-    expect(document.querySelectorAll('.mj-page section.np-card'), 'CHANNEL_CARDS').toHaveLength(6)
+    expect(document.querySelectorAll('.mj-page section.np-card'), 'CHANNEL_CARDS').toHaveLength(8)
     const sb = makeSandbox()
     const writeText = vi.fn(async () => {})
     Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
@@ -78,7 +81,7 @@ describe('TC-004 CHANNEL_CARDS', () => {
   })
   it('MiMo 拒绝错误前缀；无固定前缀渠道仍拒绝控制字符', async () => {
     const api = await mount()
-    expect(document.querySelectorAll('.mj-page section.np-card'), 'CHANNEL_CARDS').toHaveLength(6)
+    expect(document.querySelectorAll('.mj-page section.np-card'), 'CHANNEL_CARDS').toHaveLength(8)
     fireEvent.click(card('MiMo API').getByRole('button', { name: '填写 Key' }))
     fireEvent.change(screen.getByPlaceholderText('粘贴 Key'), { target: { value: 'wrong-prefix' } })
     fireEvent.keyDown(screen.getByPlaceholderText('粘贴 Key'), { key: 'Enter' })
@@ -90,4 +93,44 @@ describe('TC-004 CHANNEL_CARDS', () => {
     expect(screen.getByText('Key 格式不对')).toBeInTheDocument()
     expect(api.modelsSetKey).not.toHaveBeenCalled()
   })
+})
+
+
+it('TC-002 MINIMAX_TC_002 MiniMax empty cards reuse Key UI with no fabricated availability', async () => {
+  const api = await mount()
+  expect(screen.queryByText('MiniMax API'), 'MINIMAX_TC_002').toBeInTheDocument()
+  for (const name of ['MiniMax API','MiniMax M Plan']) {
+    expect(card(name).getByRole('button', {name:'填写 Key'})).toBeInTheDocument()
+    expect(card(name).queryByText('可用')).toBeNull()
+    expect(card(name).queryByRole('button', {name:'测一下'})).toBeNull()
+  }
+  expect(api.modelsSetKey).not.toHaveBeenCalled()
+  expect(api.modelsTest).not.toHaveBeenCalled()
+})
+
+it('TC-016 MINIMAX_TC_016 original six cards and MiniMax hub controls retain existing UI', async () => {
+  await mount(true)
+  expect(document.querySelectorAll('.mj-page section.np-card'), 'MINIMAX_TC_016').toHaveLength(8)
+  expect([...document.querySelectorAll('.np-card-title')].map(n=>n.childNodes[1].textContent)).toEqual(channels.map(c=>c[1]))
+  cleanup()
+  const levels = ['low','medium','high','xhigh','max']
+  const api = {
+    modelsHubList:vi.fn(async()=>({success:true,data:{providerConfigError:false,vendors:[
+      {id:'minimax-api',name:'MiniMax API',color:'var(--ic-orange)',blocked:null,models:[{id:'minimax-api:MiniMax-M3',displayName:'MiniMax-M3',efforts:[],effort:null,enabled:true}]},
+      {id:'minimax-plan',name:'MiniMax M Plan',color:'var(--ic-orange)',blocked:null,models:[{id:'minimax-plan:MiniMax-M3.1-Flash-Preview',displayName:'MiniMax-M3.1-Flash-Preview',efforts:levels,effort:'max',enabled:true}]},
+    ]}})),
+    modelsHubSetEffort:vi.fn(async()=>({success:true})),
+    modelsHubSetEnabled:vi.fn(async()=>({success:true})),
+  }
+  window.electronAPI=api
+  render(<ModelHubPage />)
+  await screen.findByText('MiniMax-M3')
+  expect(screen.queryByRole('button',{name:'MiniMax-M3 思考强度'})).toBeNull()
+  expect(screen.queryByText('默认')).toBeNull()
+  const button = screen.getByRole('button',{name:'MiniMax-M3.1-Flash-Preview 思考强度'})
+  expect(button).toHaveTextContent('max')
+  fireEvent.click(button)
+  expect(screen.getAllByRole('menuitemradio').map(n=>n.getAttribute('aria-label'))).toEqual(levels)
+  fireEvent.click(screen.getByRole('menuitemradio',{name:'medium'}))
+  await waitFor(()=>expect(api.modelsHubSetEffort).toHaveBeenCalledWith({id:'minimax-plan:MiniMax-M3.1-Flash-Preview',effort:'medium'}))
 })

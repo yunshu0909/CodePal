@@ -23,6 +23,8 @@ const FAMILIES = {
   'zhipu-coding': 'zhipu',
   'kimi-api': 'kimi',
   'kimi-coding': 'kimi',
+  'minimax-api': 'minimax',
+  'minimax-plan': 'minimax',
 }
 
 /** @param {string} file 可信目标路径。 @param {string|Buffer} text 要写的字节。 @param {number} mode inode权限。 @returns {void} 原子替换；失败清理临时文件并抛原始错误。 */

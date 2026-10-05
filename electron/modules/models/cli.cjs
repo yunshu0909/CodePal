@@ -117,7 +117,7 @@ async function main(argv) {
   // 按调用方是否要求 JSON 决定写回，而不是看输出能不能解析：断网时标准输出是空的，也要让页面变红
   // 调用期间模型被移除、改名或同名重加：这次结果属于旧模型，不写回
   if (mode === 'print' && (test || launchEnv.wantsJson(claudeArgs)) && store.isCurrentModel(providerId, model)) {
-    const verdict = classifyResult(result)
+    const verdict = classifyResult(result, providerId)
     const runId = test ? process.env.CODEPAL_RUN_ID : undefined
     try {
       store.writeStatus(providerId, model.id, { ...verdict, source: test ? 'test' : 'review', runId })

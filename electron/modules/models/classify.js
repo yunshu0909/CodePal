@@ -39,8 +39,18 @@ function parseResult(stdout) {
 }
 
 /** 按「API Error: <状态码> …」文本判原因 */
-function classifyApiError(text) {
+function classifyApiError(text, providerId) {
   const status = Number((String(text).match(/API Error:\s*(\d{3})/) || [])[1])
+  if (providerId === 'minimax-api' || providerId === 'minimax-plan') {
+    if (status === 401 || /authentication|invalid api key|unauthorized/i.test(text)) return { ok: false, reason: 'key', message: null }
+    // 套餐额度、权限和限速不能提示充值，更不能触发跨渠道重试。
+    if (status === 403 || status === 429 || /quota|subscription|rate.?limit|permission|额度|权限|限流/i.test(text)) {
+      return { ok: false, reason: 'other', message: sanitize(text) }
+    }
+    if (/insufficient balance|余额不足/i.test(text)) return { ok: false, reason: 'balance', message: null }
+    if ([400, 404, 422].includes(status) && /model/i.test(text)) return { ok: false, reason: 'model', message: null }
+    return { ok: false, reason: 'other', message: sanitize(text) }
+  }
   if (status === 401 || status === 403 || /authentication|invalid api key|unauthorized/i.test(text)) return { ok: false, reason: 'key', message: null }
   if (status === 402 || /insufficient balance|余额不足/i.test(text)) return { ok: false, reason: 'balance', message: null }
   if ([400, 404, 422].includes(status) && /model/i.test(text)) return { ok: false, reason: 'model', message: null }
@@ -54,20 +64,20 @@ const NET_RE = /connection error|ECONNREFUSED|ENOTFOUND|ECONNRESET|ETIMEDOUT|EAI
  * @param {{exitCode: number|null, stdout: string, stderr: string, timedOut: boolean}} r
  * @returns {{ok: boolean, reason: string|null, message: string|null}}
  */
-function classifyResult({ exitCode, stdout, stderr, timedOut }) {
+function classifyResult({ exitCode, stdout, stderr, timedOut }, providerId) {
   if (timedOut) return { ok: false, reason: 'net', message: null }
   const res = parseResult(stdout)
   if (res && res.type === 'result') {
     const text = typeof res.result === 'string' ? res.result : ''
-    if (text.startsWith('API Error:')) return classifyApiError(text)
+    if (text.startsWith('API Error:')) return classifyApiError(text, providerId)
     const hasOutput = text.trim().length > 0 || (res.structured_output !== undefined && res.structured_output !== null)
     if (exitCode === 0 && res.subtype === 'success' && res.is_error !== true && hasOutput) return { ok: true, reason: null, message: null }
     const why = text || res.subtype || stderr
     if (NET_RE.test(why)) return { ok: false, reason: 'net', message: null }
-    return /API Error:/.test(why) ? classifyApiError(why) : { ok: false, reason: 'other', message: sanitize(why) }
+    return /API Error:/.test(why) ? classifyApiError(why, providerId) : { ok: false, reason: 'other', message: sanitize(why) }
   }
   if (NET_RE.test(String(stderr))) return { ok: false, reason: 'net', message: null }
-  if (/API Error:/.test(String(stderr))) return classifyApiError(stderr)
+  if (/API Error:/.test(String(stderr))) return classifyApiError(stderr, providerId)
   return { ok: false, reason: 'other', message: sanitize(stderr) || (exitCode === 0 ? '没有拿到结果' : `退出码 ${exitCode}`) }
 }
 
