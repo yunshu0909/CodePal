@@ -10,6 +10,8 @@ import { makeSandbox, CLI, KEY, runCli, readReport } from './helpers'
 const require = createRequire(import.meta.url)
 const store = require('../../electron/modules/models/store.js')
 const commands = require('../../electron/modules/models/commands.js')
+const { buildLaunch } = require('../../electron/modules/models/launchEnv.js')
+const { PRESETS } = require('../../electron/modules/models/presets.js')
 let sb
 beforeEach(() => {
   sb = makeSandbox()
@@ -38,7 +40,11 @@ describe('TC-006 历史 DeepSeek', () => {
     expect(report.env).toMatchObject({ ANTHROPIC_BASE_URL: 'https://api.deepseek.com/anthropic', ANTHROPIC_MODEL: 'deepseek-flash' })
     expect(report.envNames).toContain('ANTHROPIC_AUTH_TOKEN')
     expect(report.envNames).not.toContain('ANTHROPIC_API_KEY')
-    expect(JSON.parse(report.argv[1]).env).toMatchObject({ CLAUDE_CODE_EFFORT_LEVEL: 'xhigh', CLAUDE_CODE_MAX_OUTPUT_TOKENS: '384000' })
+    expect(JSON.parse(report.argv[1]).env).toMatchObject({ CLAUDE_CODE_MAX_OUTPUT_TOKENS: '384000' })
+    // v2.1.17：后台调用只认传入的等级；旧档位 xhigh 在终端手动用时照常
+    expect(JSON.parse(report.argv[1]).env.CLAUDE_CODE_EFFORT_LEVEL).toBeUndefined()
+    const terminal = buildLaunch({ mode: 'interactive', preset: PRESETS.deepseek, model, key: KEY, parentEnv: {}, userArgs: [], modelsHome: sb.models })
+    expect(JSON.parse(terminal.args[1]).env.CLAUDE_CODE_EFFORT_LEVEL).toBe('xhigh')
     expect(store.readConfig().providers).toEqual(cfg.providers)
     expect(store.readStatuses()['deepseek__deepseek-flash']).toEqual(status)
     expect(fs.readFileSync(settings, 'utf8')).toBe('{"theme":"dark"}')

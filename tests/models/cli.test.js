@@ -183,10 +183,10 @@ describe('模块 D · 命令行写回', () => {
     expect(readStatus()).toMatchObject({ ok: false, reason: 'net', source: 'review' })
   })
 
-  it('TC-D11 测一下的固定参数、提示词与重试 1 次', () => {
+  it('TC-D11 测一下的固定参数、提示词与重试 1 次；v2.1.17 起由 CodePal 把模型接入的档位作为 --effort 传入', () => {
     runCli([...L, '--test'], { env: env({ FAKE_CLAUDE_MODE: 'success' }) })
     const rep = readReport(sb.report)
-    expect(rep.argv.slice(3)).toEqual(['--print', '--output-format', 'json', '--tools', 'Read', '--permission-mode', 'dontAsk', '--strict-mcp-config', '--mcp-config', '{"mcpServers":{}}', '--no-chrome'])
+    expect(rep.argv.slice(3)).toEqual(['--print', '--output-format', 'json', '--tools', 'Read', '--permission-mode', 'dontAsk', '--strict-mcp-config', '--mcp-config', '{"mcpServers":{}}', '--no-chrome', '--effort', 'max'])
     expect(rep.stdin).toBe('Reply with exactly: CODEPAL_OK')
     expect(rep.env.CLAUDE_CODE_MAX_RETRIES).toBe('1')
     expect(readStatus()).toMatchObject({ ok: true, source: 'test' })

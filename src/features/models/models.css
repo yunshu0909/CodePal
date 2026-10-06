@@ -51,3 +51,11 @@
 .mj-page .mj-sk-btn { width: 64px; }
 .mj-page .mj-sk-name { width: 180px; }
 .mj-page .mj-sk-st { width: 96px; }
+
+/* v2.1.17：思考强度旁标出「终端手动用」，和模型汇总里审核用的等级区分（后-47） */
+.mj-page .mj-note {
+  margin-left: 6px;
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--fg-3);
+}

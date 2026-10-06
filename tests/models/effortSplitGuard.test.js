@@ -84,7 +84,7 @@ it('TC-112 Claude、Codex 强度仍存在 hub.json 原条目、清单输出各�
   const prefs = read('hub.json').effort
   expect(prefs['claude:sonnet']).toBe('max')
   expect(prefs['codex:gpt-6-astra']).toBe('ultra')
-  const review = read('review-models.json').models
+  const review = read('review-config.json').models
   expect(review.find((m) => m.id === 'claude:sonnet').effort).toBe('max')
   expect(review.find((m) => m.id === 'codex:gpt-6-astra').effort).toBe('ultra')
 })

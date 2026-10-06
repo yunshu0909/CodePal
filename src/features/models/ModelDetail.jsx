@@ -168,7 +168,9 @@ function EffortField({ value, efforts, onSave }) {
   return (
     <div className="np-row np-kv mj-sub">
       <div className="lf">
-        <div className="lb">思考强度</div>
+        <div className="lb">
+          思考强度<span className="mj-note">终端手动用</span>
+        </div>
         <div className="ds">终端里启动这个模型时用；审核用的强度在模型汇总里改</div>
       </div>
       <span className="mj-effort">

@@ -46,7 +46,9 @@ describe('TC-003 CHANNEL_LAUNCH', () => {
         expect(launch.env[preset.authEnv === 'ANTHROPIC_API_KEY' ? 'ANTHROPIC_AUTH_TOKEN' : 'ANTHROPIC_API_KEY']).toBeUndefined()
         expect(launch.args.join(' ')).not.toContain(key)
         const overlay = JSON.parse(launch.args[1])
-        expect(overlay.env).toMatchObject({ CLAUDE_CODE_EFFORT_LEVEL: model.effort, CLAUDE_CODE_MAX_CONTEXT_TOKENS: String(model.contextTokens), CLAUDE_CODE_MAX_OUTPUT_TOKENS: String(model.maxOutputTokens) })
+        expect(overlay.env).toMatchObject({ CLAUDE_CODE_MAX_CONTEXT_TOKENS: String(model.contextTokens), CLAUDE_CODE_MAX_OUTPUT_TOKENS: String(model.maxOutputTokens) })
+        // v2.1.17：终端交互用模型接入的档位；后台只认传入的等级，没传不设
+        expect(overlay.env.CLAUDE_CODE_EFFORT_LEVEL).toBe(mode === 'interactive' ? model.effort : undefined)
         if (id.startsWith('zhipu')) expect(overlay.alwaysThinkingEnabled).toBe(true)
       }
       for (const fakeMode of ['success', 'api401']) {

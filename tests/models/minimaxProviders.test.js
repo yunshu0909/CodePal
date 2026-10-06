@@ -112,7 +112,7 @@ it('TC-006 MINIMAX_TC_006 capabilities follow model, casing and rename across ch
       const isFlash = name.toLowerCase() === flash.toLowerCase()
       expect(presets.modelDefaults(preset, name)).toMatchObject({ effort: isFlash ? 'max' : null, contextTokens: 1000000, maxOutputTokens: 128000 })
       expect(presets.modelCapabilities(preset, name).efforts).toEqual(isFlash ? levels : [])
-      const output = JSON.parse(launch(id, { name, ...presets.modelDefaults(preset, name) }).args[1])
+      const output = JSON.parse(launch(id, { name, ...presets.modelDefaults(preset, name) }, [], 'interactive').args[1])
       expect(output.alwaysThinkingEnabled).toBe(isFlash)
       if (isFlash) expect(output.env.CLAUDE_CODE_EFFORT_LEVEL).toBe('max')
       else {
@@ -138,7 +138,9 @@ it('TC-007 MINIMAX_TC_007 invalid effort and reserved overrides reject without w
   for (const value of levels) {
     expect(() => launch(api, providers[api].models[0], ['--effort', value])).toThrow('思考强度不对')
     const output = launch(plan, providers[plan].models[0], [`--effort=${value}`])
-    expect(JSON.parse(output.args[1]).env.CLAUDE_CODE_EFFORT_LEVEL).toBe(value)
+    // v2.1.17：后台只认传入的等级，原样交给 claude，不再写进覆盖设置
+    expect(JSON.parse(output.args[1]).env.CLAUDE_CODE_EFFORT_LEVEL).toBeUndefined()
+    expect(output.args).toContain(`--effort=${value}`)
   }
   for (const mode of ['interactive', 'print']) expect(() => launch(plan, providers[plan].models[0], ['--model=other'], mode)).toThrow()
   expect(() => launch(plan, providers[plan].models[0], ['--effort', 'low'], 'interactive')).toThrow()
@@ -216,7 +218,7 @@ it('TC-103 MINIMAX_TC_011 hub effort and access effort are stored separately', (
   const reloaded = miniVendors(hub().list())
   expect(reloaded[1].models[0]).toMatchObject({ enabled: true, effort: 'medium' })
   expect(reloaded[0].models[0]).toMatchObject({ enabled: true, effort: null, efforts: [] })
-  const review = json('review-models.json').models
+  const review = json('review-config.json').models
   expect(review.find(m => m.id === `${plan}:${flash}`).effort).toBe('medium')
   expect(review.find(m => m.id === `${api}:${m3}`).effort).toBeNull()
 })
@@ -247,7 +249,7 @@ it('TC-013 MINIMAX_TC_013 invalid and disappeared hub rows cannot mutate another
   expect(store.readConfig().providers[api].models[0].name).toBe(m3)
 })
 
-it('TC-014 MINIMAX_TC_014 safe manifest has distinct identities and billing', () => {
+it('TC-014 MINIMAX_TC_014 safe review config has distinct identities', () => {
   configured('014')
   tested(api, m3)
   tested(plan, flash)
@@ -255,15 +257,15 @@ it('TC-014 MINIMAX_TC_014 safe manifest has distinct identities and billing', ()
   const h = hub()
   h.setEnabled({ id: `${api}:${m3}`, enabled: true })
   h.setEnabled({ id: `${plan}:${flash}`, enabled: true })
-  const snapshot = json('review-models.json')
+  // v2.1.17：给 dev 的审核配置只放审核需要的字段；两个渠道靠 provider 区分，不写本机命令路径与计费类别
+  const snapshot = json('review-config.json')
   expect(snapshot.models).toHaveLength(2)
-  expect(snapshot.models[0]).toMatchObject({ id: `${api}:${m3}`, family: 'minimax', billing: 'paid' })
-  expect(snapshot.models[1]).toMatchObject({ id: `${plan}:${flash}`, family: 'minimax', billing: 'plan' })
-  expect(snapshot.models[0].command).not.toBe(snapshot.models[1].command)
-  for (const model of snapshot.models) expect(Object.keys(model).sort()).toEqual(['id','vendor','family','runner','model','displayName','effort','billing','command'].sort())
+  expect(snapshot.models[0]).toMatchObject({ id: `${api}:${m3}`, family: 'minimax', provider: api, effort: null })
+  expect(snapshot.models[1]).toMatchObject({ id: `${plan}:${flash}`, family: 'minimax', provider: plan })
+  for (const model of snapshot.models) expect(Object.keys(model).sort()).toEqual(['id','family','runner','provider','model','displayName','effort'].sort())
   expect(JSON.stringify(snapshot)).not.toContain('fixture.')
   expect(JSON.stringify(snapshot)).not.toContain('secrets')
-  expect(fs.statSync(path.join(sb.models, 'review-models.json')).mode & 0o777).toBe(0o644)
+  expect(fs.statSync(path.join(sb.models, 'review-config.json')).mode & 0o777).toBe(0o644)
 })
 
 it('TC-015 MINIMAX_TC_015 public discovery excludes disabled or missing-key models', () => {
@@ -271,14 +273,16 @@ it('TC-015 MINIMAX_TC_015 public discovery excludes disabled or missing-key mode
   tested(api, m3)
   tested(plan, flash)
   const h = hub()
+  h.reconcile()
   expect(miniVendors(h.list())).toHaveLength(2)
-  expect(json('review-models.json').models).toEqual([])
+  expect(json('review-config.json').models).toEqual([])
   h.setEnabled({ id: `${api}:${m3}`, enabled: true })
   h.setEnabled({ id: `${plan}:${flash}`, enabled: true })
-  expect(json('review-models.json').models.every(model => model.command === '')).toBe(true)
+  expect(json('review-config.json').models.every(model => model.command === undefined)).toBe(true)
   fs.rmSync(path.join(sb.models, 'secrets', `${api}.key`))
+  h.refreshQuietly()
   expect(miniVendors(h.refresh()).map(v => v.id)).toEqual([plan])
-  expect(json('review-models.json').models.map(m => m.id)).toEqual([`${plan}:${flash}`])
+  expect(json('review-config.json').models.map(m => m.id)).toEqual([`${plan}:${flash}`])
 })
 
 it('TC-017 MINIMAX_TC_017 no-key CLI stays local, leaves other channel untouched', () => {

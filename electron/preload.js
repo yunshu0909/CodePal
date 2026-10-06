@@ -315,6 +315,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
   modelsHubSetEnabled: (payload) => ipcRenderer.invoke('models:hubSetEnabled', payload),
   /** @param {{id:string, effort:string}} payload @returns {Promise<object>} 保存结果统一响应；只允许实际支持档位，成功同步公开清单。 */
   modelsHubSetEffort: (payload) => ipcRenderer.invoke('models:hubSetEffort', payload),
+  /** @param {{order:string[]}} payload 审核在用的整串新顺序 @returns {Promise<object>} 统一响应；只接受当前可见审核在用模型的排列。 */
+  modelsHubSetOrder: (payload) => ipcRenderer.invoke('models:hubSetOrder', payload),
+  /** @returns {Promise<object>} 审核规则、是否改过、默认值版本、dev 两端状态、审核配置是否写进去。 */
+  modelsRulesGet: () => ipcRenderer.invoke('models:rulesGet'),
+  /** @param {{key:string, value:number|boolean}} payload 改哪一项、改成什么；主进程按白名单与范围校验。 */
+  modelsRulesSet: (payload) => ipcRenderer.invoke('models:rulesSet', payload),
+  /** @returns {Promise<object>} 恢复默认：清空改过的规则项，不动模型。 */
+  modelsRulesReset: () => ipcRenderer.invoke('models:rulesReset'),
+  /** @returns {Promise<object>} 按设置重新生成给 dev 的审核配置（F13 重试）。 */
+  modelsConfigRepublish: () => ipcRenderer.invoke('models:configRepublish'),
 
   /**
    * 保存某家的 Key；第一次保存时自动加入预设默认模型

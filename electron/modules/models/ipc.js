@@ -3,7 +3,8 @@
  *
  * 负责：
  * - 通道：models:list / setKey / test / addModel / updateModel / removeModel / recheckClaude / installCommands
- *   models:hubList / hubSetEnabled / hubSetEffort（汇总设置与公开审核清单）
+ *   models:hubList / hubSetEnabled / hubSetEffort / hubSetOrder（模型汇总的模型页签）
+ *   models:rulesGet / rulesSet / rulesReset / configRepublish（审核规则页签与给 dev 的审核配置）
  * - 统一返回 { success, data, error: { code, message } }；渲染层只传 ID，永远拿不到 Key 原文
  * - 「测一下」起一个命令行子进程（和审核走同一个入口），结束后读回状态文件
  * - 监听 status/ 目录：命令行（含 dev-workflow 审核）写回结果时推 models:changed 给页面
@@ -14,17 +15,19 @@
 
 const fs = require('fs')
 const path = require('path')
+const os = require('os')
 const crypto = require('crypto')
 const { spawn, spawnSync } = require('child_process')
 const store = require('./store')
-const { createModelHub } = require('./hub')
+const { createReviewCenter } = require('./reviewCenter')
 const commands = require('./commands')
 const { PRESETS, modelCapabilities } = require('./presets')
 const { locateClaude, checkClaudeVersion, MIN_CLAUDE_VERSION } = require('./claudeCli')
 
 const WRITE_DENIED = '配置目录没有写入权限，检查权限后重试'
 const INSTALL_DENIED = '安装失败：~/.local/bin 没有写入权限，检查权限后重试'
-const BUSINESS_CODES = new Set(['invalid_input', 'duplicate', 'not_found', 'read_failed', 'occupied', 'reserved_flag'])
+const BUSINESS_CODES = new Set(['invalid_input', 'duplicate', 'not_found', 'read_failed', 'occupied', 'reserved_flag',
+  'write_denied', 'HUB_FILE_INVALID', 'RULES_FILE_INVALID', 'LOCK_BUSY', 'ROLLBACK_FAILED'])
 // 「测一下」的外层兜底：命令行自己 60 秒超时，这里再多给 15 秒收尾
 const TEST_GUARD_MS = 75000
 
@@ -86,24 +89,24 @@ function providerView(cfg, statuses, providerId) {
  * @returns {{stop: () => void}}
  */
 function registerModelsHandlers({ ipcMain, getMainWindow, cliPath = defaultCliPath(), appExecPath = process.execPath, loginPath = defaultLoginPath, hubOptions = {} }) {
-  const hub = createModelHub(hubOptions)
-  const refreshHubQuietly = () => {
-    try {
-      hub.refresh()
-    } catch {
-      // 启动和外部状态刷新失败由下一次显式读取报告，不阻止接入管理启动。
-    }
-  }
+  // 模型汇总两页签与给 dev 的审核配置：唯一写方是 reviewCenter
+  const center = createReviewCenter(hubOptions)
+  // 模型接入里的事件（测一下、增删改、存 Key、装命令、状态文件变化）之后重新生成审核配置；失败由页面下一次读取报告
+  const refreshHubQuietly = () => center.refreshQuietly()
   const hubError = (error) => {
-    if (error.code === 'HUB_FILE_INVALID') return { success: false, data: null, error: { code: error.code, message: error.message } }
     const translated = toError(error)
     if (translated.code === 'unknown') translated.message = '出错了'
     return { success: false, data: null, error: translated }
   }
   const hubChannels = [
-    ['models:hubList', () => hub.list()],
-    ['models:hubSetEnabled', (payload) => hub.setEnabled(payload)],
-    ['models:hubSetEffort', (payload) => hub.setEffort(payload)],
+    ['models:hubList', () => center.list()],
+    ['models:hubSetEnabled', (payload) => center.setEnabled(payload)],
+    ['models:hubSetEffort', (payload) => center.setEffort(payload)],
+    ['models:hubSetOrder', (payload) => center.setOrder(payload)],
+    ['models:rulesGet', () => center.rulesGet()],
+    ['models:rulesSet', (payload) => center.rulesSet(payload)],
+    ['models:rulesReset', () => center.rulesReset()],
+    ['models:configRepublish', () => center.republish()],
   ]
   for (const [channel, handler] of hubChannels) {
     ipcMain.handle(channel, (_event, payload) => {
@@ -114,8 +117,12 @@ function registerModelsHandlers({ ipcMain, getMainWindow, cliPath = defaultCliPa
       }
     })
   }
-  // First-use preferences and the review snapshot exist from startup, even without opening the page.
-  refreshHubQuietly()
+  // 启动对账：处理保存到一半留下的恢复记录，再按设置重新生成审核配置（后-10、后-17）；不打开页面也有审核配置
+  try {
+    center.reconcile()
+  } catch {
+    // 对账失败不阻止接入管理启动；页面读取时再报告
+  }
   let claudeCache = null
   const claudeInfo = () => {
     if (!claudeCache) {
@@ -258,10 +265,38 @@ function registerModelsHandlers({ ipcMain, getMainWindow, cliPath = defaultCliPa
     })
   } catch {}
 
+  // Codex 的模型清单、默认模型或登录状态在 CodePal 运行中变了（新增、下架、换档位）：不用打开页面就重新生成审核配置
+  // （CL-659、CL-788）。清单常以「写临时文件再改名」替换，按文件名过滤、200 毫秒内的多次变化合并成一次。
+  // 系统的目录变化通知偶尔会丢，另外每 2 秒看一次这三个文件的修改时间兜底（文件后来才出现也能看到）
+  const CODEX_FILES = ['models_cache.json', 'config.toml', 'auth.json']
+  const codexDir = path.join(hubOptions.homeDir || os.homedir(), '.codex')
+  let codexWatcher = null
+  let codexTimer = null
+  const codexChanged = () => {
+    clearTimeout(codexTimer)
+    codexTimer = setTimeout(() => {
+      codexTimer = null
+      refreshHubQuietly()
+    }, 200)
+  }
+  try {
+    codexWatcher = fs.watch(codexDir, (_event, name) => {
+      if (!name || CODEX_FILES.includes(String(name))) codexChanged()
+    })
+  } catch {
+    // 没装 Codex（目录不存在）：靠下面的定时查看，装好后也能发现
+  }
+  const codexPolled = CODEX_FILES.map((name) => path.join(codexDir, name))
+  for (const file of codexPolled) fs.watchFile(file, { interval: 2000 }, codexChanged)
+
   return {
     stop: () => {
       for (const t of timers.values()) clearTimeout(t)
       if (watcher) watcher.close()
+      clearTimeout(codexTimer)
+      if (codexWatcher) codexWatcher.close()
+      for (const file of codexPolled) fs.unwatchFile(file, codexChanged)
+      center.stop()
     },
   }
 }

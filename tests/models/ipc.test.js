@@ -49,8 +49,8 @@ afterEach(() => {
 })
 
 describe('models:* 接口', () => {
-  it('注册了十一个通道', () => {
-    expect(Object.keys(handlers).sort()).toEqual(['models:addModel', 'models:hubList', 'models:hubSetEffort', 'models:hubSetEnabled', 'models:installCommands', 'models:list', 'models:recheckClaude', 'models:removeModel', 'models:setKey', 'models:test', 'models:updateModel'])
+  it('注册了十六个通道（v2.1.17 加顺序、审核规则与审核配置重试）', () => {
+    expect(Object.keys(handlers).sort()).toEqual(['models:addModel', 'models:configRepublish', 'models:hubList', 'models:hubSetEffort', 'models:hubSetEnabled', 'models:hubSetOrder', 'models:installCommands', 'models:list', 'models:recheckClaude', 'models:removeModel', 'models:rulesGet', 'models:rulesReset', 'models:rulesSet', 'models:setKey', 'models:test', 'models:updateModel'])
   })
 
   it('TC-A04 Key 不以 sk- 开头返回 invalid_input 且不写文件', async () => {
@@ -223,7 +223,10 @@ describe('models:* 接口', () => {
     const r = spawnSync(process.execPath, [path.join(REPO, 'electron/modules/models/cli.cjs'), 'launch', 'deepseek', 'deepseek-flash', '--', '--print'], { input: 'hi', env: { ...process.env, FAKE_CLAUDE_MODE: 'success' } })
     expect(r.status).toBe(0)
     const report = readReport(sb.report)
-    expect(JSON.parse(report.argv[report.argv.indexOf('--settings') + 1]).env).toMatchObject({ CLAUDE_CODE_EFFORT_LEVEL: 'xhigh', CLAUDE_CODE_MAX_OUTPUT_TOKENS: '384000' })
+    // v2.1.17：后台调用只认传入的等级，不传就不设；旧档位只在终端手动用时照常（见 providerLegacy）
+    const legacyEnv = JSON.parse(report.argv[report.argv.indexOf('--settings') + 1]).env
+    expect(legacyEnv).toMatchObject({ CLAUDE_CODE_MAX_OUTPUT_TOKENS: '384000' })
+    expect(legacyEnv.CLAUDE_CODE_EFFORT_LEVEL).toBeUndefined()
     // 只改别的参数不受旧值拦截
     expect((await call('models:updateModel', { providerId: 'deepseek', modelId: 'deepseek-flash', patch: { contextTokens: 500000 } })).success).toBe(true)
   })
@@ -233,12 +236,12 @@ describe('models:* 接口', () => {
     expect((await call('models:updateModel', { providerId: 'deepseek', modelId: 'deepseek-flash', patch: { name: 'deepseek-v4-pro' } })).success).toBe(true)
     expect((await call('models:updateModel', { providerId: 'deepseek', modelId: 'deepseek-v4-pro', patch: { effort: 'high' } })).success).toBe(true)
     const { spawnSync } = await import('node:child_process')
-    const r = spawnSync(process.execPath, [path.join(REPO, 'electron/modules/models/cli.cjs'), 'launch', 'deepseek', 'deepseek-v4-pro', '--', '--print'], { input: 'hi', env: { ...process.env, FAKE_CLAUDE_MODE: 'success' } })
+    const r = spawnSync(process.execPath, [path.join(REPO, 'electron/modules/models/cli.cjs'), 'launch', 'deepseek', 'deepseek-v4-pro', '--test'], { env: { ...process.env, FAKE_CLAUDE_MODE: 'success' } })
     expect(r.status).toBe(0)
     const report = readReport(sb.report)
     expect(report.env.ANTHROPIC_MODEL).toBe('deepseek-v4-pro')
-    const overlay = JSON.parse(report.argv[report.argv.indexOf('--settings') + 1])
-    expect(overlay.env.CLAUDE_CODE_EFFORT_LEVEL).toBe('high')
+    // 测一下由 CodePal 把模型接入里调过的档位作为 --effort 传入（v2.1.17）
+    expect(report.argv.slice(report.argv.indexOf('--effort'), report.argv.indexOf('--effort') + 2)).toEqual(['--effort', 'high'])
   })
 
   it('recheckClaude 返回当前检测结果', async () => {

@@ -3,6 +3,13 @@ import { useEffect, useMemo, useSyncExternalStore } from 'react'
 
 const stores = new WeakMap()
 const unavailableApi = {}
+const API = { enabled: 'modelsHubSetEnabled', effort: 'modelsHubSetEffort' }
+
+/** 开关保存成功后审核在用的顺序：打开排到最后，关掉移出（与主进程同规则） */
+function nextOrder(order, id, enabled) {
+  const rest = (order || []).filter((item) => item !== id)
+  return enabled ? [...rest, id] : rest
+}
 
 function createStore(api) {
   let snapshot = { data: null, loading: true, error: null, pending: {} }
@@ -38,17 +45,20 @@ function createStore(api) {
       })
   }
 
+  async function call(method, payload) {
+    try {
+      return await api[method](payload)
+    } catch {
+      return { success: false, error: { message: '出错了' } }
+    }
+  }
+
   async function save(kind, payload) {
     const key = `${kind}:${payload.id}`
-    if (snapshot.pending[key]) return null
+    if (snapshot.pending[key] || snapshot.pending.order) return null
     mutationGeneration += 1
     publish({ pending: { ...snapshot.pending, [key]: payload } })
-    let result
-    try {
-      result = await api[kind === 'enabled' ? 'modelsHubSetEnabled' : 'modelsHubSetEffort'](payload)
-    } catch {
-      result = { success: false, error: { message: '出错了' } }
-    }
+    const result = await call(API[kind], payload)
     const pending = { ...snapshot.pending }
     delete pending[key]
     mutationGeneration += 1
@@ -56,13 +66,33 @@ function createStore(api) {
     if (result.success && data) {
       data = {
         ...data,
+        order: kind === 'enabled' ? nextOrder(data.order, payload.id, payload.enabled) : data.order,
         vendors: data.vendors.map((vendor) => ({
           ...vendor,
-          models: vendor.models.map((model) => (model.id === payload.id ? { ...model, [kind]: payload[kind] } : model)),
+          models: vendor.models.map((model) => {
+            if (model.id !== payload.id) return model
+            const next = { ...model, [kind]: payload[kind] }
+            if (kind === 'effort') delete next.effortUnsupported
+            return next
+          }),
         })),
       }
     }
     publish({ pending, data })
+    return result
+  }
+
+  /** 整串保存顺序：先显示新顺序、整张卡禁用；失败退回原来的顺序 */
+  async function setOrder(order) {
+    if (!snapshot.data || Object.keys(snapshot.pending).length) return null
+    const previous = snapshot.data.order
+    mutationGeneration += 1
+    publish({ pending: { ...snapshot.pending, order: true }, data: { ...snapshot.data, order } })
+    const result = await call('modelsHubSetOrder', { order })
+    const pending = { ...snapshot.pending }
+    delete pending.order
+    mutationGeneration += 1
+    publish({ pending, data: snapshot.data && !result.success ? { ...snapshot.data, order: previous } : snapshot.data })
     return result
   }
 
@@ -75,9 +105,11 @@ function createStore(api) {
     reload,
     setEnabled: (payload) => save('enabled', payload),
     setEffort: (payload) => save('effort', payload),
+    setOrder,
   }
 }
 
+/** 模型页签的数据：进入页面与窗口回到前台都重读（后-07） */
 export default function useModelHub() {
   const api = window.electronAPI || unavailableApi
   const store = useMemo(() => {
@@ -91,5 +123,11 @@ export default function useModelHub() {
     window.addEventListener('focus', refresh)
     return () => window.removeEventListener('focus', refresh)
   }, [store])
-  return { ...snapshot, reload: store.reload, setEnabled: store.setEnabled, setEffort: store.setEffort }
+  return {
+    ...snapshot,
+    reload: store.reload,
+    setEnabled: store.setEnabled,
+    setEffort: store.setEffort,
+    setOrder: store.setOrder,
+  }
 }

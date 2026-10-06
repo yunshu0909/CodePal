@@ -1,11 +1,19 @@
-/** Own model-hub preferences and coordinate private changes with the public review snapshot. */
+/**
+ * 模型汇总的本页设置 hub.json：哪些模型用于审核、审核用的思考等级、审核在用的顺序
+ *
+ * 负责（纯读与计算，写文件由 reviewCenter 统一做）：
+ * - 读并校验 hub.json；坏了抛 HUB_FILE_INVALID（不改写）
+ * - 发现当前能用的模型来源（Claude Code、Codex、模型接入里测通的）
+ * - 第一次打开的开关、顺序与等级（A-016）；从上一版升级时补顺序（后-45）
+ * - 给页面看的模型列表：开关、审核用的等级（档位不再支持时退回默认档并标出原值，后-29）
+ * - 审核在用的可见顺序（暂时消失的模型留在 order 里，恢复后回原位，后-35）
+ *
+ * @module electron/modules/models/hub
+ */
 const fs = require('fs')
-const os = require('os')
-const path = require('path')
 const store = require('./store')
 const { PRESETS, modelCapabilities } = require('./presets')
 const { discoverSubscriptions } = require('./subscriptions')
-const { atomicWrite, writeReviewModels } = require('./reviewModels')
 
 const COLORS = {
   deepseek: 'var(--ic-blue)',
@@ -17,6 +25,7 @@ const COLORS = {
   'minimax-api': 'var(--ic-orange)',
   'minimax-plan': 'var(--ic-orange)',
 }
+const HUB_FILE_INVALID_MESSAGE = '模型汇总的设置文件无法解析，修好或删除它后重试'
 const object = (value) => value !== null && typeof value === 'object' && !Array.isArray(value)
 
 function fault(code, message) {
@@ -34,6 +43,11 @@ function readBytes(file) {
   }
 }
 
+/**
+ * @param {string} file hub.json 的可信路径
+ * @returns {object|null} 设置；文件不存在返回 null
+ * @throws {Error} code=HUB_FILE_INVALID
+ */
 function readPreferences(file) {
   const bytes = readBytes(file)
   if (bytes === null) return null
@@ -52,10 +66,17 @@ function readPreferences(file) {
       !Object.values(value.effort).every((entry) => typeof entry === 'string')
     )
       throw new Error('shape')
+    if (value.order !== undefined && (!Array.isArray(value.order) || !value.order.every((id) => typeof id === 'string')))
+      throw new Error('shape')
     return value
   } catch {
-    throw fault('HUB_FILE_INVALID', '模型汇总的设置文件无法解析，修好或删除它后重试')
+    throw fault('HUB_FILE_INVALID', HUB_FILE_INVALID_MESSAGE)
   }
+}
+
+/** @returns {string} 要落盘的 hub.json 文本 */
+function serializePreferences(preferences) {
+  return JSON.stringify(preferences, null, 2) + '\n'
 }
 
 /** A test result determines availability; a later review result cannot erase that fact. */
@@ -64,6 +85,7 @@ function tested(status) {
   return Object.hasOwn(status, 'lastTest') ? status.lastTest?.ok === true : status.ok === true
 }
 
+/** 模型接入里填了 Key、测通了的模型，按模型接入页的顺序（预设顺序） */
 function providerSources() {
   const vendors = []
   let providerConfigError = false
@@ -73,7 +95,8 @@ function providerSources() {
     for (const preset of Object.values(PRESETS)) {
       const provider = config.providers[preset.id]
       if (!provider || provider.keySet !== true) continue
-      if (preset.id.startsWith('minimax-') && !store.keyState(preset.id).keyReadable) continue
+      // Key 文件丢了或读不出：这家暂时不给审核用（只影响这一家，开关、等级、顺序都留着，读得出后回原位）
+      if (!store.keyState(preset.id).keyReadable) continue
       if (!Array.isArray(provider.models)) throw new Error('invalid provider models')
       const models = provider.models
         .filter((model) => tested(statuses[`${preset.id}__${model.id}`]))
@@ -93,6 +116,10 @@ function providerSources() {
   return { vendors, providerConfigError }
 }
 
+/**
+ * @param {object} options 可信 homeDir / env 及可注入的 CLI 定位函数
+ * @returns {{vendors: Array<object>, providerConfigError: boolean}} Claude Code → Codex → 模型接入各家
+ */
 function currentSources(options) {
   const providers = providerSources()
   return {
@@ -103,10 +130,27 @@ function currentSources(options) {
 
 const isSubscription = (vendorId) => vendorId === 'claude' || vendorId === 'codex'
 
+/** 没设过审核等级时的默认档：订阅照定稿字面 high（v2.1.12 已确认，不偷偷换成首档）；接入模型沿用它在模型接入里的值 */
+function defaultEffort(vendorId, model) {
+  if (!model.efforts.length) return null
+  if (isSubscription(vendorId)) return 'high'
+  return model.efforts.includes(model.effort) ? model.effort : model.efforts[0]
+}
+
 /**
- * 接入模型第一次出现在汇总里时，把它此刻在模型接入里的强度抄一份进汇总设置：
- * 拆分后两边各管各的（接入管终端，汇总管审核），抄这一次保证审核清单的值不因拆分改变。
- * 已有条目、没有档位的模型（MiniMax M3）都不动。
+ * 审核用的等级（后-29）：保存的档位还支持就用它；不再支持退回默认档并带出原值；没有档位为 null
+ * @returns {{effort: string|null, effortUnsupported?: string}}
+ */
+function hubEffort(vendorId, model, preferences, id) {
+  if (!model.efforts.length) return { effort: null }
+  const saved = preferences.effort[id]
+  if (saved === undefined || model.efforts.includes(saved)) return { effort: saved ?? defaultEffort(vendorId, model) }
+  return { effort: defaultEffort(vendorId, model), effortUnsupported: saved }
+}
+
+/**
+ * 接入模型第一次出现时，把它此刻在模型接入里的等级抄一份进汇总设置：两边各管各的
+ * （接入管终端，汇总管审核）。只在重新生成路径调用（启动对账、模型接入事件后），页面读取不调。
  * @returns {boolean} 有没有新抄的条目
  */
 function seedProviderEfforts(sources, preferences) {
@@ -123,13 +167,7 @@ function seedProviderEfforts(sources, preferences) {
   return changed
 }
 
-/** 汇总里显示的强度：订阅默认 high；接入模型用汇总自己的设置，设置里没有或不再合法时退回接入的值 */
-function hubEffort(vendorId, model, preferences, id) {
-  const saved = preferences.effort[id]
-  if (isSubscription(vendorId)) return saved || 'high'
-  return model.efforts.includes(saved) ? saved : model.effort
-}
-
+/** 给每个模型叠上开关与审核用的等级 */
 function decorate(sources, preferences) {
   return {
     providerConfigError: sources.providerConfigError,
@@ -141,149 +179,115 @@ function decorate(sources, preferences) {
           ...model,
           id,
           enabled: preferences.reviewEnabled[id] === true,
-          effort: hubEffort(vendor.id, model, preferences, id),
+          ...hubEffort(vendor.id, model, preferences, id),
         }
       }),
     })),
   }
 }
 
-function publicView(data) {
+/** 打开且现在能用的模型：id → { vendorId, model }，按来源发现顺序 */
+function visibleEnabled(data) {
+  const visible = new Map()
+  for (const vendor of data.vendors) {
+    if (vendor.blocked) continue
+    for (const model of vendor.models) if (model.enabled) visible.set(model.id, { vendorId: vendor.id, model })
+  }
+  return visible
+}
+
+/**
+ * 审核在用的可见顺序：按 order 排，order 里没有的（不该出现，兜底）按发现顺序接在后面
+ * @returns {string[]}
+ */
+function enabledOrder(data, preferences) {
+  const visible = visibleEnabled(data)
+  const order = (preferences.order || []).filter((id) => visible.has(id))
+  for (const id of visible.keys()) if (!order.includes(id)) order.push(id)
+  return order
+}
+
+/**
+ * 第一次打开（或从上一版升级、hub.json 还没有顺序）时的顺序：Claude Code → Codex → 模型接入各家，
+ * 同一家按它自己清单的顺序；这次看不到的已开模型排在后面
+ */
+function initialOrder(sources, reviewEnabled) {
+  const order = []
+  for (const vendor of sources.vendors) {
+    if (vendor.blocked) continue
+    for (const model of vendor.models) {
+      const id = `${vendor.id}:${model.slug}`
+      if (reviewEnabled[id] === true) order.push(id)
+    }
+  }
+  for (const [id, on] of Object.entries(reviewEnabled).sort(([a], [b]) => a.localeCompare(b)))
+    if (on && !order.includes(id)) order.push(id)
+  return order
+}
+
+/**
+ * 第一次打开的设置（A-016）：有 Claude Code 开它的默认模型，有 Codex 开它的默认模型，
+ * 模型接入里只开测通了、审核已在用的（DeepSeek）；其余关
+ */
+function initialPreferences(sources) {
+  const reviewEnabled = {}
+  for (const vendor of sources.vendors) {
+    if (vendor.blocked) continue
+    const chosen = isSubscription(vendor.id)
+      ? vendor.models.find((model) => model.slug === vendor.defaultModel)
+      : vendor.id === 'deepseek'
+        ? vendor.models[0]
+        : null
+    if (chosen) reviewEnabled[`${vendor.id}:${chosen.slug}`] = true
+  }
+  return {
+    schemaVersion: 1,
+    initializedAt: new Date().toISOString(),
+    reviewEnabled,
+    effort: {},
+    order: initialOrder(sources, reviewEnabled),
+  }
+}
+
+/** 给页面的数据：不含凭证、路径；带审核在用的可见顺序 */
+function publicView(data, order) {
   return {
     providerConfigError: data.providerConfigError,
+    order,
     vendors: data.vendors.map((vendor) => ({
       id: vendor.id,
       name: vendor.name,
       color: vendor.color,
       blocked: vendor.blocked,
-      models: vendor.models.map(({ id, displayName, efforts, effort, enabled }) => ({
+      models: vendor.models.map(({ id, displayName, efforts, effort, enabled, effortUnsupported }) => ({
         id,
         displayName,
         efforts,
         effort,
         enabled,
+        ...(effortUnsupported ? { effortUnsupported } : {}),
       })),
     })),
   }
 }
 
-/**
- * 汇总偏好与公开审核清单的唯一写方。
- * @param {object} [options] 主进程提供的可信homeDir、env及CLI定位函数，不接收渲染层路径。
- * @returns {{list: Function, refresh: Function, setEnabled: Function, setEffort: Function}}
- * list/refresh返回不含凭证的来源列表；保存返回{id, enabled}或{id, effort}。
- * 首次读取创建0600 hub.json；接入模型第一次出现时把接入强度抄进hub.json；读取和成功保存原子更新0644 review-models.json。
- * 读取或保存失败时hub.json逐字节退回操作前（原本没有就删掉）；坏hub抛HUB_FILE_INVALID，非法输入抛invalid_input/not_found。
- */
-function createModelHub(options = {}) {
-  const homeDir = options.homeDir || os.homedir()
-  const env = options.env || process.env
-  const root = store.resolveModelsHome({ homeDir, env })
-  const hubFile = path.join(root, 'hub.json')
-  const discovery = { ...options, homeDir, env }
-
-  function initialize(sources) {
-    const existing = readPreferences(hubFile)
-    if (existing) return existing
-    const preferences = { schemaVersion: 1, initializedAt: new Date().toISOString(), reviewEnabled: {}, effort: {} }
-    for (const vendor of sources.vendors) {
-      if (vendor.blocked) continue
-      const chosen =
-        vendor.id === 'claude' || vendor.id === 'codex'
-          ? vendor.models.find((model) => model.slug === vendor.defaultModel)
-          : vendor.id === 'deepseek'
-            ? vendor.models[0]
-            : null
-      if (chosen) preferences.reviewEnabled[`${vendor.id}:${chosen.slug}`] = true
-    }
-    store.ensureDir(root)
-    atomicWrite(hubFile, JSON.stringify(preferences, null, 2) + '\n', 0o600)
-    return preferences
-  }
-
-  function state() {
-    const sources = currentSources(discovery)
-    const preferences = initialize(sources)
-    if (seedProviderEfforts(sources, preferences)) atomicWrite(hubFile, JSON.stringify(preferences, null, 2) + '\n', 0o600)
-    return decorate(sources, preferences)
-  }
-
-  /** 把汇总设置放回操作前的字节；原本没有就删掉，内容没变就不动 */
-  function restoreHub(before) {
-    const now = readBytes(hubFile)
-    if (before === null) {
-      if (now !== null) fs.rmSync(hubFile, { force: true })
-    } else if (now === null || !now.equals(before)) {
-      atomicWrite(hubFile, before, 0o600)
-    }
-  }
-
-  /**
-   * 一次读取或保存是一件事：期间可能新建 hub.json、补抄接入强度、写这次的改动，
-   * 任何一步失败（含非法输入、公开清单写失败）都把 hub.json 退回操作前，不留半套
-   */
-  function transaction(work) {
-    const before = readBytes(hubFile)
-    try {
-      return work()
-    } catch (error) {
-      restoreHub(before)
-      throw error
-    }
-  }
-
-  function publish() {
-    const data = state()
-    writeReviewModels(root, data.vendors)
-    return data
-  }
-
-  function refresh() {
-    return transaction(() => publicView(publish()))
-  }
-
-  function savePreference(mutate) {
-    const preferences = readPreferences(hubFile)
-    mutate(preferences)
-    atomicWrite(hubFile, JSON.stringify(preferences, null, 2) + '\n', 0o600)
-    publish()
-  }
-
-  function find(id) {
-    if (typeof id !== 'string') throw fault('invalid_input', '没有这个模型')
-    const data = state()
-    for (const vendor of data.vendors) {
-      if (vendor.blocked) continue
-      const model = vendor.models.find((item) => item.id === id)
-      if (model) return { vendor, model }
-    }
-    throw fault('not_found', '没有这个模型')
-  }
-
-  function setEnabled({ id, enabled } = {}) {
-    if (typeof enabled !== 'boolean') throw fault('invalid_input', '开关值不对')
-    return transaction(() => {
-      find(id)
-      savePreference((preferences) => {
-        preferences.reviewEnabled[id] = enabled
-      })
-      return { id, enabled }
-    })
-  }
-
-  /** 审核用的强度只写汇总设置；接入模型在终端用的强度（models.json）归模型接入页管，这里不碰 */
-  function setEffort({ id, effort } = {}) {
-    return transaction(() => {
-      const { model } = find(id)
-      if (typeof effort !== 'string' || !model.efforts.includes(effort)) throw fault('invalid_input', '思考强度不对')
-      savePreference((preferences) => {
-        preferences.effort[id] = effort
-      })
-      return { id, effort }
-    })
-  }
-
-  return { list: refresh, refresh, setEnabled, setEffort }
+/** 兼容旧入口：汇总页的读写都由 reviewCenter 负责（延迟加载，避免循环依赖） */
+function createModelHub(options) {
+  return require('./reviewCenter').createReviewCenter(options)
 }
 
-module.exports = { createModelHub }
+module.exports = {
+  HUB_FILE_INVALID_MESSAGE,
+  readBytes,
+  readPreferences,
+  serializePreferences,
+  currentSources,
+  seedProviderEfforts,
+  decorate,
+  visibleEnabled,
+  enabledOrder,
+  initialOrder,
+  initialPreferences,
+  publicView,
+  createModelHub,
+}

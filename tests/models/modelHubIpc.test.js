@@ -1,4 +1,6 @@
-/** @vitest-environment node */
+/** @vitest-environment node
+ * v2.1.17：公开文件换成给 dev 的审核配置 review-config.json，不再写本机命令路径（后-49、后-51）
+ */
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -52,7 +54,7 @@ afterEach(() => {
   }
   sb.cleanup()
 })
-it('SC-005 TC-054 启用真实IPC、校验ID和boolean、同步清单且无凭证', async () => {
+it('SC-005 TC-054 启用真实IPC、校验ID和boolean、同步审核配置且无凭证', async () => {
   const off = await call('models:hubSetEnabled', {
     id: 'deepseek:deepseek-flash',
     enabled: false,
@@ -68,7 +70,7 @@ it('SC-005 TC-054 启用真实IPC、校验ID和boolean、同步清单且无凭�
   })
   expect(result.success).toBe(true)
   expect(read('hub.json').reviewEnabled['deepseek:deepseek-flash']).toBe(true)
-  expect(read('review-models.json').models.map((m) => m.id)).toEqual([
+  expect(read('review-config.json').models.map((m) => m.id)).toEqual([
     'deepseek:deepseek-flash',
   ])
   for (const args of [
@@ -85,7 +87,7 @@ it('SC-005 TC-054 启用真实IPC、校验ID和boolean、同步清单且无凭�
     list.data.vendors.find((v) => v.id === 'deepseek').models[0].enabled,
   ).toBe(true)
 })
-it('SC-016 测试状态变化无窗口也更新清单；审核失败仍留在可用列表', async () => {
+it('SC-016 测试状态变化无窗口也更新审核配置；审核失败仍留在可用列表', async () => {
   await call('models:hubList')
   store.writeStatus('deepseek', 'deepseek-flash', {
     ok: false,
@@ -93,7 +95,7 @@ it('SC-016 测试状态变化无窗口也更新清单；审核失败仍留在可
     source: 'review',
   })
   expect(
-    await waitFor(() => read('review-models.json').models.length === 1),
+    await waitFor(() => read('review-config.json').models.length === 1),
   ).toBe(true)
   store.writeStatus('deepseek', 'deepseek-flash', {
     ok: false,
@@ -101,29 +103,28 @@ it('SC-016 测试状态变化无窗口也更新清单；审核失败仍留在可
     source: 'test',
   })
   expect(
-    await waitFor(() => read('review-models.json').models.length === 0),
+    await waitFor(() => read('review-config.json').models.length === 0),
   ).toBe(true)
   store.writeStatus('deepseek', 'deepseek-flash', { ok: true, source: 'test' })
   expect(
-    await waitFor(() => read('review-models.json').models.length === 1),
+    await waitFor(() => read('review-config.json').models.length === 1),
   ).toBe(true)
   expect(
     (await call('models:hubList')).data.vendors.find((v) => v.id === 'deepseek')
       .models[0].enabled,
   ).toBe(true)
 })
-it('接入增删改名、Key与命令安装后都同步公开快照；stop取消未决刷新', async () => {
+it('接入增删改名、Key与命令安装后都同步审核配置；stop取消未决刷新', async () => {
   await call('models:hubList')
   await call('models:installCommands')
-  expect(path.isAbsolute(read('review-models.json').models[0].command)).toBe(
-    true,
-  )
+  expect(read('review-config.json').models[0].command).toBeUndefined()
+  expect(JSON.stringify(read('review-config.json'))).not.toContain(sb.bin)
   await call('models:updateModel', {
     providerId: 'deepseek',
     modelId: 'deepseek-flash',
     patch: { name: 'deepseek-new' },
   })
-  expect(read('review-models.json').models).toEqual([])
+  expect(read('review-config.json').models).toEqual([])
   store.writeStatus('deepseek', 'deepseek-new', { ok: true, source: 'test' })
   await call('models:hubList')
   await call('models:hubSetEnabled', {
@@ -134,16 +135,16 @@ it('接入增删改名、Key与命令安装后都同步公开快照；stop取消
     providerId: 'deepseek',
     modelId: 'deepseek-new',
   })
-  expect(read('review-models.json').models).toEqual([])
+  expect(read('review-config.json').models).toEqual([])
   await call('models:setKey', { providerId: 'mimo-api', key: KEY })
-  expect(read('review-models.json').models).toEqual([])
+  expect(read('review-config.json').models).toEqual([])
   const before = fs.readFileSync(
-    path.join(sb.models, 'review-models.json'),
+    path.join(sb.models, 'review-config.json'),
     'utf8',
   )
   lifecycle.stop()
   await new Promise((r) => setTimeout(r, 180))
   expect(
-    fs.readFileSync(path.join(sb.models, 'review-models.json'), 'utf8'),
+    fs.readFileSync(path.join(sb.models, 'review-config.json'), 'utf8'),
   ).toBe(before)
 })

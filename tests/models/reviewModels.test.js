@@ -1,9 +1,12 @@
-/** @vitest-environment node */
+/** @vitest-environment node
+ * v2.1.17：给 dev 的公开文件从 review-models.json 换成审核配置 review-config.json（后-44）；
+ * 只放审核需要的字段，不放本机命令路径与计费类别（后-49、后-51），接入模型带 provider
+ */
 import { afterEach, beforeEach, expect, it } from 'vitest'
 import fs from 'node:fs'
 import path from 'node:path'
 import { createRequire } from 'node:module'
-import { makeSandbox, KEY } from './helpers'
+import { makeSandbox, KEY, waitFor } from './helpers'
 const require = createRequire(import.meta.url)
 const {
   registerModelsHandlers,
@@ -49,15 +52,15 @@ afterEach(() => {
   }
   sb.cleanup()
 })
-it('SC-009 TC-058 关闭即退出给插件的清单，偏好保留且无凭证', async () => {
+it('SC-009 TC-058 关闭即退出给 dev 的审核配置，偏好保留且无凭证', async () => {
   await call('models:hubList')
-  expect(read('review-models.json').models).toHaveLength(1)
+  expect(read('review-config.json').models).toHaveLength(1)
   const result = await call('models:hubSetEnabled', {
     id: 'deepseek:deepseek-flash',
     enabled: false,
   })
   expect(result.success).toBe(true)
-  expect(read('review-models.json')).toMatchObject({
+  expect(read('review-config.json')).toMatchObject({
     schemaVersion: 1,
     models: [],
   })
@@ -66,17 +69,15 @@ it('SC-009 TC-058 关闭即退出给插件的清单，偏好保留且无凭证',
     id: 'deepseek:deepseek-flash',
     enabled: true,
   })
-  const snapshot = read('review-models.json')
+  const snapshot = read('review-config.json')
   expect(snapshot.models[0]).toEqual({
     id: 'deepseek:deepseek-flash',
-    vendor: 'deepseek',
     family: 'deepseek',
     runner: 'codepal',
-    command: '',
+    provider: 'deepseek',
     model: 'deepseek-flash',
     displayName: 'deepseek-flash',
     effort: 'max',
-    billing: 'paid',
   })
   expect(snapshot.generator).toBe(
     `CodePal ${require('../../package.json').version}`,
@@ -84,7 +85,7 @@ it('SC-009 TC-058 关闭即退出给插件的清单，偏好保留且无凭证',
   expect(Number.isNaN(Date.parse(snapshot.generatedAt))).toBe(false)
   expect(JSON.stringify(snapshot)).not.toContain(KEY)
 })
-it('命令安装与套餐类别、同家厂商身份来自真实预设；仅已测通且开启可用', async () => {
+it('同家厂商身份来自真实预设；装了终端命令也不把本机路径写进审核配置；仅已测通且开启可用', async () => {
   await call('models:hubList')
   for (const id of ['zhipu-api', 'zhipu-coding']) {
     store.setKey(id, 'fake-plan-key')
@@ -94,23 +95,22 @@ it('命令安装与套餐类别、同家厂商身份来自真实预设；仅已�
   for (const id of ['zhipu-api', 'zhipu-coding'])
     await call('models:hubSetEnabled', { id: `${id}:glm-5.3`, enabled: true })
   await call('models:installCommands')
-  const models = read('review-models.json').models
-  expect(models.map((m) => m.vendor)).toEqual([
+  const models = read('review-config.json').models
+  expect(models.map((m) => m.provider)).toEqual([
     'deepseek',
     'zhipu-api',
     'zhipu-coding',
   ])
-  expect(models.slice(1).map((m) => [m.family, m.billing])).toEqual([
-    ['zhipu', 'paid'],
-    ['zhipu', 'plan'],
-  ])
+  expect(models.slice(1).map((m) => m.family)).toEqual(['zhipu', 'zhipu'])
   for (const m of models) {
-    expect(path.isAbsolute(m.command)).toBe(true)
-    expect(fs.existsSync(m.command)).toBe(true)
+    expect(m.command).toBeUndefined()
+    expect(m.billing).toBeUndefined()
   }
+  expect(JSON.stringify(read('review-config.json'))).not.toContain(sb.bin)
   store.writeStatus('zhipu-api', 'glm-5.3', { ok: false, source: 'test' })
-  await call('models:hubList')
-  expect(read('review-models.json').models.map((m) => m.vendor)).toEqual([
+  // 状态文件变化后主进程自己重新生成（打开页面只读）
+  expect(await waitFor(() => read('review-config.json').models.length === 2)).toBe(true)
+  expect(read('review-config.json').models.map((m) => m.provider)).toEqual([
     'deepseek',
     'zhipu-coding',
   ])
@@ -120,12 +120,12 @@ it('旧status仅顶层ok兼容；lastTest失败不能被审核成功冒充测通
   const status = path.join(store.statusDir(), 'deepseek__deepseek-flash.json')
   fs.writeFileSync(status, JSON.stringify({ ok: true, source: 'review' }))
   await call('models:hubList')
-  expect(read('review-models.json').models).toHaveLength(1)
+  expect(read('review-config.json').models).toHaveLength(1)
   store.writeStatus('deepseek', 'deepseek-flash', { ok: false, source: 'test' })
   store.writeStatus('deepseek', 'deepseek-flash', {
     ok: true,
     source: 'review',
   })
-  await call('models:hubList')
-  expect(read('review-models.json').models).toEqual([])
+  // 状态文件变化后主进程自己重新生成（打开页面只读）
+  expect(await waitFor(() => read('review-config.json').models.length === 0)).toBe(true)
 })

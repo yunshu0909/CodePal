@@ -135,21 +135,17 @@ it('SC-022 TC-071 本机首次默认、四Claude简称及真实Codex可见档位
   expect(JSON.stringify(data)).not.toContain('token_redacted')
   expect(JSON.stringify(data)).not.toContain(KEY)
   const snapshot = JSON.parse(
-    fs.readFileSync(path.join(sb.models, 'review-models.json'), 'utf8'),
+    fs.readFileSync(path.join(sb.models, 'review-config.json'), 'utf8'),
   )
   expect(snapshot.models.slice(0, 2)).toMatchObject([
     {
-      vendor: 'claude',
       family: 'anthropic',
       runner: 'claude-cli',
-      billing: 'subscription',
       model: 'sonnet',
     },
     {
-      vendor: 'codex',
       family: 'openai',
       runner: 'codex-exec',
-      billing: 'subscription',
       model: 'gpt-6-astra',
     },
   ])
@@ -210,7 +206,7 @@ it.each([
   ).toEqual([`claude:${expected}`])
   expect(fs.readFileSync(settings, 'utf8')).toBe(before)
 })
-it('SC-023 TC-072 新电脑没有来源也生成合法空清单；后来安装不自动改变偏好', async () => {
+it('SC-023 TC-072 新电脑没有来源也生成合法的空审核配置；后来安装不自动改变偏好', async () => {
   env.CODEPAL_CLAUDE_BIN = path.join(sb.root, 'missing-claude')
   env.CODEPAL_CODEX_BIN = path.join(sb.root, 'missing-codex')
   open()
@@ -222,7 +218,7 @@ it('SC-023 TC-072 新电脑没有来源也生成合法空清单；后来安装�
   expect(data.vendors).toHaveLength(2)
   expect(
     JSON.parse(
-      fs.readFileSync(path.join(sb.models, 'review-models.json'), 'utf8'),
+      fs.readFileSync(path.join(sb.models, 'review-config.json'), 'utf8'),
     ).models,
   ).toEqual([])
 })
@@ -276,7 +272,7 @@ it('SC-022 未设强度仍按定稿字面high，不偷偷替换成首档；菜�
     enabled: true,
   })
   const snapshot = JSON.parse(
-    fs.readFileSync(path.join(sb.models, 'review-models.json'), 'utf8'),
+    fs.readFileSync(path.join(sb.models, 'review-config.json'), 'utf8'),
   )
   expect(snapshot.models.find((m) => m.id === 'codex:gpt-6-astra').effort).toBe(
     'high',
@@ -296,12 +292,12 @@ it('SC-022 未设强度仍按定稿字面high，不偷偷替换成首档；菜�
 it.each([
   ['claude:sonnet', 'max'],
   ['codex:gpt-6-astra', 'ultra'],
-])('SC-026 TC-075 订阅强度%s只写hub并更新清单；非法值与写失败保持原文件', async (id, effort) => {
+])('SC-026 TC-075 订阅强度%s只写hub并更新审核配置；非法值与写失败保持原文件', async (id, effort) => {
   ready()
   open()
   await list()
   const hubPath = path.join(sb.models, 'hub.json')
-  const publicPath = path.join(sb.models, 'review-models.json')
+  const publicPath = path.join(sb.models, 'review-config.json')
   const configPath = path.join(sb.models, 'models.json')
   const configBefore = fs.existsSync(configPath) ? fs.readFileSync(configPath, 'utf8') : null
   await save('hubSetEffort', { id, effort })

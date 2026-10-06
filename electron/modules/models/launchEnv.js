@@ -81,10 +81,16 @@ function checkReservedFlags(mode, args) {
   }
 }
 
-/** MiniMax 后台档位覆盖必须按当前模型校验，并覆盖设置中的默认档位。 */
-function minimaxEffort(mode, model, capabilities, args) {
-  let effort = capabilities.efforts.includes(model.effort) ? model.effort : null
-  if (mode !== 'print') return effort
+/**
+ * 这次启动用的思考等级（A-013、后-29）
+ * - 终端交互模式：用模型接入里设的档位（终端手动用）；MiniMax 按模型能力校验（M3 没有档位不设），
+ *   其余渠道照旧原样用（旧配置里的档位照常启动）
+ * - 后台模式：只认调用方传进来的 --effort（审核用汇总页设的那个），按模型能力校验，非法或重复传拒绝；
+ *   没传就不设，不再把模型接入里的档位塞进覆盖设置
+ * @returns {string|null} 交互模式要写进覆盖设置的档位；后台模式恒为 null（等级由 --effort 原样交给 claude）
+ */
+function launchEffort(mode, model, capabilities, args, minimax) {
+  if (mode !== 'print') return !minimax || capabilities.efforts.includes(model.effort) ? model.effort : null
   const list = beforeDoubleDash(args)
   let supplied = false
   for (let i = 0; i < list.length; i++) {
@@ -97,9 +103,8 @@ function minimaxEffort(mode, model, capabilities, args) {
       throw error
     }
     supplied = true
-    effort = value
   }
-  return effort
+  return null
 }
 
 /**
@@ -119,7 +124,7 @@ function buildLaunch({ mode, preset, model, key, parentEnv, userArgs, modelsHome
   checkReservedFlags(mode, userArgs)
   const capabilities = modelCapabilities(preset, model.name)
   const minimax = preset.id === 'minimax-api' || preset.id === 'minimax-plan'
-  const effort = minimax ? minimaxEffort(mode, model, capabilities, userArgs) : model.effort
+  const effort = launchEffort(mode, model, capabilities, userArgs, minimax)
   const env = { ...parentEnv }
   for (const k of SCRUB_ENV_KEYS) delete env[k]
   env.ANTHROPIC_BASE_URL = preset.baseUrl

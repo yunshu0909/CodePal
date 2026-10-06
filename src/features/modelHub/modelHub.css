@@ -86,3 +86,110 @@
 .mh-page .np-empty {
   line-height: 20px;
 }
+
+/* v2.1.17 两页签：页签行不随内容滚动；本页只写结构与尺寸，颜色与字体用 Native+ 现有变量 */
+.mh-tabs {
+  flex: none;
+  padding: 12px 20px 0;
+}
+
+/* 审核在用：把手 10 × 14 六点 + 顺序号 */
+.mh-grip,
+.mh-grip-space {
+  width: 10px;
+  height: 14px;
+  flex: none;
+}
+.mh-grip {
+  display: inline-flex;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--fg-4);
+}
+.mh-grip svg {
+  width: 10px;
+  height: 14px;
+  fill: currentColor;
+}
+.mh-grip:disabled {
+  cursor: default;
+}
+.mh-grip:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+.mh-idx {
+  min-width: 12px;
+  flex: none;
+  font-family: var(--num);
+  font-size: 12px;
+  color: var(--fg-3);
+  text-align: right;
+}
+.mh-nm {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.mh-note {
+  font-size: 11px;
+  line-height: 14px;
+  color: var(--orange-fg);
+}
+
+/* 拖动中：这一行浮起，蓝线标放下的位置 */
+.mh-page .np-row.is-lifted {
+  position: relative;
+  z-index: 1;
+  box-shadow: var(--shadow-modal);
+}
+.mh-drop {
+  height: 2px;
+  margin: -1px 12px;
+  background: var(--blue);
+  border-radius: 1px;
+}
+.mh-page .np-card.is-saving {
+  opacity: 0.6;
+  pointer-events: none;
+}
+/* 保存中只由整张卡淡一层（总纲 3.9 不叠透明度）：卡里禁用的控件不再各自变淡 */
+.mh-page .np-card.is-saving :is(.np-popbtn:disabled, .toggle.disabled) {
+  opacity: 1;
+}
+
+/* 审核规则：标签与小字、dev 两端、关卡行两个弹出按钮（最小宽 96，总纲允许筛选类窄到 96） */
+.mh-lab {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+/* 两行设置的标签保留 20px 行高，行高 53 与定稿一致 */
+.mh-page .mh-lab .lb {
+  line-height: 20px;
+}
+.mh-gsub {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mh-dev {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: none;
+}
+.mh-gate-acts {
+  gap: 8px;
+  flex: none;
+  flex-wrap: nowrap;
+}
+.mh-page .mh-pick {
+  min-width: 96px;
+}
+.mh-page .mh-gate-acts .mh-menu,
+.mh-page .mh-sub .mh-menu {
+  width: 150px;
+}

@@ -17,7 +17,7 @@
 const os = require('os')
 const path = require('path')
 const store = require('./store')
-const { PRESETS } = require('./presets')
+const { PRESETS, modelCapabilities } = require('./presets')
 const launchEnv = require('./launchEnv')
 const { locateClaude, checkClaudeVersion } = require('./claudeCli')
 const { findSettingsConflicts } = require('./conflicts')
@@ -101,8 +101,16 @@ async function main(argv) {
   const key = store.readKey(providerId)
   if (!key) return die('本机保存的 Key 找不到了，重新填写')
 
+  // 「测一下」由 CodePal 自己把模型接入里的档位作为 --effort 传进去（后台只认传入的等级），没有档位不传
+  if (test && modelCapabilities(preset, model.name).efforts.includes(model.effort)) userArgs.push('--effort', model.effort)
   const modelsHome = store.resolveModelsHome()
-  const { env, args } = launchEnv.buildLaunch({ mode, preset, model, key, parentEnv: process.env, userArgs, modelsHome, maxRetries: test ? 1 : undefined })
+  let launch
+  try {
+    launch = launchEnv.buildLaunch({ mode, preset, model, key, parentEnv: process.env, userArgs, modelsHome, maxRetries: test ? 1 : undefined })
+  } catch (err) {
+    return die(err.message, 2)
+  }
+  const { env, args } = launch
   if (mode === 'print') store.ensureDir(path.join(modelsHome, 'claude-home'))
 
   const result = await runClaude({
