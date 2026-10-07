@@ -69,6 +69,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
 
   // Skill 使用次数（近 N 天 Claude+Codex 调用统计，主数字为清洗后的可用样本数）
+  skillUsageAggregate: (params) => ipcRenderer.invoke('skill-usage:aggregate', params),
+  skillUsageRecords: (params) => ipcRenderer.invoke('skill-usage:records', params),
   aggregateSkillUsage: (params) => ipcRenderer.invoke('aggregate-skill-usage', params),
 
   // Skill 运行样本（近 N 天清洗后的 usable run samples）

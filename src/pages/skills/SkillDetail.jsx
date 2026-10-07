@@ -103,6 +103,7 @@ export function ToolRow({ tool, skill, snapshot, pending, frozen = false, onTogg
  * @param {object|null} props.snapshot
  * @param {object|undefined} props.usage - { total, claude, codex }
  * @param {boolean} props.usageFailed
+ * @param {'loading'|'error'|'ready'} [props.usageStatus='ready'] - 数字读取中时清除旧数字与记录。
  * @param {() => void} props.onRetryUsage
  * @param {{status: string, records: Array}} props.records
  * @param {string[]} props.pluginNames - 同名的插件
@@ -117,14 +118,27 @@ export function ToolRow({ tool, skill, snapshot, pending, frozen = false, onTogg
  * @param {() => void} props.onDelete
  * @returns {JSX.Element}
  */
-export default function SkillDetail({ skill, snapshot, usage, usageFailed, onRetryUsage, records, pluginNames, pendingKeys, onToggle, onFixGate, op = null, showNext = false, onUndo, onResume, onNext, onDelete }) {
+export default function SkillDetail({ skill, snapshot, usage, usageFailed, usageStatus = 'ready', onRetryUsage, records, pluginNames, pendingKeys, onToggle, onFixGate, op = null, showNext = false, onUndo, onResume, onNext, onDelete }) {
   const readOnly = isReadOnly(skill)
   const frozen = op?.state === 'partial'
   const opBusy = Boolean(op && (pendingKeys.has(`${skill.name}:undo:${op.operationId}`) || pendingKeys.has(`${skill.name}:resume:${op.operationId}`)))
   const total = usage?.total || 0
-  const countText = usageFailed ? <>近 30 天 <span className="num">—</span> 次</> : total > 0 ? <>近 30 天 <span className="num">{total}</span> 次</> : '近 30 天没用'
+  const loading = usageStatus === 'loading'
+  const usageUnavailable = usageFailed || usage?.availability === 'error'
+  const failed = usageUnavailable || records?.status === 'error'
+  const awaitingProof = usage?.completeness === 'pending' || usage?.total === null
+  const countText = loading ? <span className="np-sk np-sk--pulse" style={{ width: 48, height: 12 }} />
+    : usageUnavailable || awaitingProof ? <>近 30 天 <span className="num">—</span> 次</>
+      : total > 0 ? <>近 30 天 <span className="num">{total}</span> 次</> : <span>近 30 天没用</span>
   const duplicateTool = TOOLS.find((tool) => skill.tools?.[tool.id]?.duplicate)
-  const recordList = records?.records || []
+  const recordList = loading || records?.status === 'loading' ? [] : records?.records || []
+  const recordRows = recordList.map((record) => (
+    <div key={record.invocationId} className="np-lrow">
+      <span className="t">{formatRecordTime(record.triggeredAt)}</span>
+      <span>{record.tool === 'codex' ? 'Codex' : 'Claude Code'}</span>
+      <span className="e">{recordProject(record)}</span>
+    </div>
+  ))
 
   return (
     <div className="np-pane np-pane--detail">
@@ -165,22 +179,23 @@ export default function SkillDetail({ skill, snapshot, usage, usageFailed, onRet
 
         {!readOnly && (
           <>
-            <div className="np-glabel">近 30 天调用{!usageFailed && total > 0 && <span className="cnt">{total} 次</span>}</div>
+            <div className="np-glabel">近 30 天调用{!loading && !failed && !awaitingProof && total > 0 && <span className="cnt">{total} 次</span>}</div>
             <div className="np-card np-card--form">
-              {usageFailed ? (
+              {failed ? (
                 <div className="np-row">
                   <span className="np-errline">调用数据读取失败</span>
                   <Button size="sm" className="np-btn" onClick={onRetryUsage}>重试</Button>
                 </div>
+              ) : loading || records?.status === 'loading' ? (
+                <div className="np-row"><span className="np-empty">读取中…</span></div>
+              ) : awaitingProof ? (
+                <>
+                  <div className="np-row"><span className="ds" style={{ fontSize: 12, lineHeight: '16px', marginTop: 0 }}>{usage?.uncertaintyScope === 'all' ? '统计待核' : '次数待核'}</span></div>
+                  {recordRows}
+                </>
               ) : recordList.length === 0 ? (
-                <div className="np-row"><span className="np-empty">{records?.status === 'loading' ? '读取中…' : '近 30 天没有记录到调用'}</span></div>
-              ) : recordList.map((record) => (
-                <div key={record.invocationId} className="np-lrow">
-                  <span className="t">{formatRecordTime(record.triggeredAt)}</span>
-                  <span>{record.tool === 'codex' ? 'Codex' : 'Claude Code'}</span>
-                  <span className="e">{recordProject(record)}</span>
-                </div>
-              ))}
+                <div className="np-row"><span className="np-empty">近 30 天没有记录到调用</span></div>
+              ) : recordRows}
             </div>
           </>
         )}

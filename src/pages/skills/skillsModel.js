@@ -208,6 +208,35 @@ export function isExternal(skill) {
   return !skill.managed && !isReadOnly(skill)
 }
 
+/**
+ * 数字尚未可信时，页签和列表统一退回资产库分组。
+ * @param {object[]} skills - 当前管理快照；只检查普通资产。
+ * @param {Map<string, object>} usageMap - 主进程的统计结果。
+ * @param {'loading'|'error'|'ready'} usageStatus - 数字读取状态。
+ * @returns {boolean} 纯函数，不改变快照或统计结果。
+ */
+export function needsUsageFallback(skills, usageMap, usageStatus = 'ready') {
+  return usageStatus === 'loading' || usageStatus === 'error' || skills.some((skill) => {
+    if (!skill.managed && !isExternal(skill)) return false
+    const usage = usageMap.get(skill.name)
+    return usage?.completeness === 'pending' || usage?.availability === 'error' || usage?.total === null
+  })
+}
+
+/**
+ * 统计缓存只随资产来源变化失效；启用配置不改变历史加载次数。
+ * @param {object[]} skills - 当前管理快照。
+ * @returns {string} 稳定身份键；资产库已确定来源时，工具链接与开关不进入身份。
+ */
+export function usageIdentityOf(skills) {
+  return JSON.stringify(skills.filter((skill) => skill.managed || isExternal(skill)).map((skill) => ({
+    name: skill.name,
+    managed: skill.managed,
+    origins: skill.managed ? [] : (skill.origins || []).map(({ sourceId, toolId, origin, mutable }) => ({ sourceId, toolId, origin, mutable })),
+    locations: (skill.locations || []).filter((location) => !skill.managed || location.toolId === 'central'),
+  })).sort((left, right) => left.name.localeCompare(right.name)))
+}
+
 /** 至少在一个工具里装载着 */
 export function isLoaded(skill) {
   return Object.values(skill.tools || {}).some((state) => state?.enabled === true)
@@ -291,6 +320,7 @@ export function splitHits(text, query) {
  * @returns {Array<{id: string, title: string, skills: object[]}>} 空组不返回；要处理组里是清单条目，不是 Skill
  */
 export function buildGroups(skills, { usageMap = new Map(), usageFailed = false, query = '', inbox = [] } = {}) {
+  usageFailed = usageFailed || needsUsageFallback(skills, usageMap)
   const visible = skills.filter((skill) => matchesQuery(skill, query))
   const count = (skill) => usageMap.get(skill.name)?.total || 0
   const byName = (a, b) => a.name.localeCompare(b.name)

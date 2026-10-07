@@ -63,7 +63,7 @@ describe('Skills page cache contract', () => {
     expect(api.listSkillRunSamples).toHaveBeenCalledTimes(1)
   })
 
-  it('TC-001 first load uses existing skeleton, failed first read offers retry', async () => {
+  it('LEGACY-001 first load uses existing skeleton, failed first read offers retry', async () => {
     const pending = deferred()
     api.getSkillControlSnapshot.mockReturnValue(pending.promise)
     const view = render(<SkillsPage />)
@@ -71,26 +71,26 @@ describe('Skills page cache contract', () => {
     await act(async () => pending.resolve({ success: false, error: 'SCAN_FAILED' }))
     expect(await screen.findByText('Skill 状态读取失败')).toBeInTheDocument()
   })
-  it('TC-002 CACHED_REVISIT remount displays last snapshot before background response', async () => {
+  it('LEGACY-002 CACHED_REVISIT remount displays last snapshot before background response', async () => {
     const { next, again } = await revisit()
     expect(screen.getByText('sample', { selector: '.np-li b' }), 'CACHED_REVISIT').toBeInTheDocument()
     expect(again.container.querySelector('.np-sk'), 'CACHED_REVISIT').toBeNull()
     await act(async () => next.resolve(live()))
   })
-  it('TC-003 BACKGROUND_UPDATE background success publishes one new snapshot and read time', async () => {
+  it('LEGACY-003 BACKGROUND_UPDATE background success publishes one new snapshot and read time', async () => {
     const { next } = await revisit()
     expect(screen.getByText('sample', { selector: '.np-li b' }), 'BACKGROUND_UPDATE').toBeInTheDocument()
     await act(async () => next.resolve(live(makeSnapshot(false, 'updated'))))
     expect(await screen.findByText('updated', { selector: '.np-li b' })).toBeInTheDocument()
     expect(screen.queryByText('sample', { selector: '.np-li b' })).toBeNull()
   })
-  it('TC-004 BACKGROUND_FAILURE failed background read keeps last content and time with visible feedback', async () => {
+  it('LEGACY-004 BACKGROUND_FAILURE failed background read keeps last content and time with visible feedback', async () => {
     const { next } = await revisit()
     await act(async () => next.resolve({ success: false, error: 'SCAN_FAILED' }))
     expect(screen.getByText('sample', { selector: '.np-li b' }), 'BACKGROUND_FAILURE').toBeInTheDocument()
     expect(screen.getByText('读取失败，下面是上次读到的结果'), 'BACKGROUND_FAILURE').toBeInTheDocument()
   })
-  it('TC-005 DETAIL_FAILURE read failure is visible while viewing a detail', async () => {
+  it('LEGACY-005 DETAIL_FAILURE read failure is visible while viewing a detail', async () => {
     const view = await ready()
     fireEvent.click(screen.getByText('sample', { selector: '.np-li b' }))
     view.unmount()
@@ -99,7 +99,7 @@ describe('Skills page cache contract', () => {
     await waitFor(() => expect(screen.getByText('读取失败，下面是上次读到的结果'), 'DETAIL_FAILURE').toBeInTheDocument())
     expect(screen.getByRole('heading', { name: 'sample' }), 'DETAIL_FAILURE').toBeInTheDocument()
   })
-  it('TC-006 CACHED_USAGE_FIRST_FRAME usage counts are available in the remount layout, not an empty map', async () => {
+  it('LEGACY-006 CACHED_USAGE_FIRST_FRAME usage counts are available in the remount layout, not an empty map', async () => {
     const first = renderHook(() => useSkillUsage(['sample'], 30))
     await waitFor(() => expect(first.result.current.usageMap.get('sample')?.total).toBe(7))
     first.unmount()
@@ -113,7 +113,7 @@ describe('Skills page cache contract', () => {
     expect(inLayout, 'CACHED_USAGE_FIRST_FRAME').toBe(7)
     expect(api.aggregateSkillUsage).toHaveBeenCalledTimes(1)
   })
-  it('TC-007 BROWSING_CONTEXT query and selection survive navigation until confirmed removal', async () => {
+  it('LEGACY-007 BROWSING_CONTEXT query and selection survive navigation until confirmed removal', async () => {
     const view = await ready()
     fireEvent.click(screen.getByText('sample', { selector: '.np-li b' }))
     fireEvent.change(screen.getByPlaceholderText('搜索名称和用途'), { target: { value: 'sample' } })
@@ -126,7 +126,7 @@ describe('Skills page cache contract', () => {
     await act(async () => pending.resolve(live({ ...makeSnapshot(), skills: [] })))
     expect(screen.getByRole('heading', { name: '装载总览' })).toBeInTheDocument()
   })
-  it('TC-008 unreadable tool replaces old usable state and disables its switch', async () => {
+  it('LEGACY-008 unreadable tool replaces old usable state and disables its switch', async () => {
     const view = await ready()
     const snap = makeSnapshot()
     snap.errors = [{ toolId: 'codex', origin: 'config', code: 'READ_FAILED' }]
@@ -150,7 +150,7 @@ describe('Skills page cache contract', () => {
     const next = render(<SkillsPage />)
     expect(screen.getByText('sample', { selector: '.np-li b' }), 'UNMOUNTED_COMPLETION').toBeInTheDocument()
     // v2.1.11 左栏页签：次数没读到时只有页签那一行是骨架（定稿），列表本身不出骨架
-    expect(next.container.querySelector('.np-pane-body .np-sk, .np-pane--detail .np-sk'), 'UNMOUNTED_COMPLETION').toBeNull()
+    expect(next.container.querySelector('.np-pane-body .np-li b .np-sk, .np-pane--detail .np-sk'), 'UNMOUNTED_COMPLETION').toBeNull()
   })
   it('TC-011 REFRESH_COORDINATION manual refresh joins a background read and retains data', async () => {
     const { next } = await revisit()
@@ -212,7 +212,7 @@ describe('Skills page cache contract', () => {
     forced.rerender({ token: 1 })
     await waitFor(() => expect(api.aggregateSkillUsage).toHaveBeenCalledTimes(4))
   })
-  it('TC-020 EXISTING_SIGNAL shared state keeps fresh data on remount without forced usage reread', async () => {
+  it('#74 TC-008 TC-020 external refresh invalidates usage while preserving control snapshot cache', async () => {
     const view = await ready()
     api.getSkillControlSnapshot.mockResolvedValueOnce(live(makeSnapshot(false)))
     view.rerender(<SkillsPage refreshSignal={1} />)
@@ -222,6 +222,6 @@ describe('Skills page cache contract', () => {
     api.getSkillControlSnapshot.mockReturnValueOnce(new Promise(() => {}))
     const hook = renderHook(() => useSkillControl(1))
     expect(hook.result.current.snapshot?.skills[0].tools.codex.enabled, 'EXISTING_SIGNAL').toBe(false)
-    expect(api.aggregateSkillUsage).toHaveBeenCalledTimes(1)
+    expect(api.aggregateSkillUsage).toHaveBeenCalledTimes(2)
   })
 })

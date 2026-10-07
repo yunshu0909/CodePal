@@ -41,11 +41,13 @@ import {
   isExternal,
   isOverviewLike,
   latestOperation,
+  needsUsageFallback,
   resolveTab,
   tabOfGroup,
   tabOptionsOf,
   toolStatus,
   undoReasonText,
+  usageIdentityOf,
   visibleTabsOf,
 } from './skillsModel'
 import './skills.css'
@@ -57,26 +59,48 @@ function stillInInbox(result, name) {
   return inboxItemsOf(result?.snapshot || result?.data?.snapshot || null).some((item) => item.name === name)
 }
 
-/** 调用记录：选中一个 Skill 时读它近 30 天的记录 */
-function useRecords(skillName, refreshToken) {
-  const [records, setRecords] = useState({ status: 'idle', records: [] })
+/**
+ * @param {string|null} skillName - 当前普通 Skill；空值不发请求。
+ * @param {string|number} refreshToken - 显式刷新代次。
+ * @param {object} usage - 当前聚合中该项的真实身份。
+ * @param {string|null} batchId - 明细必须绑定当前聚合批次。
+ * @param {'loading'|'error'|'ready'} usageStatus - 聚合读取状态。
+ * @returns {object} 记录读取状态和同批记录；刷新/切换立即隐藏旧记录，迟到响应不得回写。
+ */
+function useRecords(skillName, refreshToken, usage, batchId, usageStatus) {
+  const api = typeof window !== 'undefined' ? window.electronAPI : null
+  const modern = Boolean(api?.skillUsageRecords)
+  const key = JSON.stringify([skillName, refreshToken, modern ? batchId : null])
+  const [records, setRecords] = useState({ status: 'idle', records: [], key: null })
   useEffect(() => {
-    const api = typeof window !== 'undefined' ? window.electronAPI : null
-    if (!skillName || !api?.listSkillRunSamples) {
-      setRecords({ status: 'idle', records: [] })
+    const query = modern ? api.skillUsageRecords : api?.listSkillRunSamples
+    if (!skillName || !query) {
+      setRecords({ status: 'idle', records: [], key })
+      return undefined
+    }
+    if (modern && (!batchId || usageStatus === 'loading')) {
+      setRecords({ status: 'loading', records: [], key })
+      return undefined
+    }
+    if (modern && !usage?.assetId) {
+      setRecords({ status: 'ready', records: [], key })
       return undefined
     }
     let cancelled = false
-    setRecords((previous) => ({ status: 'loading', records: previous.records }))
-    api.listSkillRunSamples({ skillName, windowDays: 30 })
-      .then((result) => {
-        if (cancelled) return
-        setRecords(result?.success ? { status: 'ready', records: result.data?.records || [] } : { status: 'error', records: [] })
-      })
-      .catch(() => { if (!cancelled) setRecords({ status: 'error', records: [] }) })
-    return () => { cancelled = true }
-  }, [skillName, refreshToken])
-  return records
+    setRecords({ status: 'loading', records: [], key })
+    const options = modern ? { assetId: usage?.assetId, batchId, windowDays: 30 } : { skillName, windowDays: 30 }
+    query(options).then((result) => {
+      if (cancelled) return
+      const matched = !modern || result?.data?.batchId === batchId
+      setRecords(result?.success && matched ? { status: 'ready', records: result.data?.records || [], key } : { status: 'error', records: [], key })
+    }).catch(() => {
+      if (!cancelled) setRecords({ status: 'error', records: [], key })
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [api, key, modern, skillName, batchId, usage?.assetId, usageStatus])
+  return records.key === key ? records : { status: skillName ? 'loading' : 'idle', records: [] }
 }
 
 /**
@@ -108,21 +132,24 @@ export default function SkillsPage({ refreshSignal = 0 }) {
     () => skills.filter((skill) => skill.managed || isExternal(skill)).map((skill) => skill.name).sort(),
     [skills],
   )
-  const { status: usageStatus, usageMap } = useSkillUsage(usageNames, 30, usageToken)
+  const identity = useMemo(() => usageIdentityOf(skills), [skills])
+  const refreshGeneration = `${usageToken}:${refreshSignal}`
+  const { status: usageStatus, usageMap, batchId } = useSkillUsage(usageNames, 30, refreshGeneration, identity)
   const usageFailed = usageStatus === 'error'
-  const groups = useMemo(() => buildGroups(skills, { usageMap, usageFailed, query: query.trim(), inbox }), [skills, usageMap, usageFailed, query, inbox])
+  const groupFallback = needsUsageFallback(skills, usageMap, usageStatus)
+  const groups = useMemo(() => buildGroups(skills, { usageMap, usageFailed: groupFallback, query: query.trim(), inbox }), [skills, usageMap, groupFallback, query, inbox])
   // 左栏页签（2026-10-03 用户定）：出哪几个按不带搜索词的分组算；次数没读到时分不出在用 / 没用，先不定
-  const baseGroups = useMemo(() => buildGroups(skills, { usageMap, usageFailed, inbox }), [skills, usageMap, usageFailed, inbox])
-  const usageReady = usageStatus !== 'loading' || usageMap.size > 0
+  const baseGroups = useMemo(() => buildGroups(skills, { usageMap, usageFailed: groupFallback, inbox }), [skills, usageMap, groupFallback, inbox])
+  const usageReady = usageStatus !== 'loading'
   const searching = Boolean(query.trim())
   const [chosenTab, setChosenTab] = useState(null)
-  const visibleTabs = useMemo(() => visibleTabsOf(baseGroups, usageFailed), [baseGroups, usageFailed])
-  const tab = snapshot ? resolveTab(chosenTab, baseGroups, usageFailed) : null
+  const visibleTabs = useMemo(() => visibleTabsOf(baseGroups, groupFallback), [baseGroups, groupFallback])
+  const tab = snapshot ? resolveTab(chosenTab, baseGroups, groupFallback) : null
   const tabOptions = useMemo(() => tabOptionsOf(visibleTabs, groups), [visibleTabs, groups])
   const selectedInboxName = inboxNameOf(selectedId)
   const selectedItem = selectedInboxName ? inbox.find((item) => item.name === selectedInboxName) || null : null
   const selectedSkill = isOverviewLike(selectedId) || selectedInboxName ? null : skills.find((skill) => skill.name === selectedId) || null
-  const records = useRecords(selectedSkill && (selectedSkill.managed || isExternal(selectedSkill)) ? selectedSkill.name : null, usageToken)
+  const records = useRecords(selectedSkill && (selectedSkill.managed || isExternal(selectedSkill)) ? selectedSkill.name : null, refreshGeneration, usageMap.get(selectedSkill?.name), batchId, usageStatus)
   // 详情沿用全局提示，避免为后台读取新增详情布局。
   useEffect(() => {
     if (selectedSkill && refreshState === 'error') toast.error('读取失败，下面是上次读到的结果')
@@ -152,9 +179,9 @@ export default function SkillsPage({ refreshSignal = 0 }) {
   useEffect(() => {
     if (searching || !ready) return
     const groupId = groupOfSelected(groupsRef.current, selectedId)
-    const next = groupId ? tabOfGroup(groupId, visibleTabsOf(groupsRef.current, usageFailed)) : null
+    const next = groupId ? tabOfGroup(groupId, visibleTabsOf(groupsRef.current, groupFallback)) : null
     if (next) setChosenTab(next)
-  }, [selectedId, searching, ready, usageFailed])
+  }, [selectedId, searching, ready, groupFallback])
 
   // ⌘F / Ctrl+F 聚焦搜索框
   useEffect(() => {
@@ -391,6 +418,7 @@ export default function SkillsPage({ refreshSignal = 0 }) {
         snapshot={snapshot}
         usage={usageMap.get(selectedSkill.name)}
         usageFailed={usageFailed}
+        usageStatus={usageStatus}
         onRetryUsage={() => setUsageToken((token) => token + 1)}
         records={records}
         pluginNames={selectedSkill.managed ? selectedSkill.plugins || [] : []}
@@ -435,6 +463,7 @@ export default function SkillsPage({ refreshSignal = 0 }) {
           onQueryChange={setQuery}
           usageMap={usageMap}
           usageFailed={usageFailed}
+          usageStatus={usageStatus}
           onRetry={() => refresh()}
           searchRef={searchRef}
         />

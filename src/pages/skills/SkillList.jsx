@@ -35,7 +35,7 @@ function SearchIcon() {
  * 一条 Skill
  * @returns {JSX.Element}
  */
-function SkillItem({ skill, selected, onSelect, onKeyDown, snapshot, usage, usageFailed, query }) {
+function SkillItem({ skill, selected, onSelect, onKeyDown, snapshot, usage, usageFailed, usageStatus, query }) {
   const readOnly = isReadOnly(skill)
   const dots = TOOLS.filter((tool) => toolStatus(snapshot, tool.id) !== 'missing')
     .filter((tool) => !readOnly || skill.tools?.[tool.id]?.enabled === true)
@@ -44,7 +44,9 @@ function SkillItem({ skill, selected, onSelect, onKeyDown, snapshot, usage, usag
   let end = null
   if (readOnly) {
     end = readOnlyKind(skill).list
-  } else if (usageFailed) {
+  } else if (usageStatus === 'loading') {
+    end = <span className="np-sk np-sk--pulse" style={{ width: 48, height: 12 }} />
+  } else if (usageFailed || usage?.total === null || usage?.availability === 'error') {
     end = <><span className="n">—</span> 次</>
   } else if (total > 0) {
     end = <><span className="n">{total}</span> 次</>
@@ -115,11 +117,12 @@ function InboxItem({ item, selected, onSelect, onKeyDown, query }) {
  * @param {(value: string) => void} props.onQueryChange
  * @param {Map} props.usageMap
  * @param {boolean} props.usageFailed
+ * @param {'loading'|'error'|'ready'} [props.usageStatus='ready'] - 数字状态；读取中显示已签收的骨架。
  * @param {() => void} props.onRetry - 整体读取失败时重试
  * @param {object} props.searchRef - 搜索框 ref（⌘F 用）
  * @returns {JSX.Element}
  */
-export default function SkillList({ status, snapshot, groups, tabs, tab, onTabChange, selectedId, onSelect, query, onQueryChange, usageMap, usageFailed, onRetry, searchRef }) {
+export default function SkillList({ status, snapshot, groups, tabs, tab, onTabChange, selectedId, onSelect, query, onQueryChange, usageMap, usageStatus = 'ready', usageFailed, onRetry, searchRef }) {
   const paneRef = useRef(null)
   const searching = Boolean(query.trim())
   const hasLibrary = (snapshot?.skills || []).some((skill) => skill.managed)
@@ -202,6 +205,7 @@ export default function SkillList({ status, snapshot, groups, tabs, tab, onTabCh
                 snapshot={snapshot}
                 usage={usageMap.get(skill.name)}
                 usageFailed={usageFailed}
+                usageStatus={usageStatus}
                 query={query.trim()}
               />
             ))}

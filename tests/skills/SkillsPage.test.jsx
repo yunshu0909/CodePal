@@ -540,15 +540,15 @@ describe('状态', () => {
     expect(names.some((name) => name.includes(':'))).toBe(false)
   })
 
-  it('TC-041 USAGE_REFRESH 已有次数时再读：旧次数留着不闪骨架，新结果就地换', async () => {
+  it('TC-041 USAGE_REFRESH 已有次数时再读：旧次数清除、数字骨架等待新批次', async () => {
     await renderPage()
     await waitFor(() => expect(listItem('page-solution-design').textContent).toMatch(/7\s*次/))
     let resolveUsage
     api.aggregateSkillUsage.mockImplementationOnce(() => new Promise((resolve) => { resolveUsage = resolve }))
     fireEvent.click(within(detail()).getByRole('button', { name: '重新读取' }))
     await waitFor(() => expect(api.aggregateSkillUsage.mock.calls.length).toBeGreaterThan(1))
-    expect(listItem('page-solution-design').textContent).toMatch(/7\s*次/)
-    expect(listItem('page-solution-design').querySelector('.np-sk')).toBeNull()
+    expect(listItem('page-solution-design').textContent).not.toMatch(/7\s*次/)
+    expect(listItem('page-solution-design').querySelector('.np-sk')).not.toBeNull()
     await act(async () => resolveUsage({ success: true, data: { skills: [{ name: 'page-solution-design', total: 8, claude: 8, codex: 0 }] } }))
     await waitFor(() => expect(listItem('page-solution-design').textContent).toMatch(/8\s*次/))
   })

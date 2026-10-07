@@ -1,78 +1,74 @@
-/**
- * Skill 使用次数 IPC 注册器
- *
- * 负责：
- * - 注册 `aggregate-skill-usage` 通道，扫描后从 v2 ledger 统计有效调用
- * - 保留 `list-skill-run-samples` 通道名，详情只读 invocation ledger
- *
- * @module electron/handlers/registerSkillUsageHandlers
- */
+/** Validated usage IPC adapters; no renderer-supplied paths or persistence options cross the boundary. */
+const { runUsage } = require('../modules/skills/usageRunner')
 
-const { scanSkillUsage } = require('../services/skillUsageScanService')
-const { listSkillInvocationRecords } = require('../services/skillRunSampleService')
+// Names select known assets; they are never joined to a renderer-supplied filesystem path.
+const safeName = (name) =>
+  typeof name === 'string' &&
+  name.length > 0 &&
+  name.length <= 255 &&
+  !/[\p{Cc}/\\]/u.test(name) &&
+  name !== '.' &&
+  name !== '..'
 
-/**
- * 注册 Skill 使用次数相关 IPC handlers
- * @param {object} params - 注册依赖
- * @param {Electron.IpcMain} params.ipcMain - IPC 主进程实例
- * @param {(filepath: string) => Promise<boolean>} params.pathExists - 路径存在判断
- * @param {string} params.homeDir - 当前用户主目录
- * @param {() => Date} [params.nowFn] - 当前时间工厂（测试用）
- */
-function registerSkillUsageHandlers({ ipcMain, pathExists, homeDir, nowFn = () => new Date() }) {
-  /**
-   * 聚合 Skill 使用统计（主数字为 ledger 已记录的有效 invocation）
-   * @param {Electron.IpcMainInvokeEvent} _event - IPC 事件
-   * @param {{windowDays?: number, skillNames?: string[]}} params - 参数
-   * @returns {Promise<{success: boolean, data?: object, error?: string}>}
-   */
-  ipcMain.handle('aggregate-skill-usage', async (_event, params) => {
-    try {
-      const data = await scanSkillUsage(
-        { homeDir, pathExistsFn: pathExists, nowFn },
-        {
-          windowDays: params?.windowDays ?? 30,
-          skillNames: Array.isArray(params?.skillNames) ? params.skillNames : [],
-        }
+function safeOptions(params = {}, action) {
+  if (
+    params.windowDays !== undefined &&
+    (!Number.isFinite(params.windowDays) || params.windowDays <= 0 || params.windowDays > 3650)
+  )
+    throw new Error('SKILL_USAGE_WINDOW_INVALID')
+  const options = { windowDays: params.windowDays ?? 30 }
+  if (action === 'aggregate') {
+    if (
+      params.skillNames !== undefined &&
+      (!Array.isArray(params.skillNames) || params.skillNames.some((name) => !safeName(name)))
+    )
+      throw new Error('SKILL_NAME_INVALID')
+    options.skillNames = params.skillNames || []
+    if (params.assetIds !== undefined) {
+      if (
+        !Array.isArray(params.assetIds) ||
+        params.assetIds.some((id) => !/^asset_[a-f0-9]{24}$/.test(id))
       )
-      return { success: true, data }
-    } catch (error) {
-      return { success: false, error: error?.message || 'SKILL_USAGE_SCAN_FAILED' }
+        throw new Error('SKILL_ASSET_ID_INVALID')
+      options.assetIds = params.assetIds
     }
-  })
-
-  /**
-   * 获取单个 skill 的调用记录（近 windowDays 天）
-   * @param {Electron.IpcMainInvokeEvent} _event - IPC 事件
-   * @param {{skillName?: string, windowDays?: number}} params - 参数
-   * @returns {Promise<{success: boolean, data?: object, error?: string}>}
-   */
-  ipcMain.handle('list-skill-run-samples', async (_event, params) => {
-    try {
-      const skillName = typeof params?.skillName === 'string' ? params.skillName : ''
-      if (!skillName) {
-        return { success: false, error: 'SKILL_NAME_REQUIRED' }
-      }
-
-      const data = await listSkillInvocationRecords(
-        { homeDir, nowFn },
-        {
-          windowDays: params?.windowDays ?? 30,
-          skillName,
-        }
-      )
-      const {
-        ledgerPath: _ledgerPath,
-        ...publicData
-      } = data
-      return {
-        success: true,
-        data: publicData,
-      }
-    } catch (error) {
-      return { success: false, error: error?.message || 'SKILL_INVOCATION_LIST_FAILED' }
-    }
-  })
+  } else {
+    if (params.assetId !== undefined && !/^asset_[a-f0-9]{24}$/.test(params.assetId))
+      throw new Error('SKILL_ASSET_ID_INVALID')
+    if (params.skillName !== undefined && !safeName(params.skillName))
+      throw new Error('SKILL_NAME_INVALID')
+    if (!params.assetId && !params.skillName) throw new Error('SKILL_NAME_REQUIRED')
+    if (params.batchId !== undefined && !/^[0-9a-f-]{36}$/.test(params.batchId))
+      throw new Error('SKILL_USAGE_BATCH_INVALID')
+    if (params.assetId) options.assetId = params.assetId
+    if (params.skillName) options.skillName = params.skillName
+    if (params.batchId) options.batchId = params.batchId
+  }
+  return options
 }
-
+/**
+ * 注册普通 Skill 的聚合与同批记录通道；两个旧通道委托同一引擎。
+ * @param {object} deps - ipcMain、主进程 homeDir，以及可选 env/storeDir/nowFn。
+ * @returns {void} 注册 IPC 副作用；响应为 { success, data, error }。
+ * 渲染层仅能选择名字、身份、窗口和批次，不能指定读取或写入路径。
+ */
+function registerSkillUsageHandlers({ ipcMain, homeDir, env, storeDir, nowFn }) {
+  const deps = { homeDir, env, storeDir, nowFn }
+  const register = (channel, action) =>
+    ipcMain.handle(channel, async (_event, params) => {
+      try {
+        return {
+          success: true,
+          data: await runUsage(deps, action, safeOptions(params, action)),
+          error: null,
+        }
+      } catch (error) {
+        return { success: false, data: null, error: error.message || 'SKILL_USAGE_FAILED' }
+      }
+    })
+  register('skill-usage:aggregate', 'aggregate')
+  register('skill-usage:records', 'records')
+  register('aggregate-skill-usage', 'aggregate')
+  register('list-skill-run-samples', 'records')
+}
 module.exports = { registerSkillUsageHandlers }
