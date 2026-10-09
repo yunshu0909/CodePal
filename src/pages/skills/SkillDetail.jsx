@@ -126,9 +126,8 @@ export default function SkillDetail({ skill, snapshot, usage, usageFailed, usage
   const loading = usageStatus === 'loading'
   const usageUnavailable = usageFailed || usage?.availability === 'error'
   const failed = usageUnavailable || records?.status === 'error'
-  const awaitingProof = usage?.completeness === 'pending' || usage?.total === null
   const countText = loading ? <span className="np-sk np-sk--pulse" style={{ width: 48, height: 12 }} />
-    : usageUnavailable || awaitingProof ? <>近 30 天 <span className="num">—</span> 次</>
+    : usageUnavailable ? <>近 30 天 <span className="num">—</span> 次</>
       : total > 0 ? <>近 30 天 <span className="num">{total}</span> 次</> : <span>近 30 天没用</span>
   const duplicateTool = TOOLS.find((tool) => skill.tools?.[tool.id]?.duplicate)
   const recordList = loading || records?.status === 'loading' ? [] : records?.records || []
@@ -179,7 +178,7 @@ export default function SkillDetail({ skill, snapshot, usage, usageFailed, usage
 
         {!readOnly && (
           <>
-            <div className="np-glabel">近 30 天调用{!loading && !failed && !awaitingProof && total > 0 && <span className="cnt">{total} 次</span>}</div>
+            <div className="np-glabel">近 30 天调用{!loading && !failed && total > 0 && <span className="cnt">{total} 次</span>}</div>
             <div className="np-card np-card--form">
               {failed ? (
                 <div className="np-row">
@@ -188,11 +187,6 @@ export default function SkillDetail({ skill, snapshot, usage, usageFailed, usage
                 </div>
               ) : loading || records?.status === 'loading' ? (
                 <div className="np-row"><span className="np-empty">读取中…</span></div>
-              ) : awaitingProof ? (
-                <>
-                  <div className="np-row"><span className="ds" style={{ fontSize: 12, lineHeight: '16px', marginTop: 0 }}>{usage?.uncertaintyScope === 'all' ? '统计待核' : '次数待核'}</span></div>
-                  {recordRows}
-                </>
               ) : recordList.length === 0 ? (
                 <div className="np-row"><span className="np-empty">近 30 天没有记录到调用</span></div>
               ) : recordRows}

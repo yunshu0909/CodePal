@@ -209,17 +209,17 @@ export function isExternal(skill) {
 }
 
 /**
- * 数字尚未可信时，页签和列表统一退回资产库分组。
+ * 次数读不出来时，页签和列表统一退回资产库分组（分不出在用 / 没用）。
  * @param {object[]} skills - 当前管理快照；只检查普通资产。
  * @param {Map<string, object>} usageMap - 主进程的统计结果。
  * @param {'loading'|'error'|'ready'} usageStatus - 数字读取状态。
- * @returns {boolean} 纯函数，不改变快照或统计结果。
+ * @returns {boolean} 读取中、整体读取失败，或某个普通资产的来源真的读不出时为 true；
+ * 证据不全（completeness）不再触发退回。纯函数，不改变快照或统计结果。
  */
 export function needsUsageFallback(skills, usageMap, usageStatus = 'ready') {
   return usageStatus === 'loading' || usageStatus === 'error' || skills.some((skill) => {
     if (!skill.managed && !isExternal(skill)) return false
-    const usage = usageMap.get(skill.name)
-    return usage?.completeness === 'pending' || usage?.availability === 'error' || usage?.total === null
+    return usageMap.get(skill.name)?.availability === 'error'
   })
 }
 

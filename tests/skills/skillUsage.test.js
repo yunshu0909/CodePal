@@ -1,6 +1,7 @@
 /**
  * #74 正文加载、来源身份、历史与索引契约。
  * 所有源/账本使用隔离目录；通过既有生产服务入口断言，不靠缺模块制造RED。
+ * v2.1.21 起 total 就是确认次数（不再为空），证据不全只记在 completeness；本文件只断言证据本身，次数口径见 plainCounts/engineCounts。
  */
 import fs from 'node:fs/promises'
 import os from 'node:os'
@@ -122,7 +123,7 @@ describe('#74 TC-001 verified body and sources', () => {
     await install()
     await jsonl(logPath('claude'), [claudeMeta(), ...claudeSkill('bare', 'alpha'), { ...claudeMeta(), timestamp: stamp(), message: { content: '<command-name>/alpha</command-name>' } }])
     await jsonl(logPath('codex'), [codexMeta(), codexUser('$alpha please run')])
-    expect(skillOf(await scan())).toMatchObject({ total: null, confirmedTotal: 0, completeness: 'pending' })
+    expect(skillOf(await scan())).toMatchObject({ confirmedTotal: 0, completeness: 'pending' })
   })
   it('CASE-003 a proven tool error does not load or create uncertainty', async () => {
     await install()
@@ -152,7 +153,7 @@ describe('#74 TC-001 verified body and sources', () => {
     await jsonl(logPath('codex'), [codexMeta(), codexUser(text), injection, codexUser('Catalog: alpha (' + target + ')')])
     expect(skillOf(await scan())).toMatchObject({ total: 0, completeness: 'complete' })
     await jsonl(logPath('codex', 'unknown'), [codexMeta('unknown', { originator: 'unverified-producer', cli_version: '999.0.0' }), codexUser('$alpha perform'), injection])
-    expect(skillOf(await scan())).toMatchObject({ total: null, confirmedTotal: 0, completeness: 'pending' })
+    expect(skillOf(await scan())).toMatchObject({ confirmedTotal: 0, completeness: 'pending' })
   })
   it('CASE-007 listing/hash/search/edit/dev sources and explicit research/test samples are not loads', async () => {
     const target = await install()
@@ -238,7 +239,7 @@ describe('#74 TC-001 identity, execution context and load processes', () => {
   it('CASE-014 unknown or missing parent classification stays pending', async () => {
     const target = await install()
     await jsonl(logPath('codex'), [codexMeta('orphan', { source: { subagent: { thread_spawn: { parent_thread_id: 'missing-parent' } } } }), ...codexRead('orphan-load', target)])
-    expect(skillOf(await scan())).toMatchObject({ total: null, completeness: 'pending', confirmedTotal: 0 })
+    expect(skillOf(await scan())).toMatchObject({ completeness: 'pending', confirmedTotal: 0 })
   })
   it('CASE-014 Claude metadata can appear after progress; SDK roots remain independent', async () => {
     const target = await install()
@@ -297,7 +298,7 @@ describe('#74 TC-001 legacy reconciliation and persistent evidence', () => {
     expect(skillOf(await scan(['alpha', 'beta']))?.completeness).toBe('pending')
     await jsonl(ledgerPath, [legacy('b', 'beta'), legacy('a')])
     let result = await scan(['alpha', 'beta'])
-    expect(skillOf(result, 'beta')).toMatchObject({ total: null, completeness: 'pending' })
+    expect(skillOf(result, 'beta')).toMatchObject({ completeness: 'pending' })
     const history = await fs.readFile(path.join(storeDir, 'history.json'))
     await jsonl(ledgerPath, [legacy('a'), legacy('b', 'beta')])
     result = await scan(['alpha', 'beta'])
@@ -392,7 +393,7 @@ describe('#74 coverage states', () => {
     await jsonl(logPath('claude'), [claudeMeta(), ...claudeRead('known', alpha), ...claudeSkill('unproven', 'beta')])
     const data = await scan(['alpha', 'beta'])
     expect(skillOf(data)).toMatchObject({ total: 1, completeness: 'complete' })
-    expect(skillOf(data, 'beta')).toMatchObject({ total: null, completeness: 'pending', uncertaintyScope: 'asset' })
+    expect(skillOf(data, 'beta')).toMatchObject({ completeness: 'pending', uncertaintyScope: 'asset' })
   })
   it('TC-003 CASE-011 corrupt source with unknown coverage cannot publish exact zero', async () => {
     await install()
@@ -400,7 +401,7 @@ describe('#74 coverage states', () => {
     await fs.mkdir(path.dirname(logPath('claude')), { recursive: true })
     await fs.writeFile(logPath('claude'), '{corrupt source coverage\n')
     const data = await scan(['alpha', 'beta'])
-    expect(data.skills.every((entry) => entry.total === null && entry.completeness === 'pending' && entry.uncertaintyScope === 'all')).toBe(true)
+    expect(data.skills.every((entry) => entry.completeness === 'pending' && entry.uncertaintyScope === 'all')).toBe(true)
   })
   it('TC-004 CASE-025 revoked permissions are checked before index hit, no stale exact success', async () => {
     const target = await install()
@@ -408,7 +409,7 @@ describe('#74 coverage states', () => {
     await scan()
     await fs.chmod(logPath('claude'), 0)
     try {
-      expect(skillOf(await scan())).toMatchObject({ total: null, availability: 'error' })
+      expect(skillOf(await scan())).toMatchObject({ availability: 'error' })
     } finally { await fs.chmod(logPath('claude'), 0o600) }
   })
   it('TC-006 only a complete scan can establish a trusted zero', async () => {
@@ -475,6 +476,6 @@ describe('#74 TC-001 actual Codex custom tool producer', () => {
     const output = [BODY, 'Other document'].map((body, i) => ({ type: 'input_text', text: JSON.stringify({ chunk_id: 'fixture-' + i, wall_time_seconds: 0.1, exit_code: 0, output: body }) }))
     await jsonl(logPath('codex'), [codexMeta(), { type: 'response_item', timestamp: stamp(), payload: { type: 'custom_tool_call', call_id: 'mixed', name: 'exec', input } },
       { type: 'response_item', timestamp: stamp(), payload: { type: 'custom_tool_call_output', call_id: 'mixed', output } }])
-    expect(skillOf(await scan())).toMatchObject({ total: null, confirmedTotal: 0, completeness: 'pending' })
+    expect(skillOf(await scan())).toMatchObject({ confirmedTotal: 0, completeness: 'pending' })
   })
 })

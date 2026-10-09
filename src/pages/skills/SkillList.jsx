@@ -46,7 +46,7 @@ function SkillItem({ skill, selected, onSelect, onKeyDown, snapshot, usage, usag
     end = readOnlyKind(skill).list
   } else if (usageStatus === 'loading') {
     end = <span className="np-sk np-sk--pulse" style={{ width: 48, height: 12 }} />
-  } else if (usageFailed || usage?.total === null || usage?.availability === 'error') {
+  } else if (usageFailed || usage?.availability === 'error') {
     end = <><span className="n">—</span> 次</>
   } else if (total > 0) {
     end = <><span className="n">{total}</span> 次</>

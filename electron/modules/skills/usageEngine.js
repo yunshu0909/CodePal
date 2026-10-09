@@ -130,7 +130,8 @@ function summarizeAsset(asset, processes, state, batchId) {
     assetId: asset.assetId,
     kind: asset.kind,
     batchId,
-    total: pending ? null : loaded.length,
+    // 近 30 天次数就是确认到的加载次数；证据不全只记在 completeness 里，不再把数字变成待核
+    total: loaded.length,
     confirmedTotal: loaded.length,
     claude: loaded.filter((record) => record.tool === 'claude').length,
     codex: loaded.filter((record) => record.tool === 'codex').length,
@@ -154,7 +155,6 @@ function requestedSummaries(assets, registry, wantedIds, selectedIds, state) {
       state.diagnostics.push({ code: 'SKILL_NAME_AMBIGUOUS', scope: 'asset', name: asset.name })
       return {
         ...asset,
-        total: null,
         completeness: 'pending',
         uncertaintyScope: state.allPending ? 'all' : 'asset',
       }
@@ -182,7 +182,7 @@ function assembleResult({
     : [...registry.preferred.values()].filter((asset) => !names.size || names.has(asset.name))
   const wantedIds = new Set(wanted.map((asset) => asset.assetId))
   const skills = requestedSummaries(assets, registry, wantedIds, selectedIds, state)
-  // A management snapshot may outlive an asset mapping change. An absent identity cannot establish zero.
+  // 管理快照可能比资产映射新：对不上身份的名字没有任何确认加载，按 0 次显示（completeness 仍标待核作诊断）。
   for (const name of selectedIds ? [] : names) {
     if (skills.some((asset) => asset.name === name)) continue
     skills.push({
@@ -190,7 +190,7 @@ function assembleResult({
       assetId: null,
       kind: 'unknown',
       batchId,
-      total: null,
+      total: 0,
       confirmedTotal: 0,
       claude: 0,
       codex: 0,
@@ -232,7 +232,7 @@ function assembleResult({
     diagnostics: state.diagnostics,
     sources,
     totals: {
-      total: skills.some((skill) => skill.total === null) ? null : records.length,
+      total: records.length,
       confirmedTotal: records.length,
       claude: records.filter((record) => record.tool === 'claude').length,
       codex: records.filter((record) => record.tool === 'codex').length,
@@ -295,8 +295,8 @@ async function aggregate(deps, options = {}) {
  * 普通 Skill 唯一统计入口；同一私有存储串行处理并发查询。
  * @param {object} deps - 主进程 homeDir，以及可选 env/storeDir/nowFn。
  * @param {object} options - 名字或 assetIds、windowDays；内部校验可禁用索引。
- * @returns {Promise<object>} total=null 表示待核，confirmedTotal 为下限；
- * completeness 与 availability 分别表示证据是否完整、来源是否可读。
+ * @returns {Promise<object>} total 是近 30 天确认的加载次数（与 confirmedTotal 相同，始终是数字）；
+ * completeness 只作诊断（有读不懂的日志行等），不影响 total；availability 表示来源是否可读。
  * 返回随机 batchId 绑定当次资产、窗口及记录；只写并行的新索引/元数据历史，旧账本只读。
  */
 function aggregateUsage(deps, options = {}) {
