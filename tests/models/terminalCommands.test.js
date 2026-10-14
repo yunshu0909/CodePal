@@ -25,7 +25,9 @@ require('../../electron/modules/models/shellProfile.js')
 const store = require('../../electron/modules/models/store.js')
 const commands = require('../../electron/modules/models/commands.js')
 
-const APP = '/Applications/CodePal.app/Contents/MacOS/CodePal'
+// 「当前的 CodePal」要是一个真实存在的可执行文件：命令指向的程序不存在会被当成坏了（显示未安装）。
+// 用跑测试的 Node 本身，任何机器上都在（不能用 /Applications 里装的 App，CI 机器上没有）
+const APP = process.execPath
 const DIR = '/Applications/CodePal.app/Contents/Resources/app.asar.unpacked/electron/modules/models'
 const CLIP = `${DIR}/cli.cjs`
 const PICKER = `${DIR}/picker.cjs`
