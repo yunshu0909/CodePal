@@ -132,7 +132,8 @@ CodePal 按用途分 4 组：**用量账单 · 项目开发 · 技能中心 · �
 - 支持 DeepSeek、MiMo API、智谱 API、Kimi API、智谱 Coding Plan、Kimi Coding Plan，每家单独填 Key
 - 点「测一下」就知道能不能用；失败时说清是 Key 无效、余额不足、模型名不对还是连不上
 - 可以加模型、改模型名，调思考强度和上下文 / 输出上限
-- 每个模型一条终端命令（如 `codepal-deepseek-flash`），敲它就是用这个模型开 Claude Code；CodePal 关着也能用，**不改你的 Claude 配置**，和会员版 Claude Code 可以同时开着
+- 在任意终端（包括 VS Code 里的）输入 `codepal`，↑↓ 选一个测过能用的模型，回车就在当前文件夹用它打开 Claude Code；页面顶上一行「在终端里用」告诉你装好没有、差哪一步，需要时一键安装或把 `~/.local/bin` 加入 PATH
+- 每个模型也有自己的终端命令（如 `codepal-deepseek-flash`），敲它就是用这个模型开 Claude Code；CodePal 关着也能用，**不改你的 Claude 配置**，和会员版 Claude Code 可以同时开着
 - AI 在后台调用别家模型也走同一条命令（比如让另一个模型给代码做交叉审核）
 
 #### 网络诊断 · 出口 IP 变了第一时间知道
@@ -232,7 +233,13 @@ CodePal/
 
 完整版本信息见 [GitHub Releases](https://github.com/yunshu0909/CodePal/releases)。
 
-**最新版本：[v2.1.16](https://github.com/yunshu0909/CodePal/releases/tag/v2.1.16)**
+**最新版本：[v2.1.23](https://github.com/yunshu0909/CodePal/releases/tag/v2.1.23)**
+
+- ⌨️ 在终端里用：任意终端输入 `codepal`，↑↓ 选测过能用的模型，回车就在当前文件夹打开 Claude Code，不用再回 CodePal 展开复制命令；`codepal --resume` 等参数原样交给 Claude Code
+- 🧭 模型接入页顶上一行「在终端里用」：装好没有、终端找不找得到、命令是否连着别的 CodePal 一眼看清；需要时「安装命令 / 加入 PATH / 更新命令」一键补上，加入 PATH 前先告诉你改哪个文件、加哪一行
+- 📊 Skills 管理：近 30 天用了几次直接显示，恢复「在用 / 没用」分组
+
+**v2.1.16**
 
 - 🧠 思考强度分两处管：模型接入页管你在终端里用的强度，新的模型汇总页管审核用的强度，两边各存各的
 - 📋 新增模型汇总：一页看本机能用的模型（Claude Code、Codex 订阅和接入的各家），逐个决定是否用于审核、审核用多大强度
