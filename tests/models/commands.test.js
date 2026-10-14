@@ -13,6 +13,7 @@
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import fs from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import crypto from 'node:crypto'
 import { spawnSync } from 'node:child_process'
@@ -63,8 +64,11 @@ describe('模块 F · 终端命令', () => {
     const f = path.join(sb.bin, 'codepal-deepseek-flash')
     fs.writeFileSync(f, '#!/bin/sh\necho mine\n')
     const before = sha(f)
-    // 真实环境目录显示为 ~/.local/bin；测试用临时目录，只核对格式
-    expect(() => commands.installCommands({ appExecPath: APP, cliPath: CLIP })).toThrow(expect.objectContaining({ code: 'occupied', message: `安装失败：${sb.bin}/codepal-deepseek-flash 已被别的程序占用` }))
+    // 报错里的目录按显示规则写：在家目录下写成 ~ 开头（真实环境是 ~/.local/bin）。
+    // 临时目录可能在家目录下（例如合并后复查把临时目录放在代码仓里），所以按同一规则算预期，不写死绝对路径
+    const home = os.homedir()
+    const shown = sb.bin.startsWith(home + path.sep) ? '~' + sb.bin.slice(home.length) : sb.bin
+    expect(() => commands.installCommands({ appExecPath: APP, cliPath: CLIP })).toThrow(expect.objectContaining({ code: 'occupied', message: `安装失败：${shown}/codepal-deepseek-flash 已被别的程序占用` }))
     expect(sha(f)).toBe(before)
   })
 
