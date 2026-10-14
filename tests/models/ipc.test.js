@@ -50,7 +50,7 @@ afterEach(() => {
 
 describe('models:* 接口', () => {
   it('注册了十六个通道（v2.1.17 加顺序、审核规则与审核配置重试）', () => {
-    expect(Object.keys(handlers).sort()).toEqual(['models:addModel', 'models:configRepublish', 'models:hubList', 'models:hubSetEffort', 'models:hubSetEnabled', 'models:hubSetOrder', 'models:installCommands', 'models:list', 'models:recheckClaude', 'models:removeModel', 'models:rulesGet', 'models:rulesReset', 'models:rulesSet', 'models:setKey', 'models:test', 'models:updateModel'])
+    expect(Object.keys(handlers).sort()).toEqual(['models:addModel', 'models:addToPath', 'models:configRepublish', 'models:hubList', 'models:hubSetEffort', 'models:hubSetEnabled', 'models:hubSetOrder', 'models:installCommands', 'models:list', 'models:recheckClaude', 'models:removeModel', 'models:rulesGet', 'models:rulesReset', 'models:rulesSet', 'models:setKey', 'models:test', 'models:updateModel'])
   })
 
   it('TC-A04 Key 不以 sk- 开头返回 invalid_input 且不写文件', async () => {

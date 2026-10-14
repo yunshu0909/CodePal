@@ -5,7 +5,8 @@
  * - 只写本页的尺寸与排布：卡片堆叠、被挡住卡的行、行首展开箭头、展开区缩进、弹层锚定位置、思考强度菜单
  * - 颜色 / 字体只用全局 tokens；卡片、按钮、状态点、输入框、弹层外观等共用件在 styles/native.css
  *
- * 设计定稿：specs/第三方模型接入/模型接入-定稿/前端设计定稿-模型接入.md §3、§4、§11.2
+ * 设计定稿：specs/第三方模型接入/模型接入-定稿/前端设计定稿-模型接入.md §3、§4、§11.2；
+ * 在终端里用：specs/v2.1.22-在终端里用/模型接入-定稿/前端设计定稿-模型接入.md §3、§8
  *
  * @module features/models/models.css
  */
@@ -47,8 +48,30 @@
 .mj-page .mj-pop .np-in { margin-top: 8px; }
 .mj-page .mj-pop-ft { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
 
+/* 在终端里用：说明可换行（最窄窗口最多两行），codepal 用等宽字；整行上下居中靠 .np-row。
+   共用的 .np-row .ds 是单行省略，选择器权重比它高才压得住（两个类写在页面根上） */
+.mj-strip .lf { min-width: 0; }
+.mj-page.page-shell--native .mj-strip .ds { white-space: normal; overflow: visible; text-overflow: clip; }
+.mj-strip .mj-cmd { font-size: 11.5px; color: var(--fg); }
+
+/* 加入 PATH 确认框（挂在 body 下，不在 .mj-page 里）：三段竖排，中间那一行只读等宽 */
+.mj-pathdlg > span { display: block; }
+.mj-pathdlg .mj-pathline {
+  display: block;
+  margin: 8px 0;
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: var(--card);
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--fg-2);
+  user-select: text;
+}
+
 /* 骨架宽度 */
 .mj-page .mj-sk-btn { width: 64px; }
+.mj-page .mj-sk-strip { width: 260px; }
 .mj-page .mj-sk-name { width: 180px; }
 .mj-page .mj-sk-st { width: 96px; }
 

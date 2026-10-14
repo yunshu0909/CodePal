@@ -9,6 +9,8 @@
  * - 「测一下」起一个命令行子进程（和审核走同一个入口），结束后读回状态文件
  * - 监听 status/ 目录：命令行（含 dev-workflow 审核）写回结果时推 models:changed 给页面
  * - 装过命令后，加模型 / 改名 / 移除 / 存 Key 时同步终端命令
+ * - 在终端里用（v2.1.22）：models:list 带回终端找不找得到 codepal（用登录 shell 判断，同一时间只跑一次、1 秒内合并）、
+ *   要写的 shell 文件与总入口状态，进入页面时给旧版装过命令的补上总入口（后-17）；models:addToPath 确认后替用户加一行
  *
  * @module electron/modules/models/ipc
  */
@@ -17,17 +19,20 @@ const fs = require('fs')
 const path = require('path')
 const os = require('os')
 const crypto = require('crypto')
-const { spawn, spawnSync } = require('child_process')
+const { spawn } = require('child_process')
 const store = require('./store')
 const { createReviewCenter } = require('./reviewCenter')
 const commands = require('./commands')
+const shellProfile = require('./shellProfile')
 const { PRESETS, modelCapabilities } = require('./presets')
 const { locateClaude, checkClaudeVersion, MIN_CLAUDE_VERSION } = require('./claudeCli')
 
 const WRITE_DENIED = '配置目录没有写入权限，检查权限后重试'
 const INSTALL_DENIED = '安装失败：~/.local/bin 没有写入权限，检查权限后重试'
 const BUSINESS_CODES = new Set(['invalid_input', 'duplicate', 'not_found', 'read_failed', 'occupied', 'reserved_flag',
-  'write_denied', 'HUB_FILE_INVALID', 'RULES_FILE_INVALID', 'LOCK_BUSY', 'ROLLBACK_FAILED'])
+  'write_denied', 'HUB_FILE_INVALID', 'RULES_FILE_INVALID', 'LOCK_BUSY', 'ROLLBACK_FAILED',
+  'unsupported_shell', 'target_changed', 'changed_meanwhile'])
+const UNSUPPORTED_SHELL = '这个 shell 不能自动加入 PATH，请手动把 ~/.local/bin 加进它的 PATH'
 // 「测一下」的外层兜底：命令行自己 60 秒超时，这里再多给 15 秒收尾
 const TEST_GUARD_MS = 75000
 
@@ -36,23 +41,13 @@ function defaultCliPath() {
   return path.join(__dirname, 'cli.cjs').replace(/app\.asar(?=[/\\])/, 'app.asar.unpacked')
 }
 
-/** 登录 shell 的 PATH（Finder 启动的 CodePal 拿不到用户终端的 PATH），只取一次 */
-let loginPathCache = null
-function defaultLoginPath() {
-  if (loginPathCache === null) {
-    try {
-      const r = spawnSync('/bin/bash', ['-lc', 'printf %s "$PATH"'], { encoding: 'utf8', timeout: 5000 })
-      loginPathCache = r.status === 0 ? r.stdout : (process.env.PATH || '')
-    } catch {
-      loginPathCache = process.env.PATH || ''
-    }
-  }
-  return loginPathCache
-}
-
 /** 把异常翻成接口错误 */
 function toError(err, { install = false } = {}) {
-  if (err && BUSINESS_CODES.has(err.code)) return { code: err.code, message: err.message }
+  if (err && BUSINESS_CODES.has(err.code)) {
+    // 目标变了时带回新目标，页面据此重新确认（后-13-例6）
+    if (!err.profile) return { code: err.code, message: err.message }
+    return { code: err.code, message: err.message, profile: err.profile, identity: err.identity || null }
+  }
   if (err && ['EACCES', 'EPERM', 'EROFS'].includes(err.code)) return { code: 'write_denied', message: install ? INSTALL_DENIED : WRITE_DENIED }
   return { code: 'unknown', message: (err && err.message) || '出错了' }
 }
@@ -85,10 +80,14 @@ function providerView(cfg, statuses, providerId) {
  * @param {() => import('electron').BrowserWindow|null} deps.getMainWindow
  * @param {string} [deps.cliPath] - 命令行脚本路径（默认本目录的 cli.cjs，打包后换成 unpacked 路径）
  * @param {string} [deps.appExecPath] - 用来跑命令行的可执行文件（默认 process.execPath，即 CodePal 本身）
- * @param {() => string} [deps.loginPath] - 判断命令目录在不在 PATH 用
+ * @param {() => string} [deps.loginPath] - 旧注入口：直接给一个 PATH（测试用），等同判断成功
+ * @param {() => Promise<{status: 'ok', path: string, codepal: string|null}|{status: 'unknown'}>} [deps.loginEnv]
+ *   - 读登录 shell 的 PATH（默认 shellProfile.readLoginEnv；测试注入以模拟判断不了）
+ * @param {{shell?: string, home?: string, zdotdir?: string|null, binDir?: string, reprobeMs?: number}} [deps.shellOptions]
+ *   - 用哪个 shell、家目录、ZDOTDIR、命令目录，以及多久内的判断结果可以直接沿用（默认 1 秒）
  * @returns {{stop: () => void}}
  */
-function registerModelsHandlers({ ipcMain, getMainWindow, cliPath = defaultCliPath(), appExecPath = process.execPath, loginPath = defaultLoginPath, hubOptions = {} }) {
+function registerModelsHandlers({ ipcMain, getMainWindow, cliPath = defaultCliPath(), appExecPath = process.execPath, loginPath, loginEnv, shellOptions = {}, hubOptions = {} }) {
   // 模型汇总两页签与给 dev 的审核配置：唯一写方是 reviewCenter
   const center = createReviewCenter(hubOptions)
   // 模型接入里的事件（测一下、增删改、存 Key、装命令、状态文件变化）之后重新生成审核配置；失败由页面下一次读取报告
@@ -136,6 +135,92 @@ function registerModelsHandlers({ ipcMain, getMainWindow, cliPath = defaultCliPa
     return claudeCache
   }
 
+  // ── 终端找不找得到 codepal（后-12）──
+  // 用哪个 shell 每次现取：CodePal 开着时改了登录 shell 也跟得上（后-13）
+  const currentShell = () => shellOptions.shell || shellProfile.loginShell()
+  const home = shellOptions.home || os.homedir()
+  const reprobeMs = shellOptions.reprobeMs ?? 1000
+  const binDir = () => shellOptions.binDir || commands.binDir()
+  // 判断用的环境：显式给了 zdotdir（测试）就按它；否则原样交给登录 shell，ZDOTDIR 由它自己的启动文件决定
+  const probeEnv = () => {
+    const env = { ...process.env }
+    if (shellOptions.zdotdir === undefined) return env
+    if (shellOptions.zdotdir) env.ZDOTDIR = shellOptions.zdotdir
+    else delete env.ZDOTDIR
+    return env
+  }
+  /** 读登录 shell 的环境：测试可注入 loginEnv；旧注入口 loginPath 当作判断成功；默认真的启动一次登录 shell */
+  const readEnv = () => {
+    if (loginEnv) return loginEnv()
+    if (loginPath) return Promise.resolve({ status: 'ok', path: loginPath(), codepal: null })
+    return shellProfile.readLoginEnv({ shell: currentShell(), home: shellOptions.home, env: probeEnv() })
+  }
+  // cached：最近一次判断成功的结果，reprobeMs 内直接沿用；判断不了不记住（后-12-例3）
+  let cached = null
+  // lastEnv：最近一次判断的结果（含判断不了），写操作顺带返回命令状态时用，不为此再启动 shell
+  let lastEnv = null
+  // lastOkEnv：最近一次判断成功的结果；之后判断不了时，要写的文件仍按它读到的 ZDOTDIR 算（后-13）
+  let lastOkEnv = null
+  // inflight：正在跑的那次判断；同一时间只跑一次
+  let inflight = null
+  const startProbe = () => {
+    const me = { startedAt: Date.now() }
+    me.promise = Promise.resolve()
+      .then(() => readEnv())
+      .catch(() => ({ status: 'unknown' }))
+      .then((result) => {
+        const value = result && result.status === 'ok' ? result : { status: 'unknown' }
+        if (inflight === me) inflight = null
+        lastEnv = value
+        if (value.status === 'ok') lastOkEnv = value
+        cached = value.status === 'ok' ? { at: me.startedAt, result: value } : null
+        return value
+      })
+    inflight = me
+    return me.promise
+  }
+  /**
+   * 判断一次；force = 动作成功后必须重新判断（不沿用缓存，正在跑的那次结束后再跑一次）
+   * @returns {Promise<{status: 'ok', path: string, codepal: string|null}|{status: 'unknown'}>}
+   */
+  const detect = async ({ force = false } = {}) => {
+    if (!force && cached && Date.now() - cached.at < reprobeMs) return cached.result
+    if (inflight && !force && Date.now() - inflight.startedAt < reprobeMs) return inflight.promise
+    if (inflight) {
+      const old = inflight
+      await old.promise
+      if (inflight && inflight !== old) return inflight.promise
+    }
+    return startProbe()
+  }
+  /**
+   * 加入 PATH 写哪个文件（后-13、A-102）：shell 种类现取；ZDOTDIR 以登录 shell 实际读到的为准
+   * （常在 ~/.zshenv 里设，CodePal 自己的环境里没有），判断不了时才退回 CodePal 自己环境里的
+   */
+  const profileTarget = (env) => {
+    return shellProfile.profileTarget({ kind: shellProfile.shellKind(currentShell()), home, zdotdir: zdotdirFor(env) })
+  }
+  /** ZDOTDIR：测试显式给了就用它；这次判断成功用这次的；判断不了用上次成功的；从没成功过才看 CodePal 自己的环境 */
+  const zdotdirFor = (env) => {
+    if (shellOptions.zdotdir !== undefined) return shellOptions.zdotdir
+    const known = env && env.status === 'ok' ? env : lastOkEnv
+    if (known) return known.zdotdir || null
+    return process.env.ZDOTDIR || null
+  }
+  /** 命令状态 + 终端找不找得到 + 要写的文件；env 为空时按「判断不了」算 */
+  const terminalState = (env) => {
+    const probe = env || { status: 'unknown' }
+    const base = commands.commandsState({ pathEnv: probe.status === 'ok' ? probe.path : '', current: { appExecPath, cliPath } })
+    const pathStatus = shellProfile.pathStatus(probe, binDir())
+    const target = profileTarget(probe)
+    // 终端里输入 codepal 先找到别处的程序，也算名字被占（后-09 第二种）
+    const entry = base.entry === 'ok' && shellProfile.entryShadowed(probe, binDir()) ? 'taken' : base.entry
+    // profileIdentity：确认框打开时那个文件的身份（显示路径 + 真实路径 + 链接），点「加入」时带回来核对
+    return { ...base, onPath: pathStatus === 'found', entry, pathStatus, shell: shellProfile.shellKind(currentShell()),
+      profile: target ? target.display : null, profileIdentity: target ? target.identity : null }
+  }
+  const terminalView = async (opts) => terminalState(await detect(opts))
+
   /** 装过命令就跟着配置同步；同步失败不影响本次操作结果 */
   const syncQuietly = () => {
     try { commands.syncCommands() } catch {}
@@ -144,16 +229,18 @@ function registerModelsHandlers({ ipcMain, getMainWindow, cliPath = defaultCliPa
 
   /** 终端命令状态：写操作后一并带回，页面不用整页重读就能更新「终端命令未安装」那一行 */
   const commandsView = () => {
-    try { return commands.commandsState({ pathEnv: loginPath(), current: { appExecPath, cliPath } }) } catch { return null }
+    try { return terminalState(lastEnv) } catch { return null }
   }
 
-  ipcMain.handle('models:list', () => {
+  // 进入页面只读不写；唯一例外是旧版装过命令、从没写过总入口时补上它，补不上照实显示（后-16、后-17）
+  ipcMain.handle('models:list', async () => {
     try {
+      commands.ensureEntry()
       const cfg = store.readConfig()
       const statuses = store.readStatuses()
       const providers = {}
       for (const id of Object.keys(PRESETS)) providers[id] = providerView(cfg, statuses, id)
-      return ok({ claudeCode: claudeInfo(), commands: commands.commandsState({ pathEnv: loginPath(), current: { appExecPath, cliPath } }), providers })
+      return ok({ claudeCode: claudeInfo(), commands: await terminalView(), providers })
     } catch (err) {
       return bad(err)
     }
@@ -190,7 +277,8 @@ function registerModelsHandlers({ ipcMain, getMainWindow, cliPath = defaultCliPa
       }
       refreshHubQuietly()
       const { runId: _runId, ...lastResult } = record
-      resolve(ok({ lastResult }))
+      // 带上命令状态：测过能用的模型数变了，顶上一行跟着变（后-11）
+      resolve(ok({ lastResult, commands: commandsView() }))
     })
   }))
 
@@ -230,13 +318,36 @@ function registerModelsHandlers({ ipcMain, getMainWindow, cliPath = defaultCliPa
     return ok(claudeInfo())
   })
 
-  ipcMain.handle('models:installCommands', () => {
+  // 安装 / 更新成功后重新判断终端（名字可能被别处的 codepal 挡住）
+  ipcMain.handle('models:installCommands', async () => {
+    let result
     try {
-      const result = commands.installCommands({ appExecPath, cliPath })
-      refreshHubQuietly()
-      return ok(result)
+      result = commands.installCommands({ appExecPath, cliPath })
     } catch (err) {
       return bad(err, { install: true })
+    }
+    refreshHubQuietly()
+    let view = null
+    try { view = await terminalView({ force: true }) } catch {}
+    return ok({ ...result, commands: view })
+  })
+
+  // 加入 PATH（后-13～后-15）：写哪个文件只由这里决定；页面带回它确认时看到的文件，不一样就不写、带回新目标
+  ipcMain.handle('models:addToPath', async (_e, { expectedProfile, expectedIdentity } = {}) => {
+    try {
+      // 点「加入」时按现在的 shell、ZDOTDIR 和链接再算一次，和确认框里的不一样就不写（后-13-例6）
+      // 不沿用确认框打开前的判断结果：这里重新判断一次再算（后-13）
+      const target = profileTarget(await detect({ force: true }))
+      if (!target) throw Object.assign(new Error(UNSUPPORTED_SHELL), { code: 'unsupported_shell' })
+      if (expectedProfile !== target.display || (expectedIdentity !== undefined && expectedIdentity !== target.identity)) {
+        throw Object.assign(new Error(`要写的文件变成了 ${target.display}，请重新确认`),
+          { code: 'target_changed', profile: target.display, identity: target.identity })
+      }
+      const { added } = shellProfile.addToPath({ target, expectedIdentity })
+      const view = await terminalView({ force: true })
+      return ok({ profile: target.display, added, pathStatus: view.pathStatus, commands: view })
+    } catch (err) {
+      return bad(err)
     }
   })
 
@@ -260,7 +371,7 @@ function registerModelsHandlers({ ipcMain, getMainWindow, cliPath = defaultCliPa
         if (cut < 0) return
         const providerId = key.slice(0, cut)
         const modelId = key.slice(cut + 2)
-        win.webContents.send('models:changed', { providerId, modelId, lastResult })
+        win.webContents.send('models:changed', { providerId, modelId, lastResult, commands: commandsView() })
       }, 100))
     })
   } catch {}

@@ -3,16 +3,17 @@
  *
  * 负责：
  * - 进页面、窗口重新激活时读 models:list（配置 + Claude Code 检测 + 终端命令状态）
- * - 后台审核 / 终端写回结果时（models:changed）原地更新那一行，不弹 Toast
- * - 存 Key、测一下、加 / 改 / 移除模型、重新检测、安装命令；成功失败的 Toast 在这里统一发
+ * - 后台审核 / 终端写回结果时（models:changed）原地更新那一行和顶上「在终端里用」的状态，不弹 Toast
+ * - 存 Key、测一下、加 / 改 / 移除模型、重新检测、安装 / 更新命令、加入 PATH；成功失败的 Toast 在这里统一发
  * - 存 Key、添加、改名成功后自动测一次（AI 补，用户 2026-09-26 认可）
  *
  * @module features/models/useModels
  */
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { createElement, useCallback, useEffect, useRef, useState } from 'react'
 import { toast } from '../../components/Toast'
 import { confirmDialog } from '../../components/Modal/confirmDialog'
+import { PathConfirmBody } from './TerminalStrip'
 
 const api = () => window.electronAPI
 
@@ -32,7 +33,10 @@ export default function useModels() {
   const [testing, setTesting] = useState(() => new Set())
   // 正在移除的模型，同一个键
   const [removing, setRemoving] = useState(() => new Set())
-  const [installing, setInstalling] = useState(false)
+  // 正在安装 / 更新终端命令：'install' | 'update' | null
+  const [installing, setInstalling] = useState(null)
+  // 加入 PATH 的确认框开着：主按钮让给确认框（定稿 §5 C4）
+  const [confirmingPath, setConfirmingPath] = useState(false)
   const [rechecking, setRechecking] = useState(false)
   const mounted = useRef(true)
 
@@ -86,6 +90,8 @@ export default function useModels() {
       if (!mounted.current) return
       if (res?.success) {
         applyResult(providerId, modelId, res.data.lastResult)
+        // 测过能用的模型数变了，顶上「在终端里用」那一行跟着变（后-11）
+        if (res.data.commands) setData((d) => d && ({ ...d, commands: res.data.commands }))
       } else {
         // 没跑到调用那一步（Claude Code 不见了、Key 读不到）：提示原因并重读检测结果
         toast.error(errMessage(res))
@@ -200,21 +206,67 @@ export default function useModels() {
     }
   }, [])
 
-  const installCommands = useCallback(async () => {
-    setInstalling(true)
+  /**
+   * 安装或更新终端命令（同一个动作，后-10）；只差 Toast 和进行中文字
+   * @param {'install'|'update'} [mode='install']
+   */
+  const installCommands = useCallback(async (mode = 'install') => {
+    setInstalling(mode)
     try {
       const res = await api().modelsInstallCommands()
       if (!mounted.current) return
       if (res?.success) {
-        toast.success('已安装终端命令')
+        toast.success(mode === 'update' ? '已更新终端命令' : '已安装终端命令')
         await reload()
       } else {
         toast.error(errMessage(res))
       }
     } finally {
-      if (mounted.current) setInstalling(false)
+      if (mounted.current) setInstalling(null)
     }
   }, [reload])
+
+  /**
+   * 加入 PATH：先确认改哪个文件、加哪一行（后-13、后-15）。确认后写好就关框再弹 Toast；
+   * 写不进也关框、红 Toast、留在差一步；要写的文件在确认期间变了就按新文件重新确认
+   * @param {string} profile - 确认框里写的文件（主进程算好的，~ 开头）
+   * @param {string|null} [identity] - 这个文件的身份（主进程给的），点「加入」时带回去核对（后-13-例6）
+   */
+  const addToPath = useCallback(async (profile, identity) => {
+    if (!profile) return
+    let retarget = null
+    setConfirmingPath(true)
+    try {
+      await confirmDialog({
+        title: '把 ~/.local/bin 加入 PATH？',
+        description: createElement(PathConfirmBody, { profile }),
+        confirmText: '加入',
+        cancelText: '取消',
+        busyText: '加入中…',
+        onConfirm: async () => {
+          const res = await api().modelsAddToPath(identity ? { expectedProfile: profile, expectedIdentity: identity } : { expectedProfile: profile })
+          if (!mounted.current) return true
+          if (!res?.success) {
+            if (res?.error?.code === 'target_changed' && res.error.profile) retarget = { profile: res.error.profile, identity: res.error.identity || null }
+            else toast.error(errMessage(res))
+            return true
+          }
+          const { profile: written, pathStatus, commands } = res.data
+          if (commands) setData((d) => d && ({ ...d, commands }))
+          if (pathStatus === 'found') toast.success('已加入 PATH，新开一个终端窗口就能用 codepal')
+          else if (pathStatus === 'missing') toast.error(`已写入 ${written}，但终端还是找不到 codepal，看看 shell 配置里有没有改写 PATH`)
+          else toast.info(`已写入 ${written}，还没确认终端能不能找到 codepal`)
+          return true
+        },
+      })
+    } finally {
+      if (mounted.current) setConfirmingPath(false)
+    }
+    if (retarget && mounted.current) {
+      setData((d) => d && ({ ...d, commands: { ...d.commands, profile: retarget.profile, profileIdentity: retarget.identity } }))
+      await addToPath(retarget.profile, retarget.identity)
+    }
+  }, [])
 
   // 进页面读一次；窗口重新激活时重读（配置可能被命令行改过、Claude Code 可能刚装好）
   useEffect(() => {
@@ -228,6 +280,7 @@ export default function useModels() {
   useEffect(() => {
     const unsubscribe = api().onModelsChanged((change) => {
       applyResult(change.providerId, change.modelId, change.lastResult)
+      if (change.commands) setData((d) => d && ({ ...d, commands: change.commands }))
     })
     return () => { if (typeof unsubscribe === 'function') unsubscribe() }
   }, [applyResult])
@@ -238,6 +291,7 @@ export default function useModels() {
     testing,
     removing,
     installing,
+    confirmingPath,
     rechecking,
     reload,
     test,
@@ -247,5 +301,6 @@ export default function useModels() {
     removeModel,
     recheckClaude,
     installCommands,
+    addToPath,
   }
 }

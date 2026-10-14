@@ -374,6 +374,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
    * @returns {Promise<{success: boolean, data: {installed: string[]}|null, error: Object|null}>}
    */
   modelsInstallCommands: () => ipcRenderer.invoke('models:installCommands'),
+  /** 把 ~/.local/bin 加入登录 shell 的 PATH；expectedProfile 是确认框里写的文件，主进程核对后才写 */
+  modelsAddToPath: (payload) => ipcRenderer.invoke('models:addToPath', payload),
 
   /**
    * 监听后台调用（审核 / 终端）写回的结果

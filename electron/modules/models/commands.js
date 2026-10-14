@@ -9,6 +9,9 @@
  * - 只动自己生成的文件（第二行带生成标记）；同名但不是 CodePal 生成的文件一律不覆盖
  * - 装过一次后，加模型 / 改名 / 移除时同步命令文件
  * - 状态：哪些模型缺命令、命令指向的 CodePal 是否还在、是不是当前运行的这一个、命令目录在不在 PATH 里
+ * - 总入口 codepal（v2.1.22 在终端里用）：随安装 / 更新 / 同步一起写，指向同目录的选择程序 picker.cjs；
+ *   ~/.local/bin/codepal 是别人的就不覆盖、不删除（后-09）；以前装过命令、从没写过总入口时进入页面补上（后-17）
+ * - 选择程序列哪些模型（readyModels，后-01）：填了 Key 且读得到、最近一次「测一下」可用、单模型命令在且是 CodePal 生成的
  *
  * 测试用覆盖口 CODEPAL_BIN_DIR。
  *
@@ -24,6 +27,8 @@ const { PRESETS } = require('./presets')
 
 const GENERATED_MARK = '# 由 CodePal 生成'
 const PREFIX = 'codepal-'
+const ENTRY_NAME = 'codepal'
+const PICKER_FILE = 'picker.cjs'
 const EXEC_MODE = 0o755
 
 /** @returns {string} 命令目录 */
@@ -42,6 +47,9 @@ const commandName = (model, providerId = 'deepseek') => providerId === 'deepseek
   ? `${PREFIX}${model}`
   : `${PREFIX}${providerId}--${model}`
 const providerCommandName = (providerId) => `${PREFIX}${providerId}`
+
+/** 选择程序和命令行脚本在同一个目录（打包后同在 app.asar.unpacked 里） */
+const pickerPathOf = (cliPath) => path.join(path.dirname(cliPath), PICKER_FILE)
 
 /** 单引号转义：整体包在单引号里，内部的 ' 写成 '\'' */
 function shellQuote(s) {
@@ -107,6 +115,23 @@ function launcherContent({ appExecPath, cliPath, preset, modelArg }) {
     '#!/bin/sh',
     note,
     `ELECTRON_RUN_AS_NODE=1 exec ${shellQuote(appExecPath)} ${shellQuote(cliPath)} launch ${preset.id} ${modelArg} -- "$@"`,
+    '',
+  ].join('\n')
+}
+
+/**
+ * 总入口 codepal 的内容：先看三个标准流是不是终端（被脚本调用、接管道时不进列表，后-07），
+ * 再让选择程序把选中的单模型命令写到标准输出，由这个脚本 exec 成它，参数原样往后传（后-03）
+ * @param {{appExecPath: string, pickerPath: string}} p
+ * @returns {string}
+ */
+function entryContent({ appExecPath, pickerPath }) {
+  return [
+    '#!/bin/sh',
+    `${GENERATED_MARK}：列出测过能用的模型，选一个在当前文件夹打开 Claude Code。请在 CodePal「模型接入」里管理，不要手改。`,
+    'if [ -t 0 ] && [ -t 1 ] && [ -t 2 ]; then CODEPAL_PICKER_TTY=1; else CODEPAL_PICKER_TTY=0; fi',
+    `choice=$(CODEPAL_PICKER_TTY=$CODEPAL_PICKER_TTY ELECTRON_RUN_AS_NODE=1 ${shellQuote(appExecPath)} ${shellQuote(pickerPath)}) || exit $?`,
+    'exec "$choice" "$@"',
     '',
   ].join('\n')
 }
@@ -188,6 +213,18 @@ function writeAll(wanted, { appExecPath, cliPath }) {
   return wanted.map((w) => w.name)
 }
 
+/**
+ * 写总入口；~/.local/bin/codepal 已在且不是 CodePal 生成的就不动它
+ * @returns {'written'|'taken'}
+ */
+function writeEntry({ appExecPath, cliPath }) {
+  const file = path.join(binDir(), ENTRY_NAME)
+  const text = readOrNull(file)
+  if (text !== null && !isGenerated(text)) return 'taken'
+  writeExecutable(file, entryContent({ appExecPath, pickerPath: pickerPathOf(cliPath) }))
+  return 'written'
+}
+
 /** 删掉自己生成、但已经不需要的命令（模型改名或移除后） */
 function removeOrphans(wanted) {
   const keep = new Set(wanted.map((w) => w.name))
@@ -201,18 +238,23 @@ function removeOrphans(wanted) {
 }
 
 /**
- * 安装命令（用户点「安装命令」时调用）
+ * 安装命令（用户点「安装命令」「更新命令」时调用）
  * @param {{appExecPath: string, cliPath: string}} paths
- * @returns {{installed: string[]}}
+ * @returns {{installed: string[], entry: 'written'|'taken'|'failed'}} entry = codepal 总入口写好 / 名字被占跳过 / 没写进去
+ * @throws 单模型命令或每家入口写不进去、名字被占时抛错（整批不写）
  */
 function installCommands({ appExecPath, cliPath }) {
   const cfg = store.readConfig()
   const wanted = wantedCommands(cfg)
   const installed = writeAll(wanted, { appExecPath, cliPath })
-  removeOrphans(wanted)
+  // 单模型命令写好就算装好：之后的总入口、删旧命令、记「已安装」失败都不改结果（后-08），下次进入页面照实显示
+  let entry
+  try { entry = writeEntry({ appExecPath, cliPath }) } catch { entry = 'failed' }
+  try { removeOrphans(wanted) } catch {}
   rememberPaths(cfg, appExecPath, cliPath)
-  store.writeConfig(cfg)
-  return { installed }
+  if (entry === 'written') cfg.entryInstalled = true
+  try { store.writeConfig(cfg) } catch {}
+  return { installed, entry }
 }
 
 /** 装过命令后，按当前模型同步命令文件；没装过什么都不做 */
@@ -221,8 +263,61 @@ function syncCommands() {
   if (!cfg.commandsInstalled || !cfg.commandPaths) return { installed: [] }
   const wanted = wantedCommands(cfg)
   const installed = writeAll(wanted, cfg.commandPaths)
+  // 写过总入口、而且它还在、还是 CodePal 的，才跟着更新；用户自己删掉的不补回（后-16、后-17-例5），
+  // 从没写过的交给 ensureEntry（后-17）
+  if (cfg.entryInstalled && isGenerated(readOrNull(path.join(binDir(), ENTRY_NAME)))) writeEntry(cfg.commandPaths)
   removeOrphans(wanted)
   return { installed }
+}
+
+/**
+ * 升级后补总入口（后-17、A-101）：以前装过命令、从没写过总入口时写上；名字被占、从没装过、写过又被删的都不补。
+ * 写不进去不抛错，照实返回 failed，页面按实际状态显示、下次进入再试。
+ * @returns {{status: 'written'|'skipped'|'failed'}}
+ */
+function ensureEntry() {
+  let cfg
+  try { cfg = store.readConfig() } catch { return { status: 'skipped' } }
+  if (!cfg.commandsInstalled || !cfg.commandPaths || cfg.entryInstalled) return { status: 'skipped' }
+  const text = readOrNull(path.join(binDir(), ENTRY_NAME))
+  if (text !== null) return { status: 'skipped' }
+  try {
+    writeEntry(cfg.commandPaths)
+    cfg.entryInstalled = true
+    store.writeConfig(cfg)
+    return { status: 'written' }
+  } catch {
+    return { status: 'failed' }
+  }
+}
+
+/** 测过能用（与模型汇总 hub.js tested() 同一口径：有「测一下」记录看它，后台审核的结果不算） */
+function tested(status) {
+  if (!status) return false
+  return Object.hasOwn(status, 'lastTest') ? status.lastTest?.ok === true : status.ok === true
+}
+
+/**
+ * 选择程序列哪些模型（后-01）：顺序同模型接入页（各家预设顺序，再按家里的模型顺序）
+ * @param {object} [cfg] - 不传就读当前配置（读不出抛 read_failed）
+ * @returns {Array<{providerId: string, providerName: string, model: string, command: string, file: string}>}
+ */
+function readyModels(cfg = store.readConfig()) {
+  const statuses = store.readStatuses()
+  const out = []
+  for (const preset of Object.values(PRESETS)) {
+    const prov = cfg.providers[preset.id]
+    if (!prov || !prov.keySet || !prov.models.length) continue
+    if (!store.keyState(preset.id).keyReadable) continue
+    for (const m of prov.models) {
+      if (!tested(statuses[`${preset.id}__${m.id}`])) continue
+      const name = commandName(m.name, preset.id)
+      const file = path.join(binDir(), name)
+      if (!isGenerated(readOrNull(file))) continue
+      out.push({ providerId: preset.id, providerName: preset.name, model: m.name, command: name, file })
+    }
+  }
+  return out
 }
 
 /** 删掉某个模型的命令（只删自己生成的） */
@@ -270,11 +365,21 @@ function commandsState({ pathEnv = process.env.PATH, current } = {}) {
     else missingEntries.push(w.preset.id)
   }
   const onPath = String(pathEnv || '').split(path.delimiter).some((d) => d && path.resolve(d) === path.resolve(binDir()))
-  return { installed: Boolean(cfg.commandsInstalled), missing, missingEntries, stale, onPath, binDir: displayDir(), otherApp }
+  const entryText = readOrNull(path.join(binDir(), ENTRY_NAME))
+  const entry = entryText === null ? 'missing' : !isGenerated(entryText) ? 'taken' : 'ok'
+  let readyCount = 0
+  try { readyCount = readyModels(cfg).length } catch {}
+  return { installed: Boolean(cfg.commandsInstalled), missing, missingEntries, stale, onPath, binDir: displayDir(), otherApp, entry, readyCount }
 }
 
 module.exports = {
   GENERATED_MARK,
+  ENTRY_NAME,
+  entryContent,
+  ensureEntry,
+  readyModels,
+  pickerPathOf,
+  isGenerated,
   binDir,
   commandName,
   providerCommandName,

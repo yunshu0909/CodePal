@@ -5,9 +5,11 @@
  * - 各家在页面上的显示信息（名称、类型字、图标色、Key 前缀），名字一开始就知道，骨架也能显示卡头
  * - 失败原因文案、「{时间} 测过」的时间写法
  * - 模型名 / 上限的校验与千分位
- * - 一屏只留一个主按钮：填写 Key > 重新检测 > 安装命令；弹层打开时让给弹层里的按钮
+ * - 一屏只留一个主按钮：填写 Key > 重新检测 > 安装命令（含更新命令、加入 PATH）；弹层打开时让给弹层里的按钮
+ * - 顶上「在终端里用」那一行显示哪一句（terminalStrip）
  *
- * 规则来源：specs/第三方模型接入/模型接入-定稿/前端设计定稿-模型接入.md §3、§4、§6
+ * 规则来源：specs/第三方模型接入/模型接入-定稿/前端设计定稿-模型接入.md §3、§4、§6；
+ * specs/v2.1.22-在终端里用/模型接入-定稿/（在终端里用）
  *
  * @module features/models/modelsView
  */
@@ -27,6 +29,9 @@ export const PROVIDERS = [
   { id: 'minimax-api', name: 'MiniMax API', type: '按量', color: 'var(--ic-orange)', keyPrefix: '', efforts: [] },
   { id: 'minimax-plan', name: 'MiniMax M Plan', type: '套餐', color: 'var(--ic-orange)', keyPrefix: '', efforts: ['low', 'medium', 'high', 'xhigh', 'max'] },
 ]
+
+/** 加入 PATH 时写进 shell 文件的那一行（与主进程 shellProfile.PATH_LINE 一致，tests/models/terminalIpc.test.js 核对主进程那份） */
+export const PATH_LINE = 'export PATH="$HOME/.local/bin:$PATH"'
 
 /** 输出上限最多填到这里：Claude Code 请求里的 max_tokens 最多 128,000，填更大也会被压回 */
 export const MAX_OUTPUT_CAP = 128000
@@ -131,33 +136,39 @@ export function claudeBlock(claudeCode) {
 }
 
 /**
- * 顶部终端命令那一行要不要出现：至少一个模型，且有模型缺命令、某家缺稳定入口（审核走它），
- * 或者现有命令交给别的 CodePal 执行（otherApp）
+ * 顶上「在终端里用」那一行（后-11、A-002）：一次只显示一句，按这个顺序取第一种——
+ * 未安装 > 差一步 > 要更新 > 名字被占 > 没有测过能用的模型 > 已装好。
+ * 一个模型都没加（没有任何一家填了 Key 且有模型）时返回 null，这一行不出现。
+ * 旧数据缺新字段时按「没问题」算：没有 entry 不算缺总入口，没有 pathStatus 不算找不到，没有 readyCount 不算列表空。
  * @param {object} data - models:list 的 data
- * @returns {boolean}
+ * @returns {{kind: 'not-installed'|'no-path'|'update'|'taken'|'empty'|'ready', text: string, status: string,
+ *   tone: ''|'off'|'warn', action: 'install'|'update'|'path'|null}|null}
  */
-export function needsCommands(data) {
-  const hasModel = Object.values(data.providers || {}).some((p) => p.keySet && p.models.length > 0)
+export function terminalStrip(data) {
+  const hasModel = Object.values(data?.providers || {}).some((p) => p.keySet && p.models.length > 0)
+  if (!hasModel) return null
   const c = data.commands || {}
-  return hasModel && Boolean((c.missing && c.missing.length) || (c.missingEntries && c.missingEntries.length) || c.otherApp)
-}
-
-/**
- * 顶部终端命令那一行的内容；不需要时返回 null。命令指向别的 CodePal 时说清是哪一个，
- * 因为那个版本可能不认识这里新加的模型，点「安装命令」改由当前这个执行
- * @param {object} data - models:list 的 data
- * @returns {{title: string, desc: string|null, status: string}|null}
- */
-export function commandsBlock(data) {
-  if (!needsCommands(data)) return null
-  const other = data.commands?.otherApp
-  if (!other) return { title: '终端命令未安装', desc: null, status: '未安装' }
-  const where = other.version ? `${other.version}${other.dev ? ' 开发版' : ''}（${other.location}）` : other.location
-  return {
-    title: '终端命令还在用另一个 CodePal',
-    desc: `现在指向 ${where}，这里新加的模型在终端里可能用不了；点安装命令改用当前这个`,
-    status: '要更新',
+  const lacks = !c.installed || (c.missing && c.missing.length) || (c.missingEntries && c.missingEntries.length) || c.entry === 'missing'
+  if (lacks) {
+    return { kind: 'not-installed', text: '装好后，在任意终端输入 codepal 就能选模型打开 Claude Code', status: '未安装', tone: 'warn', action: 'install' }
   }
+  if (c.pathStatus === 'missing') {
+    // zsh、bash 以外的 shell 不自动加，只写明手动怎么加（F6）
+    return c.profile
+      ? { kind: 'no-path', text: '命令装好了，但终端还找不到，要把 ~/.local/bin 加入 PATH', status: '差一步', tone: 'warn', action: 'path' }
+      : { kind: 'no-path', text: '命令装好了，但终端还找不到；把 ~/.local/bin 加进你的 shell 的 PATH 后新开终端', status: '差一步', tone: 'warn', action: null }
+  }
+  if (c.otherApp) {
+    const version = c.otherApp.version ? `（${c.otherApp.version}）` : ''
+    return { kind: 'update', text: `命令还连着另一个 CodePal${version}，点「更新命令」改连这一个`, status: '要更新', tone: 'warn', action: 'update' }
+  }
+  if (c.entry === 'taken') {
+    return { kind: 'taken', text: '已有别的程序叫 codepal，没有覆盖；单个模型的命令照常能用', status: '名字被占', tone: 'warn', action: null }
+  }
+  if (c.readyCount === 0) {
+    return { kind: 'empty', text: '还没有测过能用的模型，codepal 列表是空的；先在下面点「测一下」', status: '已装好', tone: 'off', action: null }
+  }
+  return { kind: 'ready', text: '在任意终端输入 codepal，↑↓ 选模型，回车就在当前文件夹打开 Claude Code', status: '已装好', tone: '', action: null }
 }
 
 /**
@@ -171,6 +182,6 @@ export function primaryAction(data, popoverOpen) {
   const anyKey = PROVIDERS.some((p) => data.providers?.[p.id]?.keySet)
   if (!anyKey) return 'key'
   if (claudeBlock(data.claudeCode)) return 'recheck'
-  if (needsCommands(data)) return 'install'
+  if (terminalStrip(data)?.action) return 'install'
   return null
 }

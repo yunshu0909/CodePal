@@ -464,25 +464,25 @@ describe('TC-005 模块 E · 复制、移除', () => {
   })
 })
 
-describe('TC-005 模块 E · 终端命令', () => {
+describe('TC-005 模块 E · 终端命令（v2.1.22 起在「在终端里用」那一行）', () => {
   const noCmd = () => ({ ...base(), commands: { installed: false, missing: ['deepseek-flash'], stale: false, onPath: true, binDir: '~/.local/bin' } })
 
-  it('TC-E27 命令未安装：顶部一行 + 主按钮「安装命令」', async () => {
+  it('TC-E27 命令未安装：「在终端里用」一行 + 主按钮「安装命令」', async () => {
     await renderPage(noCmd())
-    expect(screen.getByText('终端命令未安装')).toBeInTheDocument()
+    expect(document.querySelector('.mj-strip')).toHaveTextContent('装好后，在任意终端输入 codepal 就能选模型打开 Claude Code')
     expect(screen.getByText('未安装')).toBeInTheDocument()
     expect(primaries()).toHaveLength(1)
     expect(primaries()[0]).toHaveTextContent('安装命令')
   })
 
-  it('TC-E28 点安装：安装中…，成功后那一行消失 + Toast', async () => {
+  it('TC-E28 点安装：安装中…，成功后那一行变「已装好」+ Toast', async () => {
     let resolveInstall
     const { api } = await renderPage(noCmd(), { modelsInstallCommands: vi.fn(() => new Promise((r) => { resolveInstall = r })) })
     fireEvent.click(btn('安装命令'))
     expect(btn('安装中…')).toBeDisabled()
     api.modelsList.mockResolvedValue({ success: true, data: base() })
     await act(async () => { resolveInstall({ success: true, data: { installed: ['codepal-deepseek-flash'] } }) })
-    await waitFor(() => expect(screen.queryByText('终端命令未安装')).toBeNull())
+    await waitFor(() => expect(document.querySelector('.mj-strip')).toHaveTextContent('已装好'))
     expect(toast.success).toHaveBeenCalledTimes(1)
     expect(toast.success).toHaveBeenCalledWith('已安装终端命令')
   })
@@ -493,14 +493,14 @@ describe('TC-005 模块 E · 终端命令', () => {
     fireEvent.click(btn('安装命令'))
     await waitFor(() => expect(toast.error).toHaveBeenCalledWith(message))
     expect(toast.error).toHaveBeenCalledTimes(1)
-    expect(screen.getByText('终端命令未安装')).toBeInTheDocument()
+    expect(document.querySelector('.mj-strip')).toHaveTextContent('未安装')
     await waitFor(() => expect(btn('安装命令')).not.toBeDisabled())
   })
 
   it('TC-E30 没找到 Claude Code 与命令未安装同时出现：只有「重新检测」是主按钮', async () => {
     await renderPage({ ...noCmd(), claudeCode: { found: false } })
     expect(screen.getByText('没找到 Claude Code')).toBeInTheDocument()
-    expect(screen.getByText('终端命令未安装')).toBeInTheDocument()
+    expect(document.querySelector('.mj-strip')).toHaveTextContent('装好后，在任意终端输入 codepal 就能选模型打开 Claude Code')
     expect(primaries()).toHaveLength(1)
     expect(primaries()[0]).toHaveTextContent('重新检测')
     expect(btn('安装命令')).not.toHaveClass('btn--primary')
@@ -566,28 +566,27 @@ describe('v2.1.16 · 接入页思考强度与终端命令指向', () => {
 
   const elsewhere = (otherApp) => ({ ...base(), commands: { installed: true, missing: [], missingEntries: [], stale: false, onPath: true, binDir: '~/.local/bin', otherApp } })
 
-  it('TC-108 命令指向别的 CodePal：提示一行、版本与位置、要更新、主按钮安装命令', async () => {
+  it('TC-108 命令指向别的 CodePal：「在终端里用」一行写版本、要更新、主按钮更新命令（v2.1.22 改）', async () => {
     const { api } = await renderPage(elsewhere({ version: '2.1.1', location: '/Applications/CodePal.app', dev: false }))
-    expect(screen.getByText('终端命令还在用另一个 CodePal')).toBeInTheDocument()
-    expect(screen.getByText('现在指向 2.1.1（/Applications/CodePal.app），这里新加的模型在终端里可能用不了；点安装命令改用当前这个')).toBeInTheDocument()
+    expect(document.querySelector('.mj-strip')).toHaveTextContent('命令还连着另一个 CodePal（2.1.1），点「更新命令」改连这一个')
     expect(screen.getByText('要更新')).toBeInTheDocument()
-    expect(screen.queryByText('终端命令未安装')).toBeNull()
+    expect(document.querySelector('.mj-strip')).not.toHaveTextContent('未安装')
     expect(primaries()).toHaveLength(1)
-    expect(primaries()[0]).toHaveTextContent('安装命令')
-    fireEvent.click(btn('安装命令'))
+    expect(primaries()[0]).toHaveTextContent('更新命令')
+    fireEvent.click(btn('更新命令'))
     await waitFor(() => expect(api.modelsInstallCommands).toHaveBeenCalledTimes(1))
   })
 
-  it('TC-108 开发版与读不到版本的写法；没装命令时仍是「终端命令未安装」', async () => {
+  it('TC-108 读不到版本时不写括号；没装命令时仍是「未安装」（v2.1.22 改）', async () => {
     await renderPage(elsewhere({ version: '2.1.14', location: '/Users/me/codepal', dev: true }))
-    expect(screen.getByText('现在指向 2.1.14 开发版（/Users/me/codepal），这里新加的模型在终端里可能用不了；点安装命令改用当前这个')).toBeInTheDocument()
+    expect(document.querySelector('.mj-strip')).toHaveTextContent('命令还连着另一个 CodePal（2.1.14），点「更新命令」改连这一个')
     cleanup()
     await renderPage(elsewhere({ version: null, location: '/Applications/Old.app', dev: false }))
-    expect(screen.getByText('现在指向 /Applications/Old.app，这里新加的模型在终端里可能用不了；点安装命令改用当前这个')).toBeInTheDocument()
+    expect(document.querySelector('.mj-strip')).toHaveTextContent('命令还连着另一个 CodePal，点「更新命令」改连这一个')
     cleanup()
     await renderPage({ ...base(), commands: { installed: false, missing: ['deepseek-flash'], missingEntries: [], stale: false, onPath: true, binDir: '~/.local/bin', otherApp: null } })
-    expect(screen.getByText('终端命令未安装')).toBeInTheDocument()
+    expect(document.querySelector('.mj-strip')).toHaveTextContent('装好后，在任意终端输入 codepal 就能选模型打开 Claude Code')
     expect(screen.getByText('未安装')).toBeInTheDocument()
-    expect(screen.queryByText('终端命令还在用另一个 CodePal')).toBeNull()
+    expect(document.querySelector('.mj-strip')).not.toHaveTextContent('要更新')
   })
 })
