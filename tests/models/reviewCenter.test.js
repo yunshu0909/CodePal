@@ -5,6 +5,7 @@
  * 保存两步：先写设置 / 规则，再重新生成审核配置；第二步失败把第一步按字节退回。
  * 恢复记录 .save-journal.json：「saving」= 保存途中（断电后以已落盘的设置为准）；「rollback」= 明确失败且退回也失败（启动时还原）。
  * 写入锁 .write.lock：同一配置目录只允许一个 CodePal 写。
+ * v2.1.24 TC-007（守着）：上面这些既有行为照常。
  */
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import fs from 'node:fs'

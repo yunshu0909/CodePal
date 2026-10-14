@@ -77,7 +77,7 @@
 
 /* v2.1.17：思考强度旁标出「终端手动用」，和模型汇总里审核用的等级区分（后-47） */
 .mj-page .mj-note {
-  margin-left: 6px;
+  margin-left: 4px;
   font-size: 11px;
   font-weight: 400;
   color: var(--fg-3);

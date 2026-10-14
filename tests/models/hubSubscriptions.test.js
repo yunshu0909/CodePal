@@ -1,4 +1,6 @@
-/** @vitest-environment node */
+/** @vitest-environment node
+ * v2.1.24 TC-006（守着）：没设过等级的订阅模型仍按定稿字面 high，Codex 来源发现照旧
+ */
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import fs from 'node:fs'
 import path from 'node:path'

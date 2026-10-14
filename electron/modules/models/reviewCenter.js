@@ -217,7 +217,6 @@ function createReviewCenter(options = {}) {
       } catch (error) {
         try {
           restore(name, before)
-          fs.rmSync(journalFile, { force: true })
         } catch {
           try {
             writeJournal('rollback', name, before)
@@ -225,6 +224,12 @@ function createReviewCenter(options = {}) {
             // 连「要退回」都没写进去：之后按「保存中」处理，以当时磁盘上的设置为准，两份文件仍一致
           }
           throw fault('ROLLBACK_FAILED', ROLLBACK_FAILED_MESSAGE)
+        }
+        // 已按字节退回：删不掉恢复记录不改成「要退回」、不报没能退回；留下的「保存中」记录在下一次写入或启动时按已落盘的设置处理
+        try {
+          fs.rmSync(journalFile, { force: true })
+        } catch {
+          // 留着无害
         }
         throw error
       }

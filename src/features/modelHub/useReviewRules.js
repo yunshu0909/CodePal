@@ -102,12 +102,25 @@ function createStore(api) {
     return result
   }
 
+  /**
+   * 重试仍写不进去：「dev 在用什么」按重试之后的磁盘状态重读（上一份有效配置可能在这期间没了），
+   * 只换红字这两项，不动页面上正在显示的规则
+   */
+  async function refreshExport() {
+    const generation = mutationGeneration
+    const fresh = await call('modelsRulesGet')
+    // 读的途中有保存完成：那次保存已写进审核配置（红字已清），不拿更早的读数盖掉
+    if (!snapshot.data || generation !== mutationGeneration) return
+    if (fresh.success) publish({ data: { ...snapshot.data, exportOk: fresh.data.exportOk, exportUsing: fresh.data.exportUsing } })
+    else publish({ data: { ...snapshot.data, exportOk: false } })
+  }
+
   /** F13 重试；另一个 CodePal 占着写入锁时红字状态不变，由页面提示原因 */
   async function republish() {
     const result = await call('modelsConfigRepublish')
     if (snapshot.data && result.success) {
-      const exportOk = result.data.exportOk === true
-      publish({ data: { ...snapshot.data, exportOk, ...(exportOk ? EXPORTED : {}) } })
+      if (result.data.exportOk === true) publish({ data: { ...snapshot.data, ...EXPORTED } })
+      else await refreshExport()
     }
     return result
   }

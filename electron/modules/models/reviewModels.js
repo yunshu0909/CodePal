@@ -98,8 +98,13 @@ function validModel(model) {
     typeof model === 'object' &&
     Object.keys(model).every((key) => MODEL_KEYS.has(key)) &&
     typeof model.id === 'string' &&
+    typeof model.family === 'string' &&
+    model.family !== '' &&
     typeof model.model === 'string' &&
+    typeof model.displayName === 'string' &&
     ['claude-cli', 'codex-exec', 'codepal'].includes(model.runner) &&
+    // 接入模型由 dev 按 provider 走 CodePal 入口，必须有；订阅模型直接调命令行，不该有
+    (model.runner === 'codepal' ? typeof model.provider === 'string' : model.provider === undefined) &&
     (model.effort === null || typeof model.effort === 'string')
   )
 }

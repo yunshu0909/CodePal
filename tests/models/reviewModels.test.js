@@ -1,6 +1,7 @@
 /** @vitest-environment node
  * v2.1.17：给 dev 的公开文件从 review-models.json 换成审核配置 review-config.json（后-44）；
  * 只放审核需要的字段，不放本机命令路径与计费类别（后-49、后-51），接入模型带 provider
+ * v2.1.24 TC-009（守着）：审核配置内容照常
  */
 import { afterEach, beforeEach, expect, it } from 'vitest'
 import fs from 'node:fs'

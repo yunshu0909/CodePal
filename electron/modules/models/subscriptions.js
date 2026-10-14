@@ -154,10 +154,13 @@ function discoverSubscriptions({
           .filter((effort) => typeof effort === 'string' && /^[a-z0-9_-]{1,32}$/.test(effort))
         if (!efforts.length) continue
         seen.add(item.slug)
+        // 模型自己的默认档：只给「存过的审核等级不再支持」时退回用（后-29），不是支持的档就不记
+        const ownDefault = efforts.includes(item.default_reasoning_level) ? item.default_reasoning_level : null
         codex.models.push({
           slug: item.slug,
           displayName: typeof item.display_name === 'string' ? item.display_name : item.slug,
           efforts: [...new Set(efforts)],
+          ...(ownDefault ? { defaultEffort: ownDefault } : {}),
         })
       }
       if (!codex.models.length) throw new Error('empty model list')

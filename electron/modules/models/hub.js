@@ -138,14 +138,25 @@ function defaultEffort(vendorId, model) {
 }
 
 /**
- * 审核用的等级（后-29）：保存的档位还支持就用它；不再支持退回默认档并带出原值；没有档位为 null
+ * 存过的档位不再支持时退回哪一档（后-29「只用这个模型实际支持的档位」）：
+ * 订阅模型支持 high 就用 high（和没设过时一致）→ 模型自己的默认档 → 支持列表第一个；接入模型同 defaultEffort（本来就只给支持的档）
+ */
+function fallbackEffort(vendorId, model) {
+  if (!isSubscription(vendorId)) return defaultEffort(vendorId, model)
+  if (model.efforts.includes('high')) return 'high'
+  if (model.efforts.includes(model.defaultEffort)) return model.defaultEffort
+  return model.efforts[0]
+}
+
+/**
+ * 审核用的等级（后-29）：保存的档位还支持就用它；不再支持退回模型支持的档并带出原值；没有档位为 null
  * @returns {{effort: string|null, effortUnsupported?: string}}
  */
 function hubEffort(vendorId, model, preferences, id) {
   if (!model.efforts.length) return { effort: null }
   const saved = preferences.effort[id]
   if (saved === undefined || model.efforts.includes(saved)) return { effort: saved ?? defaultEffort(vendorId, model) }
-  return { effort: defaultEffort(vendorId, model), effortUnsupported: saved }
+  return { effort: fallbackEffort(vendorId, model), effortUnsupported: saved }
 }
 
 /**
