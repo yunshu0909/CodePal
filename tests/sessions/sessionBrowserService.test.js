@@ -121,7 +121,11 @@ describe('listRecent', () => {
     if (process.getuid && process.getuid() !== 0) {
       fs.chmodSync(p.dir, 0o000)
       try {
-        await expect(list()).rejects.toThrow(`没有权限读取 ${p.dir}`)
+        // 报错里的目录按显示规则写：在家目录下写成 ~ 开头。临时目录可能在家目录下
+        // （例如合并后复查把临时目录放在代码仓里），所以按同一规则算预期，不写死绝对路径
+        const home = os.homedir()
+        const shown = p.dir.startsWith(home + '/') ? '~' + p.dir.slice(home.length) : p.dir
+        await expect(list()).rejects.toThrow(`没有权限读取 ${shown}`)
       } finally {
         fs.chmodSync(p.dir, 0o755)
       }
