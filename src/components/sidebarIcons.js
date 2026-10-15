@@ -11,6 +11,7 @@
 /** @type {Record<string, {color: string, path: string}>} 模块 ID → 图标 */
 export const SIDEBAR_ICONS = {
   permission: { color: 'var(--tool-claude)', path: 'M3 4.5 6.5 8 3 11.5M8 12h5' },
+  devPlugin: { color: 'var(--ic-teal)', path: 'M4.5 2.5v11M4.5 9.5h4a3 3 0 0 0 3-3v-4M11.5 2.5 9.5 4.5M11.5 2.5l2 2' },
   'project-init': { color: 'var(--ic-blue)', path: 'M8 3v10M3 8h10' },
   modelHub: { color: 'var(--ic-purple)', path: 'M3 4h10M3 8h10M3 12h6' },
   models: { color: 'var(--ic-teal)', path: 'M5.5 2.5v3M10.5 2.5v3M4 5.5h8v2.5a4 4 0 0 1-8 0zM8 12v2' },

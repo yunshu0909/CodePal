@@ -2,7 +2,7 @@
  * 审核配置的唯一写方（后-01）：模型汇总两页签的读写与给 dev 的审核配置都经过这里
  *
  * 负责：
- * - 读：模型页签（来源 + 本页设置）、审核规则页签（规则 + dev 两端 + 审核配置写没写进去）；打开只读不写，
+ * - 读：模型页签（来源 + 本页设置）、审核规则页签（规则 + 审核配置写没写进去）；打开只读不写，
  *   只有第一次打开写初始开关与顺序（A-014）；审核配置的状态按硬盘上的文件和上一次重新生成的结果显示（A-009）
  * - 存：每次保存两步——先写本页设置或审核规则，再重新生成审核配置；第二步失败把第一步按字节退回（后-10）
  *   保存前写恢复记录 .save-journal.json：state=saving（保存途中）/ rollback（明确失败且退回也失败）
@@ -22,7 +22,6 @@ const hub = require('./hub')
 const defaultsModule = require('./reviewDefaults')
 const { readOverrides, serialize: serializeRules } = require('./reviewRules')
 const { atomicWrite, buildReviewConfig, readReviewConfig, writeReviewConfig } = require('./reviewModels')
-const { readDevStatus } = require('./devStatus')
 const { createWriteLock } = require('./writeLock')
 
 const WRITE_DENIED = '配置目录没有写入权限，检查权限后重试'
@@ -149,7 +148,6 @@ function createReviewCenter(options = {}) {
       changed: differsFromDefaults(effective),
       suggested: defaultsModule.effectiveRules({}, defaults.values),
       defaultsVersion: defaults.version,
-      dev: readDevStatus({ homeDir, minVersion: defaultsModule.MIN_DEV_WORKFLOW }),
       exportOk: ok,
       exportUsing: ok ? null : usable ? 'previous' : 'defaults',
     }

@@ -2,7 +2,7 @@
 
 > AI 编程工具负责写代码，CodePal 负责写代码之外的一切 —— 用量与订阅、会话状态、对话回顾、Skills 管理、用别家模型开 Claude Code。专为 **Claude Code / Codex** 用户打造。
 
-[![macOS](https://img.shields.io/badge/macOS-Apple%20Silicon-black?logo=apple)](https://github.com/yunshu0909/CodePal/releases) [![version](https://img.shields.io/badge/version-v2.1.24-blue)](https://github.com/yunshu0909/CodePal/releases/latest) [![license](https://img.shields.io/badge/license-ISC-green)](#license)
+[![macOS](https://img.shields.io/badge/macOS-Apple%20Silicon-black?logo=apple)](https://github.com/yunshu0909/CodePal/releases) [![version](https://img.shields.io/badge/version-v2.1.25-blue)](https://github.com/yunshu0909/CodePal/releases/latest) [![license](https://img.shields.io/badge/license-ISC-green)](#license)
 
 <p align="center">
   <img src="docs/images/usage.webp" width="860" alt="CodePal 用量监测：按月历看每天用了多少 Token">
@@ -30,7 +30,7 @@
 
 ## 功能一览
 
-CodePal 按用途分 4 组：**用量账单 · 项目开发 · 技能中心 · 环境配置**。每项都是独立模块，按需使用。
+CodePal 按用途分 5 组：**用量账单 · 项目开发 · 技能中心 · 开发流程 · 环境配置**。每项都是独立模块，按需使用。
 
 ### 💰 用量账单
 
@@ -112,6 +112,16 @@ CodePal 按用途分 4 组：**用量账单 · 项目开发 · 技能中心 · �
 - 收进时原件先放进备份，**可以撤回**到收进之前；离开页面、重启 CodePal 都还能撤；中途断了能继续恢复，现场对不上就停下、不覆盖
 - 详情里每个工具一个开关，点了就生效，写完按工具自己的读法核对，**要么生效、要么失败并保留原状态**；Codex 开关走 Codex 官方接口
 - 中央资产库统一存放 Skill，删除时资产库和各工具里的一起删
+
+---
+
+### 🧩 开发流程
+
+#### 插件管理 · dev-workflow 是哪一版、两边开没开
+
+- 一页看 dev-workflow 开发流程插件的版本号，以及它在 Claude Code、Codex 里各自开着还是关着
+- 每个工具一个开关，点了就保存：Claude Code 写 `~/.claude/settings.json`，Codex 只改 `~/.codex/config.toml` 里这个插件的那一行；改的是全局设置，新开的会话生效
+- 哪边没装、被系统管理设置锁定时开关不能点；写不进去、刚被别处改过或结果没确认都会如实提示，不谎报成功
 
 ---
 

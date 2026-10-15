@@ -45,10 +45,11 @@ function WorkbenchLayout({ children, activeModule, onModuleChange, appUpdate, on
 
   /**
    * 分组导航配置
-   * 按用途分四组（2026-09-19 用户定顺序），新功能按每组的定义归组：
+   * 按用途分五组（2026-09-19 用户定顺序；2026-10-15 加「开发流程」），新功能按每组的定义归组：
    * - 用量账单：花了多少、值不值（token 用量、订阅费和回本）
    * - 项目开发：写代码这件事本身（开项目、回看过程、查资料）
    * - 技能中心：给 AI 工具装的能力（Skills）
+   * - 开发流程：开发插件与开发流程相关的页面（dev-workflow 插件管理）
    * - 环境配置：让工具跑得起来、跑得顺的环境（Claude Code 设置、网络、以后的消息同步）
    * 图标见 sidebarIcons.js（按模块 ID 取）
    * @type {Array<{label: string, items: Array<{id: string, label: string, beta?: boolean}>}>}
@@ -74,6 +75,12 @@ function WorkbenchLayout({ children, activeModule, onModuleChange, appUpdate, on
       label: '技能中心',
       items: [
         { id: 'skills', label: 'Skills 管理' }
+      ]
+    },
+    {
+      label: '开发流程',
+      items: [
+        { id: 'devPlugin', label: '插件管理' }
       ]
     },
     {

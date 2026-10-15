@@ -302,6 +302,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
     return () => ipcRenderer.removeListener('network:ipStateUpdate', handler)
   },
 
+  // 插件管理（v2.1.25）：只传工具和开关值，路径由主进程定
+  devPluginRead: (payload) => ipcRenderer.invoke('devPlugin:read', payload),
+  devPluginSetEnabled: (payload) => ipcRenderer.invoke('devPlugin:setEnabled', payload),
+
   // 模型接入 APIs（#26）：只传供应商 / 模型 ID，Key 只写不回读
 
   /**

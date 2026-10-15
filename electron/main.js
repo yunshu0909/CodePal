@@ -75,6 +75,7 @@ const { registerSessionResumeHandlers } = require('./handlers/registerSessionRes
 const { registerDocBrowserHandlers } = require('./handlers/registerDocBrowserHandlers')
 const { registerSessionStatusHandlers } = require('./handlers/registerSessionStatusHandlers')
 const { registerModelsHandlers } = require('./modules/models/ipc')
+const { registerDevPluginHandlers } = require('./modules/devPlugin/ipc')
 const { initDocBrowserStore } = require('./services/docBrowserService')
 const { initializeIpMonitor, setIpMonitorFastMode, stopIpMonitor } = require('./services/networkDiagnosticsService')
 const { createEgressNotifier, withNetworkStyle } = require('./services/egressNotifier')
@@ -483,3 +484,4 @@ const modelsHandlers = registerModelsHandlers({
   ipcMain,
   getMainWindow: () => mainWindow,
 })
+registerDevPluginHandlers({ ipcMain })

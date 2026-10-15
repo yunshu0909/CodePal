@@ -868,7 +868,7 @@ it('SC-045 审核配置没了且重新生成写不进去：规则页报写不进
   const rules = await call('models:rulesGet')
   expect(rules.success).toBe(true)
   expect(rules.data).toMatchObject({ exportOk: true, changed: false, defaultsVersion: defaults.DEFAULTS_VERSION })
-  expect(Object.keys(rules.data.dev).sort()).toEqual(['claude', 'codex'])
+  expect(rules.data).not.toHaveProperty('dev')
 })
 
 it('SC-050 还留着上一份有效审核配置但更新不了：规则页报写不进去、dev 还在用上一份，配置字节不变', () => {
@@ -887,4 +887,11 @@ it('SC-050 还留着上一份有效审核配置但更新不了：规则页报写
   expect(c.republish()).toEqual({ exportOk: true })
   expect(c.rulesGet().exportOk).toBe(true)
   expect(configIds()).toEqual([])
+})
+
+it('TC-101 审核规则读取结果不再带 dev 插件状态：插件状态只在插件管理里读（后-21、B-012）', async () => {
+  openIpc()
+  const rules = await call('models:rulesGet')
+  expect(rules.success).toBe(true)
+  expect(rules.data).not.toHaveProperty('dev')
 })

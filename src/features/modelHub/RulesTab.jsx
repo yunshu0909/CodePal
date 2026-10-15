@@ -1,5 +1,5 @@
 /**
- * 模型汇总 ·「审核规则」页签：dev 插件两端与默认值、派审核（自审）、两组关卡的个数与轮数、其他 · 高级
+ * 模型汇总 ·「审核规则」页签：默认值、派审核（自审）、两组关卡的个数与轮数、其他 · 高级（dev 插件状态 v2.1.25 起在「开发流程 › 插件管理」看）
  *
  * 所有设置点了就保存（保存中禁用这个控件、失败退回并红色提示）；恢复默认先确认；
  * 审核配置写不进去时顶卡下红字可重试，按 dev 实际在用的写两种说法（没了或坏了 → 默认规则；还有上一份 → 上一次存下的规则）。数据来自 useReviewRules，能来审的模型数按模型页签的数据算。
@@ -44,7 +44,6 @@ const ADVANCED = [
   ['failoverMax', '一个模型挂了最多换', [0, 1, 2, 3, 4, 5], (n) => `${n} 次`],
   ['autoExtendRounds', '轮次用完自动加', [0, 1, 2, 3], (n) => `${n} 轮`],
 ]
-const DEV_TEXT = { ok: '已生效', none: '没装', old: '版本太旧', unknown: '版本未知' }
 const reviewersLabel = (n) => `${n} 个模型`
 const roundsLabel = (n) => `每个 ${n} 轮`
 
@@ -229,20 +228,6 @@ export default function RulesTab({ rules, hub, advancedOpen, setAdvancedOpen, me
   return (
     <>
       <div className="np-card np-card--form" data-rules="top">
-        <div className="np-row" data-rules="dev">
-          <span className="lb">dev 插件</span>
-          <span className="mh-dev">
-            {[
-              ['claude', 'Claude Code'],
-              ['codex', 'Codex'],
-            ].map(([end, name]) => (
-              <span key={end} className={`np-st ${data.dev[end] === 'ok' ? 'ok' : 'warn'}`} data-dev-end={end}>
-                <i />
-                {`${name} 端${DEV_TEXT[data.dev[end]] || DEV_TEXT.unknown}`}
-              </span>
-            ))}
-          </span>
-        </div>
         <div className="np-row" data-rules="defaults">
           <span className="mh-lab">
             <span className="lb">默认值</span>

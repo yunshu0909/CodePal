@@ -1,0 +1,11 @@
+/* 插件管理：只写身份卡的排布与尺寸，颜色、字体用 tokens（定稿 §11 .pm-hero） */
+.pm-hero { display: flex; align-items: center; gap: 12px; }
+.pm-hero .np-ic.pm-ic { width: 32px; height: 32px; border-radius: 8px; }
+.pm-hero .np-ic.pm-ic svg { width: 18px; height: 18px; }
+.pm-hero .nm { font-size: 14px; font-weight: 700; line-height: 20px; }
+.pm-hero .sb { margin-top: 2px; font-size: 11.5px; line-height: 15px; color: var(--fg-2); }
+.pm-hero .end { margin-left: auto; font-family: var(--num); font-size: 22px; font-weight: 700; line-height: 26px; color: var(--blue-fg); }
+
+/* 首次读取的骨架：图标位 32、两行之间 4 */
+.pm-hero .pm-sk-ic { width: 32px; height: 32px; border-radius: 8px; }
+.pm-sk-line { margin-top: 4px; }

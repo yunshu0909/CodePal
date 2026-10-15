@@ -87,7 +87,6 @@ function rules(patch = {}) {
     effective: { selfReview: false, gates: structuredClone(GATES), advanced: { timeoutMinutes: 20, failoverMax: 3, autoExtendRounds: 1 } },
     changed: false,
     defaultsVersion: '2026.10.1',
-    dev: { claude: 'ok', codex: 'ok' },
     exportOk: true,
     ...patch,
   }
@@ -269,14 +268,11 @@ it('SC-006 离开再进入：重读、页签和展开回到默认、有上次结
   expect(toggleOf('mimo-api:mimo-v2.7')).toHaveAttribute('aria-checked', 'false')
 })
 
-it('SC-007 审核规则页签全貌：顶卡 dev 两端与默认值、派审核、两组六道关的默认个数轮数、高级默认收起', async () => {
+it('SC-007 审核规则页签全貌：顶卡默认值、派审核、两组六道关的默认个数轮数、高级默认收起', async () => {
   await show()
   await rulesTab()
   expect(tab('审核规则')).toHaveAttribute('aria-selected', 'true')
   for (const t of [
-    'dev 插件',
-    'Claude Code 端已生效',
-    'Codex 端已生效',
     '默认值',
     '现在用的就是这个版本的建议值',
     '派审核',
@@ -832,45 +828,16 @@ it('SC-039 确认对话框：写明只恢复规则不动模型；取消什么都
   expect(api.modelsRulesReset).not.toHaveBeenCalled()
 })
 
-it('SC-040 dev 两端都已生效：两个绿点', async () => {
+it('TC-101 审核规则页签没有 dev 插件状态那一行，第一行是默认值；版本太旧也不再提示（后-21-例1、后-21-例2）', async () => {
   await show()
   await rulesTab()
-  const claude = document.querySelector('[data-dev-end="claude"]')
-  const codex = document.querySelector('[data-dev-end="codex"]')
-  expect(claude.textContent).toBe('Claude Code 端已生效')
-  expect(codex.textContent).toBe('Codex 端已生效')
-  expect(claude.classList.contains('ok')).toBe(true)
-  expect(codex.classList.contains('ok')).toBe(true)
-})
-
-it('SC-041 两端都没装 dev：两端标橙写没装，规则照样能改', async () => {
-  const { api } = await show(undefined, rules({ dev: { claude: 'none', codex: 'none' } }))
-  await rulesTab()
-  expect(document.querySelector('[data-dev-end="claude"]').textContent).toBe('Claude Code 端没装')
-  expect(document.querySelector('[data-dev-end="codex"]').textContent).toBe('Codex 端没装')
-  expect(document.querySelector('[data-dev-end="codex"]').classList.contains('warn')).toBe(true)
-  fireEvent.click(gateButton('lite.G1', 'reviewers'))
-  await act(async () => pickItem('3 个模型'))
-  expect(api.modelsRulesSet).toHaveBeenCalled()
-})
-
-it('SC-042 读不出版本：那一端标橙写版本未知，另一端照常', async () => {
-  await show(undefined, rules({ dev: { claude: 'ok', codex: 'unknown' } }))
-  await rulesTab()
-  expect(document.querySelector('[data-dev-end="claude"]').textContent).toBe('Claude Code 端已生效')
-  expect(document.querySelector('[data-dev-end="codex"]').textContent).toBe('Codex 端版本未知')
-  expect(document.querySelector('[data-dev-end="codex"]').classList.contains('warn')).toBe(true)
-  cleanup()
-  await show(undefined, rules({ dev: { claude: 'unknown', codex: 'ok' } }))
-  await rulesTab()
-  expect(document.querySelector('[data-dev-end="claude"]').textContent).toBe('Claude Code 端版本未知')
-})
-
-it('SC-043 版本太旧：那一端标橙写版本太旧', async () => {
-  await show(undefined, rules({ dev: { claude: 'old', codex: 'old' } }))
-  await rulesTab()
-  expect(document.querySelector('[data-dev-end="claude"]').textContent).toBe('Claude Code 端版本太旧')
-  expect(document.querySelector('[data-dev-end="codex"]').textContent).toBe('Codex 端版本太旧')
+  expect(text()).not.toContain('dev 插件')
+  expect(text()).not.toContain('端已生效')
+  expect(text()).not.toContain('版本太旧')
+  expect(document.querySelector('[data-dev-end]')).toBeNull()
+  expect(document.querySelector('[data-rules="dev"]')).toBeNull()
+  const top = document.querySelector('[data-rules="top"]')
+  expect(top.querySelector('.np-row').getAttribute('data-rules')).toBe('defaults')
 })
 
 it('SC-044 保存后重新生成审核配置：页面只弹已保存，不出红字', async () => {
