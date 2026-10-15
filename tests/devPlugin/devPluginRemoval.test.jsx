@@ -31,8 +31,8 @@ it('TC-101 侧栏分组依次是用量账单、项目开发、技能中心、开
   expect(VALID_ACTIVE_MODULES.has('devPlugin')).toBe(true)
 })
 
-it('TC-101 插件状态只由 devPlugin 模块读：旧 devStatus 模块不再被引用，审核配置读取不再带 dev（后-21-例2、后-23-例1、B-012）', () => {
-  // 旧模块文件在合并后的收尾提交里删除（任务内不能删文件，D42）；这里只断言引用已断开，引用扫描见 tests/models/devStatus.test.js
+it('TC-101 插件状态只由 devPlugin 模块读：旧 devStatus 模块已删除，审核配置读取不再带 dev（后-21-例2、后-23-例1、B-012）', () => {
+  expect(fs.existsSync(path.join(root, 'electron/modules/models/devStatus.js'))).toBe(false)
   expect(fs.existsSync(path.join(root, 'electron/modules/devPlugin/state.js'))).toBe(true)
   const reviewCenter = fs.readFileSync(path.join(root, 'electron/modules/models/reviewCenter.js'), 'utf8')
   expect(reviewCenter).not.toMatch(/devStatus|readDevStatus/)
