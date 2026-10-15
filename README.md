@@ -233,7 +233,13 @@ CodePal/
 
 完整版本信息见 [GitHub Releases](https://github.com/yunshu0909/CodePal/releases)。
 
-**最新版本：[v2.1.23](https://github.com/yunshu0909/CodePal/releases/tag/v2.1.23)**
+**最新版本：[v2.1.24](https://github.com/yunshu0909/CodePal/releases/tag/v2.1.24)**
+
+- 🔧 修复：模型汇总里设过的审核思考强度，模型后来不再支持时，改为退回这个模型实际支持的档（支持 high 用 high，否则用它自己的默认档），不再写一个它跑不了的档
+- 🔧 修复：审核配置「重试」仍写不进去时，提示按当下实际情况说明 dev 在用什么；设置其实已退回时不再误报「没能退回」；读已有审核配置时多核对几个字段，坏了就按设置重写
+- 🎨 模型接入详情「终端手动用」小字间距对齐设计规范
+
+**v2.1.23**
 
 - ⌨️ 在终端里用：任意终端输入 `codepal`，↑↓ 选测过能用的模型，回车就在当前文件夹打开 Claude Code，不用再回 CodePal 展开复制命令；`codepal --resume` 等参数原样交给 Claude Code
 - 🧭 模型接入页顶上一行「在终端里用」：装好没有、终端找不找得到、命令是否连着别的 CodePal 一眼看清；需要时「安装命令 / 加入 PATH / 更新命令」一键补上，加入 PATH 前先告诉你改哪个文件、加哪一行
