@@ -243,7 +243,12 @@ CodePal/
 
 完整版本信息见 [GitHub Releases](https://github.com/yunshu0909/CodePal/releases)。
 
-**最新版本：[v2.1.24](https://github.com/yunshu0909/CodePal/releases/tag/v2.1.24)**
+**最新版本：[v2.1.26](https://github.com/yunshu0909/CodePal/releases/tag/v2.1.26)**
+
+- 🧩 新增「开发流程 › 插件管理」：一页看 dev-workflow 插件的版本，以及它在 Claude Code、Codex 里各自开没开；每个工具一个开关，点了就保存，新开的会话生效
+- 🧹 模型汇总的审核规则页签去掉 dev 插件状态行（挪到插件管理页看）
+
+**v2.1.24**
 
 - 🔧 修复：模型汇总里设过的审核思考强度，模型后来不再支持时，改为退回这个模型实际支持的档（支持 high 用 high，否则用它自己的默认档），不再写一个它跑不了的档
 - 🔧 修复：审核配置「重试」仍写不进去时，提示按当下实际情况说明 dev 在用什么；设置其实已退回时不再误报「没能退回」；读已有审核配置时多核对几个字段，坏了就按设置重写
