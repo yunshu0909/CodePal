@@ -43,10 +43,11 @@ const V1 = {
     'formal.G3': { reviewers: 1, rounds: 3 },
     'formal.G4': { reviewers: 2, rounds: 3 },
   },
+  designGates: { 'formal.design-boundary': { rounds: 2 }, 'formal.design-reconcile': { rounds: 3 } },
   advanced: { timeoutMinutes: 20, failoverMax: 3, autoExtendRounds: 1 },
 }
 
-it('SC-007 本版默认值正本：带版本、6 道关、自审关、高级三项；生效值在没有改过项时等于默认值', () => {
+it('SC-007 TC-005 本版默认值正本：带版本、6 道关、两道设计审查、自审关、高级三项；生效值在没有改过项时等于默认值', () => {
   expect(defaults.DEFAULTS).toEqual(V1)
   expect(typeof defaults.DEFAULTS_VERSION).toBe('string')
   expect(defaults.DEFAULTS_VERSION.length).toBeGreaterThan(0)
@@ -59,7 +60,7 @@ it('SC-007 本版默认值正本：带版本、6 道关、自审关、高级三�
   expect(defaults.DEFAULTS.gates['lite.G0'].reviewers).toBe(1)
 })
 
-it('SC-025 规则键白名单与取值范围：个数 1–3、轮数 1–5、自审布尔、高级三项各自档位；其余一律拒绝', () => {
+it('SC-025 TC-005 规则键白名单与取值范围：个数 1–3、轮数 1–5、两道设计审查只有轮数、自审布尔、高级三项各自档位；其余一律拒绝', () => {
   const keys = defaults.RULE_KEYS
   expect(keys).toContain('selfReview')
   for (const gate of defaults.GATE_IDS) {
@@ -72,7 +73,8 @@ it('SC-025 规则键白名单与取值范围：个数 1–3、轮数 1–5、自
   expect(defaults.allowedValues('advanced.failoverMax')).toEqual([0, 1, 2, 3, 4, 5])
   expect(defaults.allowedValues('advanced.autoExtendRounds')).toEqual([0, 1, 2, 3])
   expect(defaults.allowedValues('selfReview')).toEqual([false, true])
-  expect(keys.length).toBe(6 * 2 + 1 + 3)
+  // 6 道关各有个数和轮数，两道设计审查只有轮数（v2.1.28）
+  expect(keys.length).toBe(6 * 2 + 2 + 1 + 3)
   for (const [key, value] of [
     ['gates.lite.G1.reviewers', 4],
     ['gates.lite.G1.reviewers', 0],

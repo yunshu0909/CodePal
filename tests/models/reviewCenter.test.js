@@ -23,6 +23,8 @@ const { registerModelsHandlers } = require('../../electron/modules/models/ipc.js
 const store = require('../../electron/modules/models/store.js')
 
 const ROLLBACK_MESSAGE = '保存失败，也没能退回原来的设置；检查配置目录的权限后重启 CodePal'
+// v2.1.28：审核配置的 gates 另带两道设计审查的建议轮数（只写轮数）
+const DESIGN_SUGGESTED = { 'formal.design-boundary': { rounds: 2 }, 'formal.design-reconcile': { rounds: 3 } }
 let sb, state, codexBin, center, lifecycle, handlers, children
 
 const file = (name) => path.join(sb.models, name)
@@ -193,7 +195,7 @@ it('SC-006 打开只读不写：反复读模型和规则不改设置文件；接
   expect(read('hub.json').effort['mimo-api:mimo-v2.6-pro']).toBe(access)
 })
 
-it('SC-009 审核规则文件坏了：只有规则读取失败；模型照常能改，审核配置的规则部分沿用上一份有效的，没有就用默认值', () => {
+it('SC-009 TC-006 审核规则文件坏了：只有规则读取失败；模型照常能改，审核配置的规则部分沿用上一份有效的，没有就用默认值', () => {
   const c = open()
   c.list()
   c.rulesSet({ key: 'gates.lite.G1.reviewers', value: 3 })
@@ -207,10 +209,10 @@ it('SC-009 审核规则文件坏了：只有规则读取失败；模型照常能
   c.setEnabled({ id: 'deepseek:deepseek-flash', enabled: true })
   expect(read('review-config.json').gates['lite.G1'].reviewers).toBe(3)
   expect(bytes('review-rules.json').equals(before)).toBe(true)
-  // 规则改坏的同时审核配置也没了：规则部分用默认值
+  // 规则改坏的同时审核配置也没了：规则部分用默认值（审核配置的 gates 另带两道设计审查的轮数，v2.1.28）
   fs.rmSync(file('review-config.json'))
   c.setEnabled({ id: 'deepseek:deepseek-flash', enabled: false })
-  expect(read('review-config.json').gates).toEqual(defaults.DEFAULTS.gates)
+  expect(read('review-config.json').gates).toEqual({ ...defaults.DEFAULTS.gates, ...DESIGN_SUGGESTED })
   expect(caught(() => c.rulesSet({ key: 'selfReview', value: true }))?.code).toBe('RULES_FILE_INVALID')
   expect(bytes('review-rules.json').equals(before)).toBe(true)
 })
@@ -574,7 +576,7 @@ it('SC-021 审核用的等级写进审核配置；档位不再支持显示默认
   expect(config.find((m) => m.id === 'minimax-api:MiniMax-M3').effort).toBeNull()
 })
 
-it('SC-025 每道关的个数和轮数：逐个保存后重读一致，规则文件只存改过的项，审核配置跟着变；非法键和值不写文件', () => {
+it('SC-025 TC-006 每道关的个数和轮数：逐个保存后重读一致，规则文件只存改过的项，审核配置跟着变；非法键和值不写文件', () => {
   const c = open()
   c.list()
   const values = {}
@@ -587,7 +589,7 @@ it('SC-025 每道关的个数和轮数：逐个保存后重读一致，规则文
   }
   const reopened = open()
   expect(reopened.rulesGet().effective.gates).toEqual(values)
-  expect(read('review-config.json').gates).toEqual(values)
+  expect(read('review-config.json').gates).toEqual({ ...values, ...DESIGN_SUGGESTED })
   const overrides = read('review-rules.json').overrides
   for (const [gate, value] of Object.entries(values)) {
     for (const field of ['reviewers', 'rounds']) {
@@ -673,7 +675,7 @@ it('SC-033 高级三项：各自保存、重读一致、审核配置跟着变；
   }
 })
 
-it('SC-035 恢复默认：清空改过项、审核配置回到建议值；模型的开关、顺序、等级字节不变', () => {
+it('SC-035 TC-006 恢复默认：清空改过项、审核配置回到建议值；模型的开关、顺序、等级字节不变', () => {
   machine()
   const c = open()
   c.list()
@@ -683,7 +685,7 @@ it('SC-035 恢复默认：清空改过项、审核配置回到建议值；模型
   const hubBefore = bytes('hub.json')
   expect(c.rulesReset()).toEqual({ effective: defaults.effectiveRules({}), changed: false })
   expect(read('review-rules.json').overrides).toEqual({})
-  expect(read('review-config.json').gates).toEqual(defaults.DEFAULTS.gates)
+  expect(read('review-config.json').gates).toEqual({ ...defaults.DEFAULTS.gates, ...DESIGN_SUGGESTED })
   expect(read('review-config.json').advanced).toEqual(defaults.DEFAULTS.advanced)
   expect(bytes('hub.json').equals(hubBefore)).toBe(true)
   expect(c.rulesGet().changed).toBe(false)

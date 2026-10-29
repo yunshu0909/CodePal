@@ -1,5 +1,6 @@
 /**
  * 模型汇总 ·「审核规则」页签：默认值、派审核（自审）、两组关卡的个数与轮数、其他 · 高级（dev 插件状态 v2.1.25 起在「开发流程 › 插件管理」看）
+ * 完整开发组最上面是设计阶段的边界审查、对账复核（v2.1.28）：只有轮数，派几个由 dev 定，按钮位置写固定说法。
  *
  * 所有设置点了就保存（保存中禁用这个控件、失败退回并红色提示）；恢复默认先确认；
  * 审核配置写不进去时顶卡下红字可重试，按 dev 实际在用的写两种说法（没了或坏了 → 默认规则；还有上一份 → 上一次存下的规则）。数据来自 useReviewRules，能来审的模型数按模型页签的数据算。
@@ -21,6 +22,7 @@ const CHEVRON = (
     <path d="M3 4 5 2 7 4M3 6 5 8 7 6" />
   </svg>
 )
+// 关卡行：[门, 名字, 小字, 派几个的固定说法]；有固定说法的是设计阶段审查，只设轮数（规则键在 designGates 下）
 const GROUPS = [
   {
     label: '简单需求 · 快速开发',
@@ -32,6 +34,8 @@ const GROUPS = [
   {
     label: '复杂需求 · 完整开发',
     gates: [
+      ['formal.design-boundary', '边界审查', '后端规则有没有漏掉的边界', '同需求对齐'],
+      ['formal.design-reconcile', '对账复核', '改完的规则和审核意见对不对得上', '原审核者'],
       ['formal.G1', '需求对齐', '计划有没有理解歪你的原话'],
       ['formal.G2b', '答后再对齐', '选择题的回答有没有写对'],
       ['formal.G3', '开工前检查', '文档、测试用例和漏问的选择'],
@@ -276,34 +280,44 @@ export default function RulesTab({ rules, hub, advancedOpen, setAdvancedOpen, me
         <Fragment key={group.label}>
           <div className="np-glabel">{group.label}</div>
           <div className="np-card np-card--form">
-            {group.gates.map(([id, name, sub]) => (
-              <div className="np-row mh-gate" key={id} data-gate={id}>
-                <span className="mh-lab">
-                  <span className="lb">{name}</span>
-                  <span className="ds mh-gsub">{sub}</span>
-                </span>
-                <span className="np-card-acts mh-gate-acts">
-                  <Choice
-                    ruleKey={`gates.${id}.reviewers`}
-                    label="派几个模型"
-                    value={effective.gates[id].reviewers}
-                    values={[1, 2, 3]}
-                    format={reviewersLabel}
-                    className="mh-gate-n"
-                    {...{ rules, menu, setMenu }}
-                  />
-                  <Choice
-                    ruleKey={`gates.${id}.rounds`}
-                    label="每个审几轮"
-                    value={effective.gates[id].rounds}
-                    values={[1, 2, 3, 4, 5]}
-                    format={roundsLabel}
-                    className="mh-gate-r"
-                    {...{ rules, menu, setMenu }}
-                  />
-                </span>
-              </div>
-            ))}
+            {group.gates.map(([id, name, sub, fixed]) => {
+              const design = Boolean(fixed)
+              const value = design ? effective.designGates?.[id] : effective.gates[id]
+              // 主进程还没给出两道设计审查（只在测试替身里出现）时不画这一行
+              if (!value) return null
+              return (
+                <div className="np-row mh-gate" key={id} data-gate={id}>
+                  <span className="mh-lab">
+                    <span className="lb">{name}</span>
+                    <span className="ds mh-gsub">{sub}</span>
+                  </span>
+                  <span className="np-card-acts mh-gate-acts">
+                    {design ? (
+                      <span className="ds mh-gate-fixed">{fixed}</span>
+                    ) : (
+                      <Choice
+                        ruleKey={`gates.${id}.reviewers`}
+                        label="派几个模型"
+                        value={value.reviewers}
+                        values={[1, 2, 3]}
+                        format={reviewersLabel}
+                        className="mh-gate-n"
+                        {...{ rules, menu, setMenu }}
+                      />
+                    )}
+                    <Choice
+                      ruleKey={`${design ? 'designGates' : 'gates'}.${id}.rounds`}
+                      label="每个审几轮"
+                      value={value.rounds}
+                      values={[1, 2, 3, 4, 5]}
+                      format={roundsLabel}
+                      className="mh-gate-r"
+                      {...{ rules, menu, setMenu }}
+                    />
+                  </span>
+                </div>
+              )
+            })}
           </div>
         </Fragment>
       ))}

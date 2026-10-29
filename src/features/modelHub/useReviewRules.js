@@ -15,9 +15,10 @@ const unavailableApi = {}
 function withValue(effective, key, value) {
   const next = structuredClone(effective)
   if (key === 'selfReview') next.selfReview = value
-  else if (key.startsWith('gates.')) {
-    const [, a, b, field] = key.split('.')
-    next.gates[`${a}.${b}`][field] = value
+  else if (key.startsWith('gates.') || key.startsWith('designGates.')) {
+    // gates.<门>.<字段>；两道设计审查只有轮数，键是 designGates.<门>.rounds（v2.1.28）
+    const [group, a, b, field] = key.split('.')
+    next[group][`${a}.${b}`][field] = value
   } else next.advanced[key.slice('advanced.'.length)] = value
   return next
 }
@@ -146,9 +147,9 @@ function createStore(api) {
 
 function valueAt(effective, key) {
   if (key === 'selfReview') return effective.selfReview
-  if (key.startsWith('gates.')) {
-    const [, a, b, field] = key.split('.')
-    return effective.gates[`${a}.${b}`][field]
+  if (key.startsWith('gates.') || key.startsWith('designGates.')) {
+    const [group, a, b, field] = key.split('.')
+    return effective[group][`${a}.${b}`][field]
   }
   return effective.advanced[key.slice('advanced.'.length)]
 }

@@ -100,10 +100,8 @@ function createReviewCenter(options = {}) {
     } catch (error) {
       if (error.code !== 'RULES_FILE_INVALID') throw error
       const current = readReviewConfig(root)
-      if (current.state === 'valid') {
-        const { selfReview, gates, advanced } = current.config
-        return structuredClone({ selfReview, gates, advanced })
-      }
+      // 规则部分由 readReviewConfig 拆好：升级前写的配置没有两道设计审查，已按建议值补上
+      if (current.state === 'valid') return structuredClone(current.rules)
       return defaultsModule.effectiveRules({}, defaults.values)
     }
   }

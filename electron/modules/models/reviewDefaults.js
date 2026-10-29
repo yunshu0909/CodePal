@@ -4,6 +4,7 @@
  * 负责：
  * - 这个版本的建议值与它的版本号；CodePal 生成审核配置、dev 读不到配置时的内置默认值都从这一份来
  * - 规则键白名单与每个键允许的取值（页面只传「改哪一项、改成什么」，主进程按这里校验，后-04）
+ * - 正式版设计阶段的两道审查（边界审查、对账复核，v2.1.28）只有轮数：派几个由 dev 定（边界审查同需求对齐、对账复核找原审核者）
  * - 生效值 = 默认值 + 你改过的项（后-16）；亲手改回建议值就去掉这一项（后-13）
  *
  * 纯数据与纯函数，不读写文件。
@@ -12,11 +13,13 @@
  */
 
 /** 建议值的版本；改了任何建议值就换一个，审核配置里写明用的是哪一版（后-18） */
-const DEFAULTS_VERSION = '2026.10.1'
+const DEFAULTS_VERSION = '2026.10.2'
 /** 能读审核配置的最低 dev 版本（dev 审核解耦那一版）；审核配置和两端比较都只用这一个常量 */
 const MIN_DEV_WORKFLOW = '0.12.13'
 
 const GATE_IDS = Object.freeze(['lite.G0', 'lite.G1', 'formal.G1', 'formal.G2b', 'formal.G3', 'formal.G4'])
+/** 设计阶段两道审查：只设每个审几轮；dev 0.12.44 起按审核配置里同名的门读轮数，更早的 dev 忽略 */
+const DESIGN_GATE_IDS = Object.freeze(['formal.design-boundary', 'formal.design-reconcile'])
 
 function deepFreeze(value) {
   if (value && typeof value === 'object') {
@@ -36,6 +39,11 @@ const DEFAULTS = deepFreeze({
     'formal.G3': { reviewers: 1, rounds: 3 },
     'formal.G4': { reviewers: 2, rounds: 3 },
   },
+  // 和 dev 0.12.44 没写时的默认一致
+  designGates: {
+    'formal.design-boundary': { rounds: 2 },
+    'formal.design-reconcile': { rounds: 3 },
+  },
   advanced: { timeoutMinutes: 20, failoverMax: 3, autoExtendRounds: 1 },
 })
 
@@ -49,6 +57,7 @@ const ALLOWED = Object.freeze({
       [`gates.${gate}.rounds`, ROUNDS],
     ]),
   ),
+  ...Object.fromEntries(DESIGN_GATE_IDS.map((gate) => [`designGates.${gate}.rounds`, ROUNDS])),
   'advanced.timeoutMinutes': Object.freeze([5, 10, 15, 20, 30, 45, 60]),
   'advanced.failoverMax': Object.freeze([0, 1, 2, 3, 4, 5]),
   'advanced.autoExtendRounds': Object.freeze([0, 1, 2, 3]),
@@ -76,6 +85,7 @@ function valueAt(rules, key) {
   if (key === 'selfReview') return rules.selfReview
   const [group, ...rest] = key.split('.')
   if (group === 'gates') return rules.gates[`${rest[0]}.${rest[1]}`]?.[rest[2]]
+  if (group === 'designGates') return rules.designGates?.[`${rest[0]}.${rest[1]}`]?.[rest[2]]
   return rules.advanced[rest[0]]
 }
 
@@ -84,6 +94,9 @@ function assign(rules, key, value) {
   else if (key.startsWith('gates.')) {
     const [, a, b, field] = key.split('.')
     rules.gates[`${a}.${b}`][field] = value
+  } else if (key.startsWith('designGates.')) {
+    const [, a, b, field] = key.split('.')
+    rules.designGates[`${a}.${b}`][field] = value
   } else rules.advanced[key.slice('advanced.'.length)] = value
 }
 
@@ -91,10 +104,12 @@ function assign(rules, key, value) {
  * 生效值 = 默认值，再用改过的项盖上去（后-16）
  * @param {object} overrides 改过的项 { 规则键: 值 }；不认识或取值不对的项忽略（由读文件时把关）
  * @param {object} [base=DEFAULTS] 这个版本的默认值
- * @returns {object} 新对象 { selfReview, gates, advanced }，可随意修改
+ * @returns {object} 新对象 { selfReview, gates, designGates, advanced }，可随意修改
  */
 function effectiveRules(overrides = {}, base = DEFAULTS) {
   const rules = structuredClone(base)
+  // 外部给的默认值（测试注入的旧版本）没有两道设计审查时，用本版建议值补上
+  if (!rules.designGates) rules.designGates = structuredClone(DEFAULTS.designGates)
   for (const [key, value] of Object.entries(overrides || {})) {
     if (isValidRule(key, value)) assign(rules, key, value)
   }
@@ -118,10 +133,11 @@ function applyOverride(overrides, key, value, base = DEFAULTS) {
   return next
 }
 
-/** @returns {boolean} 一份完整的生效规则（selfReview / 6 道关 / 高级三项）每一项都在范围内 */
+/** @returns {boolean} 一份完整的生效规则（selfReview / 6 道关 / 两道设计审查 / 高级三项）每一项都在范围内 */
 function isValidRules(rules) {
-  if (!rules || typeof rules !== 'object' || !rules.gates || !rules.advanced) return false
+  if (!rules || typeof rules !== 'object' || !rules.gates || !rules.designGates || !rules.advanced) return false
   if (Object.keys(rules.gates).length !== GATE_IDS.length || Object.keys(rules.advanced).length !== 3) return false
+  if (Object.keys(rules.designGates).length !== DESIGN_GATE_IDS.length) return false
   return RULE_KEYS.every((key) => isValidRule(key, valueAt(rules, key)))
 }
 
@@ -142,6 +158,7 @@ module.exports = {
   DEFAULTS_VERSION,
   MIN_DEV_WORKFLOW,
   GATE_IDS,
+  DESIGN_GATE_IDS,
   DEFAULTS,
   RULE_KEYS,
   allowedValues,

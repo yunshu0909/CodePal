@@ -7,6 +7,8 @@
  * - 内容（去掉 generatedAt、generator）没变就不写（后-08、后-17）；写时先写临时文件再替换（后-11）
  * - 第一次写时删掉旧的 review-models.json
  * - 校验已有的审核配置：坏 JSON、不认识的版本、取值超范围都算坏了（后-02、后-32）
+ * - 两道设计审查（边界审查、对账复核）只写轮数，和 6 道关一起放在 gates 里（dev 0.12.44 从这里读）；
+ *   升级前写的配置没有这两项照样有效，读出的规则按建议值补上（v2.1.28）
  *
  * 文件名沿用 reviewModels.js（承接定稿 §8 写的 reviewConfig.js）：插件的先写测试流程暂时删不掉已有文件。
  *
@@ -15,7 +17,7 @@
 const fs = require('fs')
 const path = require('path')
 const crypto = require('crypto')
-const { DEFAULTS_VERSION, MIN_DEV_WORKFLOW, GATE_IDS, isValidRules } = require('./reviewDefaults')
+const { DEFAULTS_VERSION, MIN_DEV_WORKFLOW, GATE_IDS, DESIGN_GATE_IDS, DEFAULTS, isValidRules } = require('./reviewDefaults')
 
 const CONFIG_FILE = 'review-config.json'
 const LEGACY_FILE = 'review-models.json'
@@ -67,7 +69,7 @@ function modelRecord({ vendorId, model }) {
 
 /**
  * @param {Array<{vendorId: string, model: object}>} models 已按顺序、只含打开且现在能用的模型
- * @param {{selfReview: boolean, gates: object, advanced: object}} rules 生效的审核规则
+ * @param {{selfReview: boolean, gates: object, designGates: object, advanced: object}} rules 生效的审核规则
  * @param {{version?: string}} [defaults] 用的是哪一版默认值
  * @returns {object} 审核配置
  */
@@ -80,7 +82,10 @@ function buildReviewConfig(models, rules, defaults = {}) {
     minDevWorkflow: MIN_DEV_WORKFLOW,
     selfReview: rules.selfReview,
     models: models.map(modelRecord),
-    gates: Object.fromEntries(GATE_IDS.map((id) => [id, { reviewers: rules.gates[id].reviewers, rounds: rules.gates[id].rounds }])),
+    gates: {
+      ...Object.fromEntries(GATE_IDS.map((id) => [id, { reviewers: rules.gates[id].reviewers, rounds: rules.gates[id].rounds }])),
+      ...Object.fromEntries(DESIGN_GATE_IDS.map((id) => [id, { rounds: rules.designGates[id].rounds }])),
+    },
     advanced: { ...rules.advanced },
   }
 }
@@ -110,19 +115,42 @@ function validModel(model) {
 }
 
 /**
+ * 审核配置里的规则部分 → 生效规则：gates 里拆出 6 道关和两道设计审查；设计审查没写（升级前的配置）用建议值补，
+ * 写了就只能有轮数。不认识的门、缺 6 道关里任何一道都返回 null
+ * @param {object} config 解析出的审核配置
+ * @returns {object|null} { selfReview, gates, designGates, advanced }
+ */
+function rulesOfConfig(config) {
+  const gates = config.gates
+  if (!gates || typeof gates !== 'object' || Array.isArray(gates)) return null
+  const known = new Set([...GATE_IDS, ...DESIGN_GATE_IDS])
+  if (!Object.keys(gates).every((id) => known.has(id))) return null
+  const designGates = {}
+  for (const id of DESIGN_GATE_IDS) {
+    const entry = gates[id]
+    if (entry === undefined) designGates[id] = { ...DEFAULTS.designGates[id] }
+    else if (entry && typeof entry === 'object' && Object.keys(entry).join() === 'rounds') designGates[id] = { rounds: entry.rounds }
+    else return null
+  }
+  const six = Object.fromEntries(GATE_IDS.filter((id) => Object.hasOwn(gates, id)).map((id) => [id, gates[id]]))
+  return { selfReview: config.selfReview, gates: six, designGates, advanced: config.advanced }
+}
+
+/**
  * 读已有的审核配置
  * @param {string} root 配置目录
- * @returns {{state: 'missing'|'invalid'|'valid', config: object|null}}
+ * @returns {{state: 'missing'|'invalid'|'valid', config: object|null, rules: object|null}} rules 是配置里的规则部分（valid 时）
  */
 function readReviewConfig(root) {
   let text
   try {
     text = fs.readFileSync(path.join(root, CONFIG_FILE), 'utf8')
   } catch (error) {
-    return { state: error.code === 'ENOENT' ? 'missing' : 'invalid', config: null }
+    return { state: error.code === 'ENOENT' ? 'missing' : 'invalid', config: null, rules: null }
   }
   try {
     const config = JSON.parse(text)
+    const rules = config && typeof config === 'object' ? rulesOfConfig(config) : null
     const ok =
       config &&
       config.schemaVersion === 1 &&
@@ -130,10 +158,11 @@ function readReviewConfig(root) {
       typeof config.minDevWorkflow === 'string' &&
       Array.isArray(config.models) &&
       config.models.every(validModel) &&
-      isValidRules({ selfReview: config.selfReview, gates: config.gates, advanced: config.advanced })
-    return ok ? { state: 'valid', config } : { state: 'invalid', config: null }
+      rules !== null &&
+      isValidRules(rules)
+    return ok ? { state: 'valid', config, rules } : { state: 'invalid', config: null, rules: null }
   } catch {
-    return { state: 'invalid', config: null }
+    return { state: 'invalid', config: null, rules: null }
   }
 }
 
