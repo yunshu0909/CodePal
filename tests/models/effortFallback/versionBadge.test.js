@@ -1,6 +1,7 @@
 /**
  * v2.1.24 TC-010（#72）：版本号三处一致——package.json、package-lock.json 根版本、README 版本角标。
  * 不写死某一版，发版时跟着 package.json 走。
+ * v2.1.29 TC-008（守着）：版本号一致照常。
  */
 import fs from 'node:fs'
 import path from 'node:path'

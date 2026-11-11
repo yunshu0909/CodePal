@@ -247,7 +247,9 @@ export default function RulesTab({ rules, hub, advancedOpen, setAdvancedOpen, me
         <div className="mh-foot bad" data-rules="export-error">
           {data.exportUsing === 'previous'
             ? '审核配置写不进去，dev 还在用上一次存下的规则；检查配置目录的权限后重试'
-            : '审核配置写不进去，dev 暂时用默认规则；检查配置目录的权限后重试'}
+            : data.exportUsing === 'unknown'
+              ? '审核配置写不进去，也读不出 dev 现在在用哪份规则；检查配置目录的权限后重试'
+              : '审核配置写不进去，dev 暂时用默认规则；检查配置目录的权限后重试'}
           <Button variant="ghost" className="np-btn-text" onClick={retryExport}>
             重试
           </Button>

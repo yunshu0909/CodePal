@@ -1,6 +1,8 @@
 /** v2.1.17 · 模型汇总两页签（模型 / 审核规则）界面行为；视觉对照另在真实窗口截图核对
  * v2.1.24 TC-008（守着）：既有界面行为照常
- * v2.1.28 TC-011（守着）：完整开发组加了边界审查、对账复核两行之后，原有关卡行、自审、高级、恢复默认照常 */
+ * v2.1.28 TC-011（守着）：完整开发组加了边界审查、对账复核两行之后，原有关卡行、自审、高级、恢复默认照常
+ * v2.1.29 TC-007（守着）：模型汇总两页签的既有界面行为照常。
+ */
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 

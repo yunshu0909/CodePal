@@ -83,6 +83,13 @@ function createReviewCenter(options = {}) {
       : hub.initialPreferences(sources)
     try {
       lock.acquire()
+      // 拿到锁后再看一遍（v2.1.29 #78 G1）：锁外读到的设置和记录可能已被另一个 CodePal 改过。
+      // 还有没失效的「要退回」记录（或记录读不出）：初始设置先只在内存里用，免得之后被它按旧字节退回；
+      // 设置已经有了（另一个 CodePal 写的）：用磁盘上的，不拿锁外读到的旧值去写
+      if (rollbackPending()) return { sources, preferences }
+      const current = hub.readPreferences(files['hub.json'])
+      if (current && Array.isArray(current.order)) return { sources, preferences: current }
+      preferences = current ? { ...current, order: hub.initialOrder(sources, current.reviewEnabled) } : hub.initialPreferences(sources)
       store.ensureDir(root)
       atomicWrite(files['hub.json'], hub.serializePreferences(preferences), 0o600)
       writeReviewConfig(root, configFor(sources, preferences))
@@ -164,29 +171,73 @@ function createReviewCenter(options = {}) {
     else atomicWrite(files[name], before, 0o600)
   }
 
+  /** 处理不完：红字照实（重试也报没写进去），这次写入不开始 */
+  function notRecovered() {
+    exportOk = false
+    return false
+  }
+
+  /**
+   * 恢复记录是不是还要求退回（读不出也算：可能就是没还原的「要退回」）。内容坏了（解析不了）照 v2.1.17 以磁盘为准，不算
+   */
+  function rollbackPending() {
+    try {
+      const record = JSON.parse(fs.readFileSync(journalFile, 'utf8'))
+      return record !== null && typeof record === 'object' && record.state === 'rollback'
+    } catch (error) {
+      return error.code !== 'ENOENT' && !(error instanceof SyntaxError)
+    }
+  }
+
+  /** 已按「要退回」还原并重新生成：让记录失效（删掉；删不掉就改成「保存中」，以已落盘的设置为准）；两样都做不到返回 false */
+  function retireRollback(name) {
+    try {
+      fs.rmSync(journalFile, { force: true })
+      return true
+    } catch {
+      // 删不掉：改成「保存中」
+    }
+    try {
+      writeJournal('saving', name, null)
+      return true
+    } catch {
+      return false
+    }
+  }
+
   /**
    * 处理上一次没做完的保存（调用方已持锁）：rollback 记录按原字节还原；saving 记录以已落盘的设置为准；
-   * 再按设置重新生成审核配置并删掉记录
-   * @returns {boolean} 处理完了（或本来就没有）；处理不完返回 false，记录原样保留
+   * 再按设置重新生成审核配置并删掉记录（v2.1.29 #78 改了几处边界）：
+   * - 记录读不出（I/O 出错）：可能是没还原的「要退回」，不重新生成、不删、不开始这次写入；
+   *   内容坏了（解析不了）照 v2.1.17 以磁盘上的设置为准
+   * - 「要退回」：还原 → 重新生成（记录还在，初始设置只在内存里用，见 load）→ 让记录失效；哪一步失败记录都原样留着、
+   *   下次从头再来（还原按字节，做几遍都一样）
+   * - 「保存中」记录最后删不掉留着无害（下一次按已落盘的设置再处理一遍，结果一样）；内容坏了的记录删不掉不算处理完
+   * @returns {boolean} 处理完了（或本来就没有）；处理不完返回 false，红字照实
    */
   function recoverPending() {
-    let record
+    let record = null
     try {
       record = JSON.parse(fs.readFileSync(journalFile, 'utf8'))
     } catch (error) {
       if (error.code === 'ENOENT') return true
-      record = null
+      if (!(error instanceof SyntaxError)) return notRecovered()
     }
+    const valid = record !== null && typeof record === 'object'
+    const rollback = valid && Object.hasOwn(files, record.file) && record.state === 'rollback'
     try {
-      if (record && Object.hasOwn(files, record.file) && record.state === 'rollback')
-        restore(record.file, record.before === null ? null : Buffer.from(record.before, 'base64'))
+      if (rollback) restore(record.file, record.before === null ? null : Buffer.from(record.before, 'base64'))
       publish()
-      fs.rmSync(journalFile, { force: true })
-      return true
     } catch {
-      exportOk = false
-      return false
+      return notRecovered()
     }
+    if (rollback) return retireRollback(record.file) || notRecovered()
+    try {
+      fs.rmSync(journalFile, { force: true })
+    } catch {
+      if (!valid) return notRecovered()
+    }
+    return true
   }
 
   /**
@@ -205,7 +256,13 @@ function createReviewCenter(options = {}) {
       try {
         atomicWrite(files[name], text, 0o600)
       } catch (error) {
-        fs.rmSync(journalFile, { force: true })
+        // 删记录尽力而为：删不掉也报第一步自己的错误，不让删除的错误盖掉它（v2.1.29 #78）；
+        // 留下的「保存中」记录以已落盘（没写进去）的设置为准，下一次写入或启动时处理掉
+        try {
+          fs.rmSync(journalFile, { force: true })
+        } catch {
+          // 留着无害
+        }
         throw error
       }
       try {
