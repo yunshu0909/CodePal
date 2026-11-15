@@ -34,6 +34,7 @@ const HARDCODED_PRICING_FALLBACK = Object.freeze({
     'deepseek-flash': 'deepseek-v4.1-flash',
     'deepseek-v4-1-flash-expires-on-0910': 'deepseek-v4.1-flash',
     'k3-256k': 'kimi-k3',
+    'gpt-6-astra-for-law': 'gpt-6-astra-law',
   },
   models: {
     'gpt-6-1-sol': { displayName: 'GPT-6.1 Sol', input: 2, output: 10, cacheRead: 0.1, cacheWrite: 2.5 },

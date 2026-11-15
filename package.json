@@ -70,7 +70,8 @@
       }
     },
     "asarUnpack": [
-      "electron/modules/models/**"
+      "electron/modules/models/**",
+      "electron/modules/claudeEnvironment/**"
     ],
     "files": [
       "dist/**/*",

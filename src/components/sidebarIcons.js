@@ -10,6 +10,7 @@
 
 /** @type {Record<string, {color: string, path: string}>} 模块 ID → 图标 */
 export const SIDEBAR_ICONS = {
+  claudeEnvironment: { color: 'var(--ic-orange)', path: 'M8 1.5 13 3.5V8c0 3-5 6-5 6S3 11 3 8V3.5z' },
   permission: { color: 'var(--tool-claude)', path: 'M3 4.5 6.5 8 3 11.5M8 12h5' },
   devPlugin: { color: 'var(--ic-teal)', path: 'M4.5 2.5v11M4.5 9.5h4a3 3 0 0 0 3-3v-4M11.5 2.5 9.5 4.5M11.5 2.5l2 2' },
   'project-init': { color: 'var(--ic-blue)', path: 'M8 3v10M3 8h10' },

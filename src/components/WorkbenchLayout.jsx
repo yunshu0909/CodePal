@@ -91,7 +91,8 @@ function WorkbenchLayout({ children, activeModule, onModuleChange, appUpdate, on
         // 终端命令是 macOS 的 shell 脚本，只在 Mac 上显示（#26 范围只做 macOS）
         { id: 'models', label: '模型接入', macOnly: true },
         { id: 'modelHub', label: '模型汇总', macOnly: true },
-        { id: 'network', label: '网络诊断' }
+        { id: 'network', label: '网络诊断' },
+        { id: 'claudeEnvironment', label: '环境监测' }
       ]
     }
   ]

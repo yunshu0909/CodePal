@@ -520,13 +520,13 @@ describe('TC-005 模块 E · 侧栏', () => {
   it('非 Mac 上不显示「模型接入」（终端命令只支持 macOS）', async () => {
     const { default: WorkbenchLayout } = await import('../../src/components/WorkbenchLayout')
     withUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64)', () => render(<WorkbenchLayout activeModule="usage"><div /></WorkbenchLayout>))
-    expect(envGroupLabels()).toEqual(['Claude Code 设置', '网络诊断'])
+    expect(envGroupLabels()).toEqual(['Claude Code 设置', '网络诊断', '环境监测'])
   })
 
   it('TC-E18 环境配置组顺序；VALID_ACTIVE_MODULES 含 models', async () => {
     const { default: WorkbenchLayout } = await import('../../src/components/WorkbenchLayout')
     withUserAgent('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)', () => render(<WorkbenchLayout activeModule="usage"><div /></WorkbenchLayout>))
-    expect(envGroupLabels()).toEqual(['Claude Code 设置', '模型接入', '模型汇总', '网络诊断'])
+    expect(envGroupLabels()).toEqual(['Claude Code 设置', '模型接入', '模型汇总', '网络诊断', '环境监测'])
     const { VALID_ACTIVE_MODULES } = await import('../../src/App.jsx')
     expect(VALID_ACTIVE_MODULES.has('models')).toBe(true)
   })

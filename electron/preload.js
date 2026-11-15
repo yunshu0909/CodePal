@@ -265,6 +265,17 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // 网络诊断（出口 IP）APIs
 
+  // Claude 专用环境：路径和探测程序只由主进程决定。
+  claudeEnvironmentRead: () => ipcRenderer.invoke('claude-environment:read'),
+  claudeEnvironmentProbe: () => ipcRenderer.invoke('claude-environment:probe'),
+  claudeEnvironmentSetMonitoring: (enabled) => ipcRenderer.invoke('claude-environment:set-monitoring', enabled),
+  claudeEnvironmentForeground: (foreground) => ipcRenderer.invoke('claude-environment:set-foreground', foreground),
+  onClaudeEnvironmentState: (callback) => {
+    const handler = (_event, state) => callback(state)
+    ipcRenderer.on('claude-environment:state', handler)
+    return () => ipcRenderer.removeListener('claude-environment:state', handler)
+  },
+
   /**
    * 获取出口 IP 当前状态（上次结果、近 7 天变化记录、开关）
    * @returns {Promise<{success: boolean, data: Object}>}

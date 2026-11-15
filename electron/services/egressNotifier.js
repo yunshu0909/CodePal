@@ -43,6 +43,7 @@ function createEgressNotifier({ NotificationClass, onClick }) {
 const NETWORK_NOTIFY_STYLE = {
   changed: { icon: 'net-changed.png', sound: 'Pop' },
   unreachable: { icon: 'net-fail.png', sound: 'Basso' },
+  recovered: { icon: 'done.png', sound: 'Glass' },
 }
 
 /**

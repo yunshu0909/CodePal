@@ -20,6 +20,7 @@ import PlanManagementPage from './pages/PlanManagementPage'
 import ProjectInitPage from './pages/ProjectInitPage'
 import PermissionModePage from './pages/PermissionModePage'
 import NetworkDiagnosticsPage from './pages/NetworkDiagnosticsPage'
+import ClaudeEnvironmentPage from './features/claudeEnvironment/ClaudeEnvironmentPage'
 import ModelsPage from './features/models/ModelsPage'
 import ModelHubPage from './features/modelHub/ModelHubPage'
 import DevPluginPage from './features/devPlugin/DevPluginPage'
@@ -31,7 +32,7 @@ import useMainNavigation from './hooks/useMainNavigation'
 
 // 首次打开、或记住的页面已下线时进侧栏第一项（2026-09-19 用户定）
 const DEFAULT_ACTIVE_MODULE = 'usage'
-export const VALID_ACTIVE_MODULES = new Set(['skills', 'usage', 'claude-usage', 'project-init', 'permission', 'models', 'modelHub', 'network', 'session-status', 'sessions', 'doc-browser', 'devPlugin'])
+export const VALID_ACTIVE_MODULES = new Set(['skills', 'usage', 'claude-usage', 'project-init', 'permission', 'models', 'modelHub', 'network', 'claudeEnvironment', 'session-status', 'sessions', 'doc-browser', 'devPlugin'])
 const INITIAL_APP_UPDATE_STATE = Object.freeze({
   checked: false,
   checking: false,
@@ -190,6 +191,7 @@ export default function App() {
         {activeModule === 'modelHub' && <ModelHubPage onNavigate={handleModuleChange} />}
         {activeModule === 'devPlugin' && <DevPluginPage />}
         {activeModule === 'network' && <NetworkDiagnosticsPage />}
+        {activeModule === 'claudeEnvironment' && <ClaudeEnvironmentPage />}
         {activeModule === 'session-status' && <SessionStatusPage />}
         {activeModule === 'sessions' && <SessionBrowserPage />}
         {activeModule === 'doc-browser' && <DocBrowserPage />}
