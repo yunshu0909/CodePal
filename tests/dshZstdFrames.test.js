@@ -3,10 +3,9 @@
  * DSH zstd 多帧容器测试（TC-13 / AC-13）
  *
  * 为什么需要这个模块：
- * DSH 的会话日志是**多帧拼接**的 zstd 容器（为支持追加写）。Node 没有可用的多帧 API：
- * - zlib.zstdDecompressSync(buf) 只解第一帧并静默截断
- * - zlib.createZstdDecompress() 流式读取在第二个帧处直接报错 Unknown frame descriptor
- * 因此必须自行走查帧边界，再逐帧解压。
+ * DSH 的会话日志是**多帧拼接**的 zstd 容器（为支持追加写）。
+ * 原生 API 对拼接帧的行为随 Node 版本不同，不能把“只解首帧”当成固定前提。
+ * 本模块还负责逐帧消费和尾部残帧恢复；回归必须直接验证完整内容与帧边界。
  *
  * 本测试用**构造的多帧容器**做 fixture（把若干段独立压缩后首尾相接），
  * 不读取真实 ~/.dsh，保证脱网可运行。
@@ -37,9 +36,9 @@ describe('TC-13 zstd 多帧解压', () => {
 
   it('明确优于"只解首帧"的错误做法（回归护栏）', () => {
     const multi = makeMultiFrame(CHUNKS)
-    const firstFrameOnly = zstdDecompressSync(multi)
+    const firstFrameOnly = zstdDecompressSync(makeMultiFrame(CHUNKS.slice(0, 1)))
 
-    // 原生 API 只给出第一帧，这是本模块存在的理由
+    // 明确构造只读首帧的错误结果，避免依赖原生 API 的版本差异。
     expect(firstFrameOnly.toString('utf-8')).toBe(CHUNKS[0])
     // 本模块必须给出全部内容，且严格长于首帧
     const result = decompressZstdFrames(multi)
