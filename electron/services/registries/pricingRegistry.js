@@ -21,8 +21,8 @@
 
 const { loadPackagedJson } = require('./loadPackagedJson')
 
-// 硬编码兜底：Claude 三大模型 + 基本 GPT + Kimi + DSH 侧 DeepSeek/GLM
-// 远程 pricing.json 会覆盖这个数据；即使完全加载失败，应用也能显示基本费用
+// 硬编码兜底：src/config/pricing.json 的一份副本（模型、别名、汇率都一样）
+// 打包的 pricing.json 和缓存都读不到时用它，应用仍能给每个已知模型算费用
 const HARDCODED_PRICING_FALLBACK = Object.freeze({
   version: 'hardcoded-fallback',
   updatedAt: null,
@@ -30,38 +30,70 @@ const HARDCODED_PRICING_FALLBACK = Object.freeze({
   // 别名 → canonical：同一上游模型在不同客户端 / 版本里写成不同 id 时归一
   // （keys 与 canonical 都写成 normalizeModelKey 之后的形式）
   aliases: {
+    'gpt-6-astra-for-law': 'gpt-6-astra-law',
     'deepseek-v4-flash': 'deepseek-v4.1-flash',
     'deepseek-flash': 'deepseek-v4.1-flash',
     'deepseek-v4-1-flash-expires-on-0910': 'deepseek-v4.1-flash',
     'k3-256k': 'kimi-k3',
-    'gpt-6-astra-for-law': 'gpt-6-astra-law',
   },
+  // 和 src/config/pricing.json 的 models 逐项一致（含 history 历史价），顺序也一样。
+  // tests/plan/pricingFallbackSync.test.js 守着：改了 pricing.json 就把同样的改动抄到这里。
   models: {
+    'gpt-6-1-terra': { displayName: 'GPT-6.1 Terra', input: 1, output: 5, cacheRead: 0.05, cacheWrite: 1.25 },
+    'claude-fable-5-2': { displayName: 'Claude Fable 5.2', input: 8, output: 40, cacheRead: 0.2, cacheWrite: 10 },
+    'claude-mythos-5-2': { displayName: 'Claude Mythos 5.2', input: 8, output: 40, cacheRead: 0.2, cacheWrite: 10 },
+    'claude-haiku-5-5': { displayName: 'Claude Haiku 5.5', input: 0.1, output: 0.5, cacheRead: 0.01, cacheWrite: 0.125 },
+    'gpt-6-cyber': { displayName: 'GPT-6 Cyber', input: 20, output: 100, cacheRead: 2, cacheWrite: 25 },
+    'gpt-6-rosalind': { displayName: 'GPT-6 Rosalind', input: 15, output: 75, cacheRead: 1.5, cacheWrite: 18.75 },
+    'gpt-6-astra-law': { displayName: 'GPT-6 Astra for Law', input: 10, output: 50, cacheRead: 1, cacheWrite: 0 },
     'gpt-6-1-sol': { displayName: 'GPT-6.1 Sol', input: 2, output: 10, cacheRead: 0.1, cacheWrite: 2.5 },
-    'claude-sonnet-5-5': { displayName: 'Claude Sonnet 5.5', input: 2, output: 10, cacheRead: 0.2, cacheWrite: 2.5 },
+    'claude-sonnet-5-5': { displayName: 'Claude Sonnet 5.5', input: 2, output: 10, cacheRead: 0.1, cacheWrite: 2.5, history: [{ until: '2026-10-07', input: 2, output: 10, cacheRead: 0.2, cacheWrite: 2.5 }] },
     'claude-opus-5-5': { displayName: 'Claude Opus 5.5', input: 4, output: 20, cacheRead: 0.2, cacheWrite: 5 },
     'claude-opus-5': { displayName: 'Claude Opus 5', input: 5, output: 25, cacheRead: 0.5, cacheWrite: 6.25 },
     'gpt-6-astra': { displayName: 'GPT-6 Astra', input: 10, output: 50, cacheRead: 1, cacheWrite: 12.5 },
     'gpt-6-sol': { displayName: 'GPT-6 Sol', input: 2, output: 10, cacheRead: 0.2, cacheWrite: 2.5 },
     'gpt-6-luna': { displayName: 'GPT-6 Luna', input: 0.1, output: 0.5, cacheRead: 0.01, cacheWrite: 0.125 },
-    'kimi-k3': { displayName: 'Kimi K3', input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3 },
     'claude-fable-5-1': { displayName: 'Claude Fable 5.1', input: 10, output: 50, cacheRead: 0.25, cacheWrite: 12.5 },
-    'claude-opus-4-8': { displayName: 'Claude Opus 4.8', input: 5.0, output: 25.0, cacheRead: 0.5, cacheWrite: 6.25 },
-    'claude-opus-4-7': { displayName: 'Claude Opus 4.7', input: 5.0, output: 25.0, cacheRead: 0.5, cacheWrite: 6.25 },
-    'claude-opus-4-6': { displayName: 'Claude Opus 4.6', input: 5.0, output: 25.0, cacheRead: 0.5, cacheWrite: 6.25 },
-    'claude-sonnet-4-6': { displayName: 'Claude Sonnet 4.6', input: 3.0, output: 15.0, cacheRead: 0.3, cacheWrite: 3.75 },
-    'claude-sonnet-5': { displayName: 'Claude Sonnet 5', input: 2.0, output: 10.0, cacheRead: 0.2, cacheWrite: 2.5 },
-    'claude-haiku-4-5': { displayName: 'Claude Haiku 4.5', input: 1.0, output: 5.0, cacheRead: 0.1, cacheWrite: 1.25 },
-    'claude-haiku-4-5-20251001': { displayName: 'Claude Haiku 4.5', input: 1.0, output: 5.0, cacheRead: 0.1, cacheWrite: 1.25 },
+    'claude-opus-4-8': { displayName: 'Claude Opus 4.8', input: 5, output: 25, cacheRead: 0.5, cacheWrite: 6.25 },
+    'claude-opus-4-7': { displayName: 'Claude Opus 4.7', input: 5, output: 25, cacheRead: 0.5, cacheWrite: 6.25 },
+    'claude-opus-4-6': { displayName: 'Claude Opus 4.6', input: 5, output: 25, cacheRead: 0.5, cacheWrite: 6.25 },
+    'claude-sonnet-4-6': { displayName: 'Claude Sonnet 4.6', input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3.75 },
+    'claude-sonnet-5': { displayName: 'Claude Sonnet 5', input: 2, output: 10, cacheRead: 0.2, cacheWrite: 2.5 },
+    'claude-haiku-4-5': { displayName: 'Claude Haiku 4.5', input: 1, output: 5, cacheRead: 0.1, cacheWrite: 1.25 },
+    'claude-haiku-4-5-20251001': { displayName: 'Claude Haiku 4.5', input: 1, output: 5, cacheRead: 0.1, cacheWrite: 1.25 },
+    'gpt-5-5': { displayName: 'GPT-5.5', input: 5, output: 30, cacheRead: 0.5, cacheWrite: 0 },
     // GPT-5.6：Terra/Luna 顶层为 07-30 永久降价后的官方现价，history 为降价前上市价；Sol 的 08-21 促销价不计，始终原价
     'gpt-5-6': { displayName: 'GPT-5.6 Sol', input: 5, output: 30, cacheRead: 0.5, cacheWrite: 6.25 },
     'gpt-5-6-sol': { displayName: 'GPT-5.6 Sol', input: 5, output: 30, cacheRead: 0.5, cacheWrite: 6.25 },
     'gpt-5-6-terra': { displayName: 'GPT-5.6 Terra', input: 2, output: 12, cacheRead: 0.2, cacheWrite: 2.5, history: [{ until: '2026-07-30', input: 2.5, output: 15, cacheRead: 0.25, cacheWrite: 3.125 }] },
     'gpt-5-6-luna': { displayName: 'GPT-5.6 Luna', input: 0.2, output: 1.2, cacheRead: 0.02, cacheWrite: 0.25, history: [{ until: '2026-07-30', input: 1, output: 6, cacheRead: 0.1, cacheWrite: 1.25 }] },
+    'gpt-5': { displayName: 'GPT-5', input: 1.25, output: 10, cacheRead: 0.125, cacheWrite: 0 },
+    'gpt-5-codex': { displayName: 'GPT-5-Codex', input: 1.25, output: 10, cacheRead: 0.125, cacheWrite: 0 },
+    'gpt-5-mini': { displayName: 'GPT-5 mini', input: 0.25, output: 2, cacheRead: 0.025, cacheWrite: 0 },
+    'gpt-5-2': { displayName: 'GPT-5.2', input: 1.75, output: 14, cacheRead: 0.175, cacheWrite: 0 },
+    'gpt-5-2-codex': { displayName: 'GPT-5.2-Codex', input: 1.75, output: 14, cacheRead: 0.175, cacheWrite: 0 },
+    'gpt-5-3-codex': { displayName: 'GPT-5.3 Codex', input: 1.75, output: 14, cacheRead: 0.175, cacheWrite: 0 },
+    'gpt-5-4': { displayName: 'GPT-5.4', input: 2.5, output: 15, cacheRead: 0.25, cacheWrite: 0 },
+    'gpt-5-4-mini': { displayName: 'GPT-5.4 mini', input: 0.75, output: 4.5, cacheRead: 0.075, cacheWrite: 0 },
+    'kimi-k3': { displayName: 'Kimi K3', input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3 },
+    'kimi-k2-5': { displayName: 'Kimi K2.5', input: 0.6, output: 3, cacheRead: 0.15, cacheWrite: 0 },
+    'kimi-for-coding': { displayName: 'Kimi for Coding', input: 0.6, output: 3, cacheRead: 0.15, cacheWrite: 0 },
     'deepseek-v4-1-flash': { displayName: 'DeepSeek V4.1 Flash', input: 0.148692, output: 0.594769, cacheRead: 0.002974, cacheWrite: 0.148692 },
     'deepseek-v4-flash-vision-exp': { displayName: 'DeepSeek V4 Flash (Vision)', input: 0.148692, output: 0.594769, cacheRead: 0.002974, cacheWrite: 0.148692 },
     'deepseek-v4-pro': { displayName: 'DeepSeek V4 Pro', input: 0.669115, output: 2.007345, cacheRead: 0.022304, cacheWrite: 0.669115 },
     'glm-5-3': { displayName: 'GLM-5.3', input: 1.189538, output: 4.163383, cacheRead: 0.297385, cacheWrite: 1.189538 },
+    'claude-fable-5': { displayName: 'Claude Fable 5', input: 10, output: 50, cacheRead: 1, cacheWrite: 12.5 },
+    'claude-mythos-5-1': { displayName: 'Claude Mythos 5.1', input: 10, output: 50, cacheRead: 0.25, cacheWrite: 12.5 },
+    'claude-mythos-5': { displayName: 'Claude Mythos 5', input: 10, output: 50, cacheRead: 1, cacheWrite: 12.5 },
+    'claude-opus-4-5': { displayName: 'Claude Opus 4.5', input: 5, output: 25, cacheRead: 0.5, cacheWrite: 6.25 },
+    'claude-sonnet-4-5': { displayName: 'Claude Sonnet 4.5', input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3.75 },
+    'gpt-5-1': { displayName: 'GPT-5.1', input: 1.25, output: 10, cacheRead: 0.125, cacheWrite: 0 },
+    'gpt-5-4-nano': { displayName: 'GPT-5.4 nano', input: 0.2, output: 1.25, cacheRead: 0.02, cacheWrite: 0 },
+    'gpt-5-nano': { displayName: 'GPT-5 nano', input: 0.05, output: 0.4, cacheRead: 0.005, cacheWrite: 0 },
+    'gpt-5-5-pro': { displayName: 'GPT-5.5 pro', input: 30, output: 180, cacheRead: 30, cacheWrite: 0 },
+    'gpt-5-4-pro': { displayName: 'GPT-5.4 pro', input: 30, output: 180, cacheRead: 30, cacheWrite: 0 },
+    'gpt-5-2-pro': { displayName: 'GPT-5.2 pro', input: 21, output: 168, cacheRead: 21, cacheWrite: 0 },
+    'gpt-5-pro': { displayName: 'GPT-5 pro', input: 15, output: 120, cacheRead: 15, cacheWrite: 0 },
   },
 })
 
