@@ -85,9 +85,19 @@ const GATES = {
   'formal.G3': { reviewers: 1, rounds: 3 },
   'formal.G4': { reviewers: 2, rounds: 3 },
 }
+// v2.1.28 起规则里有两道设计审查；页面缺这份数据时不画这两行，所以测试数据要带上（#88 第 3 条）
+const DESIGN_GATES = {
+  'formal.design-boundary': { rounds: 2 },
+  'formal.design-reconcile': { rounds: 3 },
+}
 function rules(patch = {}) {
   return {
-    effective: { selfReview: false, gates: structuredClone(GATES), advanced: { timeoutMinutes: 20, failoverMax: 3, autoExtendRounds: 1 } },
+    effective: {
+      selfReview: false,
+      gates: structuredClone(GATES),
+      designGates: structuredClone(DESIGN_GATES),
+      advanced: { timeoutMinutes: 20, failoverMax: 3, autoExtendRounds: 1 },
+    },
     changed: false,
     defaultsVersion: '2026.10.1',
     exportOk: true,
@@ -314,6 +324,36 @@ it('SC-007 审核规则页签全貌：顶卡默认值、派审核、两组六道
   expect(adv('failoverMax').textContent).toContain('3 次')
   expect(adv('autoExtendRounds').textContent).toContain('轮次用完自动加')
   expect(adv('autoExtendRounds').textContent).toContain('1 轮')
+})
+
+it('TC-011 完整开发组带边界审查、对账复核两行时，原有六道关、自审、高级、恢复默认照常', async () => {
+  await show()
+  await rulesTab()
+  const design = [
+    ['formal.design-boundary', '边界审查', '后端规则有没有漏掉的边界', '同需求对齐', '每个 2 轮'],
+    ['formal.design-reconcile', '对账复核', '改完的规则和审核意见对不对得上', '原审核者', '每个 3 轮'],
+  ]
+  for (const [id, name, sub, who, r] of design) {
+    expect(gate(id), id).not.toBeNull()
+    for (const t of [name, sub, who]) expect(gate(id).textContent, `${id} ${t}`).toContain(t)
+    expect(gateButton(id, 'rounds').textContent).toContain(r)
+  }
+  const original = [
+    ['lite.G0', '1 个模型', '每个 3 轮'],
+    ['lite.G1', '2 个模型', '每个 3 轮'],
+    ['formal.G1', '1 个模型', '每个 3 轮'],
+    ['formal.G2b', '1 个模型', '每个 2 轮'],
+    ['formal.G3', '1 个模型', '每个 3 轮'],
+    ['formal.G4', '2 个模型', '每个 3 轮'],
+  ]
+  for (const [id, n, r] of original) {
+    expect(gateButton(id, 'reviewers').textContent, id).toContain(n)
+    expect(gateButton(id, 'rounds').textContent, id).toContain(r)
+  }
+  expect(screen.getByRole('switch', { name: '写代码的那家也参与审核' })).toHaveAttribute('aria-checked', 'false')
+  expect(screen.getByRole('button', { name: '恢复默认' })).toBeDisabled()
+  fireEvent.click(advFold())
+  expect(adv('timeoutMinutes').textContent).toContain('20 分钟')
 })
 
 it('SC-008 首次加载审核规则页签：分组标题先出、关卡行出骨架，不出数值和报错', async () => {

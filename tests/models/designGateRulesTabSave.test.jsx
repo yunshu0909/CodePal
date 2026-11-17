@@ -92,10 +92,17 @@ it('TC-012 点选对账复核 4 轮：保存中先显示新值并禁用，保存
   expect(document.querySelector('[data-adv="autoExtendRounds"]').textContent).toContain('1 轮')
 })
 
-it('TC-012 点选边界审查 5 轮保存失败：退回 2 轮并红色提示，默认值一行回到原样', async () => {
-  await show(vi.fn(async () => DENIED))
+it('TC-012 点选边界审查 5 轮保存失败：先显示 5 轮并禁用，失败后退回 2 轮并红色提示，默认值一行回到原样', async () => {
+  // 失败由测试控制什么时候返回：立即失败的话看不到「先显示新值」这一步，退回写坏了也测不出（#88 第 5 条）
+  let fail
+  await show(vi.fn(() => new Promise((resolve) => (fail = () => resolve(DENIED)))))
   pick(BOUNDARY, '每个 5 轮')
   await act(async () => {})
+  expect(button(BOUNDARY).textContent).toContain('每个 5 轮')
+  expect(button(BOUNDARY)).toBeDisabled()
+  expect(defaultsLine()).toContain('恢复成这个版本配好的建议值')
+  expect(toast.error).not.toHaveBeenCalled()
+  await act(async () => fail())
   expect(button(BOUNDARY).textContent).toContain('每个 2 轮')
   expect(button(BOUNDARY)).not.toBeDisabled()
   expect(toast.error).toHaveBeenCalled()
