@@ -4,7 +4,8 @@
  * - Claude Code：~/.claude/skills/dev-workflow/.claude-plugin/plugin.json 在 = 装了；
  *   ~/.claude/settings.json 的 enabledPlugins["dev-workflow@skills-dir"]：false 关，true 或没写开；
  *   系统管理设置（managed-settings）写了这一项就按它显示并锁定
- * - Codex：~/.codex/config.toml 里唯一的 [plugins."dev-workflow@<来源>"] 节 + 能找到的本地来源 = 装了；enabled 决定开关
+ * - Codex：~/.codex/config.toml 里唯一的 [plugins."dev-workflow@<来源>"] 节 + 能找到插件包 = 装了；enabled 决定开关。
+ *   插件包：本地来源看来源目录；git 等其他来源看 ~/.codex/plugins/cache/<来源>/dev-workflow/<版本>/（#83）
  * - 任何一边读不出（格式坏、类型不对、多个插件节、配置根不在默认位置、管理设置读不出）整页读取失败，原因写明是哪一处
  * - 不写任何文件，不修坏掉的配置；项目自己的 .claude/settings.json 不读
  *
@@ -199,11 +200,51 @@ async function readCodexConfig(homeDir) {
 async function readCodexPackage(doc, key, homeDir) {
   const market = key.slice(PLUGIN_NAME.length + 1)
   const entry = isPlainObject(doc.marketplaces) ? doc.marketplaces[market] : null
-  if (!isPlainObject(entry) || entry.source_type !== 'local' || typeof entry.source !== 'string') return null
+  if (!isPlainObject(entry)) return null
+  // 从 git 等非本地来源装的：插件只在 Codex 插件缓存里（#83）；本地来源照旧看来源目录，找不到按没装（真-03）
+  if (entry.source_type !== 'local') return readCodexCache(homeDir, market)
+  if (typeof entry.source !== 'string') return null
   const manifest = await readJsonIfExists(path.join(entry.source, 'plugins', PLUGIN_NAME, '.codex-plugin/plugin.json'), homeDir)
   const info = manifest === null ? null : manifestInfo(manifest)
   if (!info || info.name !== PLUGIN_NAME) return null
   return { realSource: await realpathOrSelf(entry.source), ...info }
+}
+
+/** 都是 1.2.3 这样的纯数字版本号才能比大小 */
+const plainVersion = (value) => typeof value === 'string' && /^\d+(\.\d+)*$/.test(value)
+function newerVersion(a, b) {
+  const pa = a.split('.').map(Number)
+  const pb = b.split('.').map(Number)
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    if ((pa[i] || 0) !== (pb[i] || 0)) return (pa[i] || 0) > (pb[i] || 0) ? a : b
+  }
+  return a
+}
+
+/**
+ * 非本地来源装的插件包：~/.codex/plugins/cache/<来源>/dev-workflow/<版本>/.codex-plugin/plugin.json（#83）
+ * 缓存里常留着好几个旧版本，Codex 实际用哪个没有文档，不猜：都是纯数字版本号就显示最高的，比不了就「看不出版本」
+ * @returns {Promise<{realSource: string, name: string, version: string|null}|null>} 没有 dev-workflow 包返回 null
+ */
+async function readCodexCache(homeDir, market) {
+  if (!market || market.includes('/') || market.includes('\\') || market.startsWith('.')) return null
+  const dir = path.join(homeDir, '.codex/plugins/cache', market, PLUGIN_NAME)
+  let names
+  try {
+    names = await fs.readdir(dir)
+  } catch (error) {
+    if (error.code === 'ENOENT' || error.code === 'ENOTDIR') return null
+    throw readFailure(`${shownPath(dir, homeDir)} ${IO_REASONS[error.code] || '读不出来'}`)
+  }
+  const versions = []
+  for (const name of names.sort()) {
+    const manifest = await readJsonIfExists(path.join(dir, name, '.codex-plugin/plugin.json'), homeDir)
+    const info = manifest === null ? null : manifestInfo(manifest)
+    if (info && info.name === PLUGIN_NAME) versions.push(info.version)
+  }
+  if (!versions.length) return null
+  const version = versions.every(plainVersion) ? versions.reduce(newerVersion) : versions.length === 1 ? versions[0] : null
+  return { realSource: await realpathOrSelf(dir), name: PLUGIN_NAME, version }
 }
 
 /**

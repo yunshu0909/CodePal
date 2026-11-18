@@ -246,3 +246,41 @@ it('#83-3 家目录里名字以两个点开头的文件夹（..market）也按 ~
     fs.chmodSync(manifest, 0o644)
   }
 })
+
+/** 从 git 等非本地来源装的 Codex 插件：只在 ~/.codex/plugins/cache/<来源>/dev-workflow/<版本>/ 里 */
+function codexFromGit({ versions = ['0.12.9', '0.12.10'], market = 'gh-dev', enabled = 'true', manifestVersion = (v) => v } = {}) {
+  for (const dir of versions) {
+    const version = manifestVersion(dir)
+    write(path.join(home, '.codex/plugins/cache', market, 'dev-workflow', dir, '.codex-plugin/plugin.json'),
+      JSON.stringify(version === null ? { name: 'dev-workflow' } : { name: 'dev-workflow', version }))
+  }
+  write(configFile(), `[plugins."dev-workflow@${market}"]\nenabled = ${enabled}\n\n[marketplaces.${market}]\nsource_type = "git"\nsource = "https://example.com/dev-workflow.git"\n`)
+}
+
+it('#83-1 从 git 装的 Codex 插件：在插件缓存里就算装了，版本取缓存里最高的那个（按版本号比，不按字面）', async () => {
+  codexFromGit()
+  const { data } = await read()
+  expect(data.codex).toMatchObject({ installed: true, enabled: true, locked: false })
+  expect(data.versionText).toBe('0.12.10')
+  expect(data.identity.codex).toMatchObject({ key: 'dev-workflow@gh-dev', name: 'dev-workflow' })
+})
+
+it('#83-1 从 git 装、缓存里没有：按没装；缓存里的版本看不出时写「看不出版本」', async () => {
+  write(configFile(), '[plugins."dev-workflow@gh-dev"]\nenabled = true\n\n[marketplaces.gh-dev]\nsource_type = "git"\nsource = "https://example.com/x.git"\n')
+  expect((await read()).data.codex.installed).toBe(false)
+  fs.rmSync(path.join(home, '.codex'), { recursive: true, force: true })
+  codexFromGit({ versions: ['1dc19589', '7a2b3c4d'], manifestVersion: () => null })
+  const { data } = await read()
+  expect(data.codex.installed).toBe(true)
+  expect(data.versionText).toBe('看不出版本')
+})
+
+it('#83-1 缓存里放的不是 dev-workflow（名字不对）不算；本地来源找不到时也不拿缓存充数（真-03 不变）', async () => {
+  write(path.join(home, '.codex/plugins/cache/gh-dev/dev-workflow/1.0.0/.codex-plugin/plugin.json'), JSON.stringify({ name: 'other', version: '1.0.0' }))
+  write(configFile(), '[plugins."dev-workflow@gh-dev"]\nenabled = true\n\n[marketplaces.gh-dev]\nsource_type = "git"\nsource = "https://example.com/x.git"\n')
+  expect((await read()).data.codex.installed).toBe(false)
+  fs.rmSync(path.join(home, '.codex'), { recursive: true, force: true })
+  codexPlugin({ source: false })
+  write(path.join(home, '.codex/plugins/cache/local-dev/dev-workflow/0.12.22/.codex-plugin/plugin.json'), JSON.stringify({ name: 'dev-workflow', version: '0.12.22' }))
+  expect((await read()).data.codex.installed).toBe(false)
+})

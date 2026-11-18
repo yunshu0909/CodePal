@@ -274,3 +274,15 @@ it('TC-113 回读一致时不出现没确认（真-08 消失）', async () => {
   expect(result.status).toBe('saved')
   expect(result.message ?? '').not.toContain('没确认')
 })
+
+it('#83-1 从 git 装的 Codex 插件也能关：只改插件节 enabled 这一行', async () => {
+  claudePlugin()
+  write(path.join(home, '.codex/plugins/cache/gh-dev/dev-workflow/0.12.10/.codex-plugin/plugin.json'), JSON.stringify({ name: 'dev-workflow', version: '0.12.10' }))
+  write(configFile(), `${TOML_HEAD}[plugins."dev-workflow@gh-dev"]\nenabled = true\n\n[marketplaces.gh-dev]\nsource_type = "git"\nsource = "https://example.com/x.git"\n`)
+  const before = fs.readFileSync(configFile(), 'utf8')
+  const state = await readDevPluginState({ homeDir: home, env: {}, managedPaths: [managed] })
+  expect(state.data.codex.installed).toBe(true)
+  const result = await toggle().setEnabled({ tool: 'codex', enabled: false, identity: state.data.identity })
+  expect(result).toMatchObject({ status: 'saved', enabled: false })
+  expect(fs.readFileSync(configFile(), 'utf8')).toBe(before.replace('[plugins."dev-workflow@gh-dev"]\nenabled = true', '[plugins."dev-workflow@gh-dev"]\nenabled = false'))
+})
