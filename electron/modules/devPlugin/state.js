@@ -33,14 +33,29 @@ function isPlainObject(value) {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
-/** 读 JSON 文件；不存在返回 null，其余错误照抛 */
-async function readJsonIfExists(file) {
+// 读文件时意外出错的中文原因（#83）；没列到的一律「读不出来」
+const IO_REASONS = {
+  EACCES: '没有读取权限',
+  EPERM: '没有读取权限',
+  EISDIR: '是个文件夹，不是文件',
+  ELOOP: '是个绕成圈的链接',
+  ENOTDIR: '的路径中间有一段不是文件夹',
+}
+
+/** 给页面看的路径：家目录里的写成 ~ 开头，不露出完整用户目录 */
+function shownPath(file, homeDir) {
+  const relative = path.relative(homeDir, file)
+  return relative && !relative.startsWith('..') && !path.isAbsolute(relative) ? `~/${relative}` : file
+}
+
+/** 读 JSON 文件；不存在返回 null，其余读不出的情况变成写明文件和原因的读取失败 */
+async function readJsonIfExists(file, homeDir) {
   let text
   try {
     text = await fs.readFile(file, 'utf8')
   } catch (error) {
     if (error.code === 'ENOENT') return null
-    throw error
+    throw readFailure(`${shownPath(file, homeDir)} ${IO_REASONS[error.code] || '读不出来'}`)
   }
   try {
     return JSON.parse(text)
@@ -84,7 +99,7 @@ async function claudeRootMoved(homeDir, env) {
  */
 async function readClaudePlugin(homeDir) {
   const dir = path.join(homeDir, '.claude/skills', PLUGIN_NAME)
-  const manifest = await readJsonIfExists(path.join(dir, '.claude-plugin/plugin.json'))
+  const manifest = await readJsonIfExists(path.join(dir, '.claude-plugin/plugin.json'), homeDir)
   const info = manifest === null ? null : manifestInfo(manifest)
   // 目录里放的不是 dev-workflow（name 不对或 manifest 坏了）按没装，开关不能点，不让每次点都报「别处改过」
   if (!info || info.name !== PLUGIN_NAME) return { installed: false, realDir: null, name: null, version: null }
@@ -180,11 +195,11 @@ async function readCodexConfig(homeDir) {
  * 插件节对应的本地来源里的插件包；找不到返回 null（按没装显示，真-03）
  * @returns {Promise<{realSource: string, name: string|null, version: string|null}|null>}
  */
-async function readCodexPackage(doc, key) {
+async function readCodexPackage(doc, key, homeDir) {
   const market = key.slice(PLUGIN_NAME.length + 1)
   const entry = isPlainObject(doc.marketplaces) ? doc.marketplaces[market] : null
   if (!isPlainObject(entry) || entry.source_type !== 'local' || typeof entry.source !== 'string') return null
-  const manifest = await readJsonIfExists(path.join(entry.source, 'plugins', PLUGIN_NAME, '.codex-plugin/plugin.json'))
+  const manifest = await readJsonIfExists(path.join(entry.source, 'plugins', PLUGIN_NAME, '.codex-plugin/plugin.json'), homeDir)
   const info = manifest === null ? null : manifestInfo(manifest)
   if (!info || info.name !== PLUGIN_NAME) return null
   return { realSource: await realpathOrSelf(entry.source), ...info }
@@ -202,7 +217,7 @@ async function readCodexSide({ homeDir }) {
   // Codex 对没写 enabled 的默认值未核实（B-001）：不猜，按读取失败
   if (enabled === undefined) throw readFailure(`${CONFIG_LABEL} 里 dev-workflow 插件节没写 enabled`)
   if (typeof enabled !== 'boolean') throw readFailure(`${CONFIG_LABEL} 里 dev-workflow 插件节的 enabled 不是 true / false`)
-  const pkg = await readCodexPackage(config.doc, config.key)
+  const pkg = await readCodexPackage(config.doc, config.key, homeDir)
   if (!pkg) return { installed: false, enabled, locked: false, version: null, identity: null }
   return {
     installed: true,
@@ -246,7 +261,8 @@ async function readDevPluginState({ homeDir, env = process.env, managedPaths = n
     }
   } catch (error) {
     // 原因前统一冠「读不到插件的安装信息：」（定稿文案），后面写明是哪个文件、哪一项
-    const reason = error && error.code === 'read_failed' ? error.message : (error && error.message) || '未知原因'
+    // 分不出原因的意外错误不显示程序原文（英文、可能带完整路径，#83）
+    const reason = error && error.code === 'read_failed' ? error.message : '读的时候出了意外问题，重试一次；还不行就重启 CodePal'
     return { ok: false, error: { code: 'read_failed', message: `${READ_FAILED_PREFIX}${reason}` } }
   }
 }

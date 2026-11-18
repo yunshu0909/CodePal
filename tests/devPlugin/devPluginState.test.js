@@ -182,3 +182,50 @@ it('TC-110 系统管理设置写了这一项：按它显示、锁定（后-14-�
   ;({ data } = await read())
   expect(data.claude.locked).toBe(false)
 })
+
+it('#83-3 意外的读文件错误：页面上写中文原因，路径用 ~ 开头，不露出完整家目录和程序英文原文', async () => {
+  const plain = (message) => {
+    expect(message.startsWith('读不到插件的安装信息：')).toBe(true)
+    expect(message).not.toContain(home)
+    expect(message).not.toMatch(/E[A-Z]{3,}|illegal|permission denied|no such file|too many/i)
+  }
+  // manifest 的位置是个文件夹
+  fs.mkdirSync(path.join(claudeDir(), '.claude-plugin/plugin.json'), { recursive: true })
+  let result = await read()
+  expect(result.ok).toBe(false)
+  plain(result.error.message)
+  expect(result.error.message).toContain('~/.claude/skills/dev-workflow/.claude-plugin/plugin.json 是个文件夹，不是文件')
+  fs.rmSync(path.join(claudeDir(), '.claude-plugin'), { recursive: true })
+
+  // 链接绕成圈
+  fs.mkdirSync(path.join(claudeDir(), '.claude-plugin'), { recursive: true })
+  fs.symlinkSync('loop-b', path.join(claudeDir(), '.claude-plugin/plugin.json'))
+  fs.symlinkSync('plugin.json', path.join(claudeDir(), '.claude-plugin/loop-b'))
+  result = await read()
+  plain(result.error.message)
+  expect(result.error.message).toContain('~/.claude/skills/dev-workflow/.claude-plugin/plugin.json 是个绕成圈的链接')
+  fs.rmSync(path.join(claudeDir(), '.claude-plugin'), { recursive: true })
+
+  // 没有读取权限（Codex 本地来源里的插件包，来源在家目录里）
+  if (process.getuid && process.getuid() !== 0) {
+    claudePlugin()
+    const sourceDir = path.join(home, 'markets/local-dev')
+    const manifest = path.join(sourceDir, 'plugins/dev-workflow/.codex-plugin/plugin.json')
+    write(manifest, JSON.stringify({ name: 'dev-workflow', version: '1.0.0' }))
+    write(configFile(), `[plugins."dev-workflow@local-dev"]\nenabled = true\n\n[marketplaces.local-dev]\nsource_type = "local"\nsource = "${sourceDir}"\n`)
+    fs.chmodSync(manifest, 0o000)
+    try {
+      result = await read()
+      plain(result.error.message)
+      expect(result.error.message).toContain('~/markets/local-dev/plugins/dev-workflow/.codex-plugin/plugin.json 没有读取权限')
+    } finally {
+      fs.chmodSync(manifest, 0o644)
+    }
+  }
+})
+
+it('#83-3 连原因都分不出的意外错误：写一句中文，不把程序原文显示出来', async () => {
+  const result = await readDevPluginState({ homeDir: 42, env: {}, managedPaths: [managed] })
+  expect(result.ok).toBe(false)
+  expect(result.error.message).toBe('读不到插件的安装信息：读的时候出了意外问题，重试一次；还不行就重启 CodePal')
+})
