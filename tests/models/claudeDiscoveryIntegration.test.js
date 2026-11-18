@@ -74,3 +74,36 @@ it('TC-004 installation and removal refresh both consumers and the CLI uses the 
     fs.rmSync(home, { recursive: true, force: true })
   }
 })
+
+it('#86-3 真起一个 shell：隔离的家目录里 .zshrc 把一个非标准目录加进 PATH，从精简环境也能找到那里的 claude', () => {
+  if (!fs.existsSync('/bin/zsh')) return
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'claude-real-shell-'))
+  try {
+    const bin = path.join(home, 'weird bin')
+    fs.mkdirSync(bin)
+    fs.writeFileSync(path.join(bin, 'claude'), '#!/bin/sh\necho 2.1.310\n', { mode: 0o755 })
+    fs.writeFileSync(path.join(home, '.zshrc'), 'export PATH="$HOME/weird bin:$PATH"\n')
+    // 只隔离常见安装位置（本机装在那里也不影响），用户 shell 固定成 zsh；shell 本身是真的，配置只读这个家目录里的
+    const preload = path.join(home, 'isolate.cjs')
+    fs.writeFileSync(preload, `
+      const fs = require('fs'); const os = require('os');
+      const originalStat = fs.statSync;
+      fs.statSync = function(file, ...args) {
+        if (['/opt/homebrew/bin/claude', '/usr/local/bin/claude'].includes(file)) throw new Error('isolated');
+        return originalStat.call(this, file, ...args);
+      };
+      const originalUser = os.userInfo;
+      os.userInfo = (...args) => ({ ...originalUser(...args), shell: '/bin/zsh' });
+    `)
+    const script = `console.log(JSON.stringify(require('./electron/modules/models/claudeCli').locateClaude(process.env)))`
+    const result = spawnSync(process.execPath, ['--require', preload, '-e', script], {
+      cwd: REPO,
+      env: { HOME: home, ZDOTDIR: home, PATH: '/usr/bin:/bin', SHELL: '/bin/zsh' },
+      encoding: 'utf8', timeout: 15000,
+    })
+    expect(result.status, result.stderr).toBe(0)
+    expect(JSON.parse(result.stdout.trim().split('\n').pop())).toBe(path.join(bin, 'claude'))
+  } finally {
+    fs.rmSync(home, { recursive: true, force: true })
+  }
+})
