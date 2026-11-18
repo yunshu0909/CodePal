@@ -320,3 +320,26 @@ it('#83-6 那一行还在保存、轮询读完时版本号也跟着更新', asyn
   await act(async () => {})
   expect(screen.getByText('0.13.1')).toBeTruthy()
 })
+
+it('#83-6 两行同时重读、先开始的读取后回来：不拿旧版本号盖掉新的', async () => {
+  const slow = deferred()
+  let reads = 0
+  api({
+    read: () => {
+      reads += 1
+      if (reads === 1) return Promise.resolve(ok(state()))
+      if (reads === 2) return slow.promise                       // Claude 那行的重读：先开始、后回来
+      return Promise.resolve(ok(state({ versionText: '0.13.2' }))) // Codex 那行的重读：后开始、先回来
+    },
+    set: () => Promise.resolve(fail('changed', '插件状态刚被别处改过，已重新读取')),
+  })
+  await show()
+  await act(async () => { fireEvent.click(toggleOf('Claude Code')) })
+  await act(async () => { fireEvent.click(toggleOf('Codex')) })
+  await act(async () => {})
+  expect(screen.getByText('0.13.2')).toBeTruthy()
+  await act(async () => { slow.resolve(ok(state({ versionText: '0.13.0' }))) })
+  await act(async () => {})
+  expect(screen.getByText('0.13.2')).toBeTruthy()
+  expect(screen.queryByText('0.13.0')).toBeNull()
+})

@@ -43,6 +43,9 @@ export default function useDevPlugin() {
   const busy = useRef({ claude: false, codex: false })
   const timers = useRef(new Set())
   const loadToken = useRef(0)
+  // 版本号是两行共用的：每次读取取号，只采用比已显示的更晚开始的那次（两行同时重读时旧的不盖新的）
+  const readSeq = useRef(0)
+  const versionSeq = useRef(0)
 
   const later = useCallback((fn, ms) => {
     const id = setTimeout(() => {
@@ -69,12 +72,13 @@ export default function useDevPlugin() {
 
   /** 读一次，超过 10 秒按读取失败；tool 给了表示只为这一行重读（主进程只更新这一边的写前身份） */
   const readOnce = useCallback((tool) => new Promise((resolve) => {
+    const seq = ++readSeq.current
     const id = later(() => resolve({ ok: false, message: READ_TIMEOUT_TEXT }), READ_TIMEOUT_MS)
     Promise.resolve()
       .then(() => window.electronAPI.devPluginRead(tool ? { tool } : undefined))
       .then((result) => {
         cancel(id)
-        if (result && result.success) resolve({ ok: true, data: result.data })
+        if (result && result.success) resolve({ ok: true, data: result.data, seq })
         else resolve({ ok: false, message: (result && result.error && result.error.message) || READ_FAILED_TEXT })
       }, () => {
         cancel(id)
@@ -86,12 +90,20 @@ export default function useDevPlugin() {
     setView((prev) => ({ ...prev, status: 'error', error: message }))
   }, [])
 
+  /** 这次读到的版本号能不能用：比已显示的那次更晚开始才用，返回要显示的版本号或 undefined */
+  const newerVersion = useCallback((read) => {
+    if (!read || read.seq < versionSeq.current) return undefined
+    versionSeq.current = read.seq
+    return read.data.versionText
+  }, [])
+
   /** 更新一行；单行重读也带回了两边算出的版本号，一起更新（#83 第 6 条） */
-  const setRow = useCallback((tool, patch, versionText) => {
+  const setRow = useCallback((tool, patch, read) => {
+    const versionText = newerVersion(read)
     setView((prev) => (prev.rows
       ? { ...prev, ...(versionText === undefined ? {} : { versionText }), rows: { ...prev.rows, [tool]: { ...prev.rows[tool], ...patch } } }
       : prev))
-  }, [])
+  }, [newerVersion])
 
   /** 某一行还在主进程里保存（再进入页面时）：每秒查一次，做完按读到的值显示 */
   const pollRow = useCallback((tool, op) => {
@@ -104,7 +116,7 @@ export default function useDevPlugin() {
       }
       if (result.data.saving && result.data.saving[tool]) return pollRow(tool, op)
       busy.current[tool] = false
-      setRow(tool, toRow(result.data[tool], false), result.data.versionText)
+      setRow(tool, toRow(result.data[tool], false), result)
     }, POLL_MS)
   }, [later, readOnce, setRow, showError])
 
@@ -118,7 +130,7 @@ export default function useDevPlugin() {
       return showError(result.message)
     }
     const stillSaving = Boolean(result.data.saving && result.data.saving[tool])
-    setRow(tool, toRow(result.data[tool], stillSaving), result.data.versionText)
+    setRow(tool, toRow(result.data[tool], stillSaving), result)
     if (stillSaving) pollRow(tool, op)
     else busy.current[tool] = false
   }, [readOnce, setRow, showError, pollRow])
@@ -132,13 +144,14 @@ export default function useDevPlugin() {
     if (!alive.current || token !== loadToken.current) return
     if (!result.ok) return showError(result.message)
     const { data } = result
+    const versionText = newerVersion(result)
     setView((prev) => {
       const rows = {}
       for (const tool of TOOLS) {
         const moved = ops.current[tool] !== startOps[tool]
         rows[tool] = moved && prev.rows ? prev.rows[tool] : toRow(data[tool], data.saving && data.saving[tool])
       }
-      return { status: 'ready', error: null, versionText: data.versionText, rows }
+      return { status: 'ready', error: null, versionText: versionText === undefined ? prev.versionText : versionText, rows }
     })
     // 这一行用的是本次读取的结果时，是否在保存以主进程说的为准（重试后不会被上一次的保存中卡住）
     for (const tool of TOOLS) {
@@ -146,7 +159,7 @@ export default function useDevPlugin() {
       busy.current[tool] = Boolean(data.saving && data.saving[tool])
       if (busy.current[tool]) pollRow(tool, ops.current[tool])
     }
-  }, [readOnce, showError, pollRow])
+  }, [readOnce, showError, pollRow, newerVersion])
 
   useEffect(() => {
     load()
