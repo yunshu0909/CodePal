@@ -296,3 +296,20 @@ it('#83-1 缓存目录里夹着普通文件（.DS_Store、Codex 自己的安装�
   expect(result.data.codex.installed).toBe(true)
   expect(result.data.versionText).toBe('0.12.10')
 })
+
+it('#83-1 版本文件夹因为权限读不了：写明原因，不悄悄当成没有', async () => {
+  if (!process.getuid || process.getuid() === 0) return
+  codexFromGit({ versions: ['0.12.10'] })
+  const locked = path.join(home, 'locked-dir')
+  fs.mkdirSync(path.join(locked, 'inner'), { recursive: true })
+  const dir = path.join(home, '.codex/plugins/cache/gh-dev/dev-workflow')
+  fs.symlinkSync(path.join(locked, 'inner'), path.join(dir, '0.13.0'))
+  fs.chmodSync(locked, 0o000)
+  try {
+    const result = await read()
+    expect(result.ok).toBe(false)
+    expect(result.error.message).toContain('~/.codex/plugins/cache/gh-dev/dev-workflow/0.13.0 没有读取权限')
+  } finally {
+    fs.chmodSync(locked, 0o755)
+  }
+})

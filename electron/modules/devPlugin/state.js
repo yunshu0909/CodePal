@@ -243,7 +243,11 @@ async function readCodexCache(homeDir, market) {
   const versions = []
   for (const name of names.sort()) {
     // 只看版本文件夹（或指向文件夹的链接）：.DS_Store、Codex 自己的安装记录、断掉的链接都跳过
-    const stat = await fs.stat(path.join(dir, name)).catch(() => null)
+    const entry = path.join(dir, name)
+    const stat = await fs.stat(entry).catch((error) => {
+      if (error.code === 'ENOENT' || error.code === 'ENOTDIR') return null   // 断掉的链接
+      throw readFailure(`${shownPath(entry, homeDir)} ${IO_REASONS[error.code] || '读不出来'}`)
+    })
     if (!stat || !stat.isDirectory()) continue
     const manifest = await readJsonIfExists(path.join(dir, name, '.codex-plugin/plugin.json'), homeDir)
     const info = manifest === null ? null : manifestInfo(manifest)
