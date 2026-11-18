@@ -650,6 +650,106 @@ it('SC-027 保存途中断电（轮数 3 改 4）：重启后保留 4，审核�
   expect(fs.existsSync(file('.save-journal.json'))).toBe(false)
 })
 
+// ---- #88 第 2 条：两道设计审查的保存走同一套锁和恢复记录，下面三条专门核对 ----
+const BOUNDARY = 'designGates.formal.design-boundary.rounds'
+const RECONCILE = 'designGates.formal.design-reconcile.rounds'
+const gateRounds = (id) => read('review-config.json').gates[id].rounds
+
+it('#88-2 设计审查保存失败：第一步失败什么都不变；第二步失败规则文件按字节退回、审核配置不变；退回也失败记成要退回，重启还原', () => {
+  const c = open()
+  c.list()
+  c.rulesSet({ key: BOUNDARY, value: 4 })
+  const before = bytes('review-rules.json')
+  const configBefore = bytes('review-config.json')
+
+  denyRename('review-rules.json')
+  expect(caught(() => c.rulesSet({ key: BOUNDARY, value: 5 }))?.code).toBe('write_denied')
+  allowRename()
+  expect(bytes('review-rules.json').equals(before)).toBe(true)
+  expect(bytes('review-config.json').equals(configBefore)).toBe(true)
+  expect(fs.existsSync(file('.save-journal.json'))).toBe(false)
+
+  denyRename('review-config.json')
+  expect(caught(() => c.rulesSet({ key: RECONCILE, value: 5 }))?.code).toBe('write_denied')
+  allowRename()
+  expect(bytes('review-rules.json').equals(before)).toBe(true)
+  expect(gateRounds('formal.design-boundary')).toBe(4)
+  expect(gateRounds('formal.design-reconcile')).toBe(3)
+  expect(fs.existsSync(file('.save-journal.json'))).toBe(false)
+
+  denyRename('review-config.json')
+  denyRename('review-rules.json', { after: 1 })
+  const error = caught(() => c.rulesSet({ key: RECONCILE, value: 5 }))
+  allowRename()
+  expect(error?.code).toBe('ROLLBACK_FAILED')
+  expect(error.message).toBe(ROLLBACK_MESSAGE)
+  expect(read('.save-journal.json')).toMatchObject({ state: 'rollback', file: 'review-rules.json' })
+  open().reconcile()
+  expect(bytes('review-rules.json').equals(before)).toBe(true)
+  expect(gateRounds('formal.design-boundary')).toBe(4)
+  expect(gateRounds('formal.design-reconcile')).toBe(3)
+  expect(fs.existsSync(file('.save-journal.json'))).toBe(false)
+  expect(center.rulesGet().effective.designGates['formal.design-reconcile'].rounds).toBe(3)
+})
+
+it('#88-2 设计审查保存途中断电（对账复核 3 改 5）：重启后保留 5，审核配置跟到 5，边界审查不受影响', () => {
+  const c = open()
+  c.list()
+  c.stop()
+  center = null
+  journal('saving', 'review-rules.json', null)
+  fs.writeFileSync(
+    file('review-rules.json'),
+    JSON.stringify({ schemaVersion: 1, overrides: { [RECONCILE]: 5 }, updatedAt: new Date().toISOString() }),
+    { mode: 0o600 },
+  )
+  expect(gateRounds('formal.design-reconcile')).toBe(3)
+  open().reconcile()
+  expect(read('review-rules.json').overrides[RECONCILE]).toBe(5)
+  expect(gateRounds('formal.design-reconcile')).toBe(5)
+  expect(gateRounds('formal.design-boundary')).toBe(2)
+  expect(fs.existsSync(file('.save-journal.json'))).toBe(false)
+})
+
+it('#88-2 两个 CodePal 改设计审查：另一个持锁时这次保存失败、什么都不写；它关掉后接管，两边改的都在，规则和审核配置一致', async () => {
+  open().list()
+  center.stop()
+  center = null
+  // 另一个 CodePal：独立进程，改对账复核为 5 后一直持锁
+  const script = `
+    const { createReviewCenter } = require(${JSON.stringify(path.resolve('electron/modules/models/reviewCenter.js'))})
+    const c = createReviewCenter({ homeDir: process.env.HOME, env: process.env, locateClaude: () => null, locateCodex: () => null })
+    c.reconcile()
+    c.rulesSet({ key: ${JSON.stringify(RECONCILE)}, value: 5 })
+    process.stdout.write('saved')
+    setTimeout(() => {}, 30000)
+  `
+  const other = spawn(process.execPath, ['-e', script], { env: { ...process.env, ...sb.env, HOME: sb.home }, stdio: ['ignore', 'pipe', 'inherit'] })
+  children.push(other)
+  await new Promise((resolve, reject) => {
+    other.stdout.on('data', (chunk) => String(chunk).includes('saved') && resolve())
+    other.on('exit', (code) => reject(new Error(`另一个 CodePal 提前退出：${code}`)))
+  })
+  expect(read('.write.lock').pid).toBe(other.pid)
+  expect(gateRounds('formal.design-reconcile')).toBe(5)
+  const rulesBefore = bytes('review-rules.json')
+  const configBefore = bytes('review-config.json')
+
+  const c = open()
+  const error = caught(() => c.rulesSet({ key: BOUNDARY, value: 4 }))
+  expect(error?.code).toBe('LOCK_BUSY')
+  expect(bytes('review-rules.json').equals(rulesBefore)).toBe(true)
+  expect(bytes('review-config.json').equals(configBefore)).toBe(true)
+
+  other.kill('SIGKILL')
+  await new Promise((resolve) => (other.exitCode !== null || other.signalCode !== null ? resolve() : other.on('exit', resolve)))
+  c.rulesSet({ key: BOUNDARY, value: 4 })
+  expect(read('review-rules.json').overrides).toEqual({ [RECONCILE]: 5, [BOUNDARY]: 4 })
+  expect(gateRounds('formal.design-boundary')).toBe(4)
+  expect(gateRounds('formal.design-reconcile')).toBe(5)
+  expect(c.rulesGet().effective.designGates).toEqual({ 'formal.design-boundary': { rounds: 4 }, 'formal.design-reconcile': { rounds: 5 } })
+})
+
 it('SC-030 自审开关：保存后审核配置 selfReview 跟着变；第二步失败规则文件退回', () => {
   const c = open()
   c.list()
