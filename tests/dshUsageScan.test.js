@@ -16,6 +16,7 @@
 
 import { describe, it, expect, vi } from 'vitest'
 import { createRequire } from 'node:module'
+import { tempDir } from './helpers/tempDir.js'
 
 const require = createRequire(import.meta.url)
 const { scanDshLogs, listDshSessionLogs, iterateDshLines } = require('../electron/services/usageLogScanService')
@@ -199,7 +200,7 @@ describe('生产同步路径端到端（真实 zstd，不经注入）', () => {
     const nodePath = await import('node:path')
     const { zstdCompressSync } = await import('node:zlib')
 
-    const root = await fsp.mkdtemp(nodePath.join(os.tmpdir(), 'dsh-scan-'))
+    const root = tempDir('dsh-scan-')
     const sessionDir = nodePath.join(root, '.dsh', 'sessions', '--Users-u-proj--', 'session-abc')
     await fsp.mkdir(sessionDir, { recursive: true })
 
@@ -241,6 +242,5 @@ describe('生产同步路径端到端（真实 zstd，不经注入）', () => {
       sessionId: 'session-abc',
     })
 
-    await fsp.rm(root, { recursive: true, force: true })
   })
 })

@@ -159,7 +159,7 @@ describe('TC-104 scanClaudeLogs 端到端等价', () => {
     const { dir } = writeFixture(contents)
 
     // 构造 ~/.claude/projects/<proj>/<session>.jsonl 结构
-    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'claude-home-'))
+    const home = tempDir('claude-home-')
     const projDir = path.join(home, '.claude', 'projects', '-Users-u-proj')
     fs.mkdirSync(projDir, { recursive: true })
     fs.writeFileSync(path.join(projDir, 'session-a.jsonl'), contents.join('\n'))
@@ -182,8 +182,6 @@ describe('TC-104 scanClaudeLogs 端到端等价', () => {
     ).map((row) => row.message.id)
     expect(realRecords.map((record) => record.messageId).sort()).toEqual(expectedMarkers.sort())
 
-    fs.rmSync(dir, { recursive: true, force: true })
-    fs.rmSync(home, { recursive: true, force: true })
   })
 })
 
