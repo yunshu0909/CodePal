@@ -791,11 +791,12 @@ module.exports = {
   readSettingsFileState,
   // 公开：调用方在**产生任何副作用之前**（写脚本 / 装依赖 / 部署目录）先自检配置根
   detectUnsupportedCustomRoot,
+  // 公开：系统管理设置（managed-settings）的候选路径；插件管理读开关是否被锁定时用同一组（#83）
+  managedSettingsPaths,
   // 仅供测试直接验证「no-replace 发布」原语；业务代码请走 mutateClaudeSettingsFile
   __testing: {
     createSettingsFileExclusive,
     replaceSettingsFileAtomically,
-    managedSettingsPaths,
   },
   backupClaudeSettingsRaw,
   writeClaudeSettingsFile,

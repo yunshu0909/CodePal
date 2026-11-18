@@ -115,7 +115,7 @@ async function readClaudePlugin(homeDir) {
  * @returns {Promise<{value: boolean|undefined}>} value 为 undefined 表示没写
  */
 async function readManagedEntry(managedPaths) {
-  const paths = managedPaths || claudeSettings.__testing.managedSettingsPaths()
+  const paths = managedPaths || claudeSettings.managedSettingsPaths()
   let value
   for (const file of paths) {
     const state = await claudeSettings.readSettingsFileState(file)
