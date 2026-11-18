@@ -202,7 +202,11 @@ async function readCodexPackage(doc, key, homeDir) {
   const entry = isPlainObject(doc.marketplaces) ? doc.marketplaces[market] : null
   if (!isPlainObject(entry)) return null
   // 从 git 等非本地来源装的：插件只在 Codex 插件缓存里（#83）；本地来源照旧看来源目录，找不到按没装（真-03）
-  if (entry.source_type !== 'local') return readCodexCache(homeDir, market)
+  if (entry.source_type !== 'local') {
+    const pkg = await readCodexCache(homeDir, market)
+    // 来源类型和地址也进身份：页面打开后被别处换了来源，开关写入前的复验要能发现
+    return pkg && { ...pkg, origin: `${entry.source_type}:${entry.source}` }
+  }
   if (typeof entry.source !== 'string') return null
   const manifest = await readJsonIfExists(path.join(entry.source, 'plugins', PLUGIN_NAME, '.codex-plugin/plugin.json'), homeDir)
   const info = manifest === null ? null : manifestInfo(manifest)
@@ -238,6 +242,9 @@ async function readCodexCache(homeDir, market) {
   }
   const versions = []
   for (const name of names.sort()) {
+    // 只看版本文件夹（或指向文件夹的链接）：.DS_Store、Codex 自己的安装记录、断掉的链接都跳过
+    const stat = await fs.stat(path.join(dir, name)).catch(() => null)
+    if (!stat || !stat.isDirectory()) continue
     const manifest = await readJsonIfExists(path.join(dir, name, '.codex-plugin/plugin.json'), homeDir)
     const info = manifest === null ? null : manifestInfo(manifest)
     if (info && info.name === PLUGIN_NAME) versions.push(info.version)
@@ -266,7 +273,7 @@ async function readCodexSide({ homeDir }) {
     enabled,
     locked: false,
     version: pkg.version,
-    identity: { key: config.key, realSource: pkg.realSource, name: pkg.name },
+    identity: { key: config.key, realSource: pkg.realSource, name: pkg.name, ...(pkg.origin ? { origin: pkg.origin } : {}) },
   }
 }
 

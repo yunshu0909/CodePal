@@ -284,3 +284,15 @@ it('#83-1 缓存里放的不是 dev-workflow（名字不对）不算；本地来
   write(path.join(home, '.codex/plugins/cache/local-dev/dev-workflow/0.12.22/.codex-plugin/plugin.json'), JSON.stringify({ name: 'dev-workflow', version: '0.12.22' }))
   expect((await read()).data.codex.installed).toBe(false)
 })
+
+it('#83-1 缓存目录里夹着普通文件（.DS_Store、Codex 自己的安装记录）照常读，不整页失败', async () => {
+  codexFromGit({ versions: ['0.12.10'] })
+  const dir = path.join(home, '.codex/plugins/cache/gh-dev/dev-workflow')
+  fs.writeFileSync(path.join(dir, '.DS_Store'), 'x')
+  fs.writeFileSync(path.join(dir, '.codex-remote-plugin-install.json'), '{}')
+  fs.symlinkSync(path.join(dir, 'no-such-version'), path.join(dir, 'broken-link'))
+  const result = await read()
+  expect(result.ok).toBe(true)
+  expect(result.data.codex.installed).toBe(true)
+  expect(result.data.versionText).toBe('0.12.10')
+})

@@ -286,3 +286,16 @@ it('#83-1 从 git 装的 Codex 插件也能关：只改插件节 enabled 这一�
   expect(result).toMatchObject({ status: 'saved', enabled: false })
   expect(fs.readFileSync(configFile(), 'utf8')).toBe(before.replace('[plugins."dev-workflow@gh-dev"]\nenabled = true', '[plugins."dev-workflow@gh-dev"]\nenabled = false'))
 })
+
+it('#83-1 页面打开后 git 来源地址被别处改了：开关不写，提示刚被别处改过', async () => {
+  claudePlugin()
+  write(path.join(home, '.codex/plugins/cache/gh-dev/dev-workflow/0.12.10/.codex-plugin/plugin.json'), JSON.stringify({ name: 'dev-workflow', version: '0.12.10' }))
+  const config = (url) => `${TOML_HEAD}[plugins."dev-workflow@gh-dev"]\nenabled = true\n\n[marketplaces.gh-dev]\nsource_type = "git"\nsource = "${url}"\n`
+  write(configFile(), config('https://example.com/a.git'))
+  const state = await readDevPluginState({ homeDir: home, env: {}, managedPaths: [managed] })
+  write(configFile(), config('https://example.com/b.git'))
+  const before = fs.readFileSync(configFile(), 'utf8')
+  const result = await toggle().setEnabled({ tool: 'codex', enabled: false, identity: state.data.identity })
+  expect(result.status).toBe('changed')
+  expect(fs.readFileSync(configFile(), 'utf8')).toBe(before)
+})
