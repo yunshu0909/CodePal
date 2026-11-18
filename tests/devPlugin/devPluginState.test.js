@@ -229,3 +229,20 @@ it('#83-3 连原因都分不出的意外错误：写一句中文，不把程序�
   expect(result.ok).toBe(false)
   expect(result.error.message).toBe('读不到插件的安装信息：读的时候出了意外问题，重试一次；还不行就重启 CodePal')
 })
+
+it('#83-3 家目录里名字以两个点开头的文件夹（..market）也按 ~ 简写', async () => {
+  if (!process.getuid || process.getuid() === 0) return
+  claudePlugin()
+  const sourceDir = path.join(home, '..market')
+  const manifest = path.join(sourceDir, 'plugins/dev-workflow/.codex-plugin/plugin.json')
+  write(manifest, JSON.stringify({ name: 'dev-workflow', version: '1.0.0' }))
+  write(configFile(), `[plugins."dev-workflow@local-dev"]\nenabled = true\n\n[marketplaces.local-dev]\nsource_type = "local"\nsource = "${sourceDir}"\n`)
+  fs.chmodSync(manifest, 0o000)
+  try {
+    const result = await read()
+    expect(result.error.message).toContain('~/..market/plugins/dev-workflow/.codex-plugin/plugin.json 没有读取权限')
+    expect(result.error.message).not.toContain(home)
+  } finally {
+    fs.chmodSync(manifest, 0o644)
+  }
+})

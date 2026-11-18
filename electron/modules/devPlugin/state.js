@@ -45,7 +45,8 @@ const IO_REASONS = {
 /** 给页面看的路径：家目录里的写成 ~ 开头，不露出完整用户目录 */
 function shownPath(file, homeDir) {
   const relative = path.relative(homeDir, file)
-  return relative && !relative.startsWith('..') && !path.isAbsolute(relative) ? `~/${relative}` : file
+  const outside = relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)
+  return relative && !outside ? `~/${relative}` : file
 }
 
 /** 读 JSON 文件；不存在返回 null，其余读不出的情况变成写明文件和原因的读取失败 */
