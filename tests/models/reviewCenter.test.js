@@ -673,8 +673,7 @@ it('#88-2 设计审查保存失败：第一步失败什么都不变；第二步�
   expect(caught(() => c.rulesSet({ key: RECONCILE, value: 5 }))?.code).toBe('write_denied')
   allowRename()
   expect(bytes('review-rules.json').equals(before)).toBe(true)
-  expect(gateRounds('formal.design-boundary')).toBe(4)
-  expect(gateRounds('formal.design-reconcile')).toBe(3)
+  expect(bytes('review-config.json').equals(configBefore)).toBe(true)
   expect(fs.existsSync(file('.save-journal.json'))).toBe(false)
 
   denyRename('review-config.json')
@@ -684,30 +683,51 @@ it('#88-2 设计审查保存失败：第一步失败什么都不变；第二步�
   expect(error?.code).toBe('ROLLBACK_FAILED')
   expect(error.message).toBe(ROLLBACK_MESSAGE)
   expect(read('.save-journal.json')).toMatchObject({ state: 'rollback', file: 'review-rules.json' })
+  expect(bytes('review-config.json').equals(configBefore)).toBe(true)
   open().reconcile()
   expect(bytes('review-rules.json').equals(before)).toBe(true)
-  expect(gateRounds('formal.design-boundary')).toBe(4)
-  expect(gateRounds('formal.design-reconcile')).toBe(3)
+  expect(bytes('review-config.json').equals(configBefore)).toBe(true)
   expect(fs.existsSync(file('.save-journal.json'))).toBe(false)
   expect(center.rulesGet().effective.designGates['formal.design-reconcile'].rounds).toBe(3)
 })
 
-it('#88-2 设计审查保存途中断电（对账复核 3 改 5）：重启后保留 5，审核配置跟到 5，边界审查不受影响', () => {
-  const c = open()
-  c.list()
-  c.stop()
+/** 另起一个 CodePal 进程跑一段脚本（同一个沙盒目录）；返回进程和它的退出 */
+function otherCodePal(body) {
+  const script = `
+    const fs = require('fs')
+    const { createReviewCenter } = require(${JSON.stringify(path.resolve('electron/modules/models/reviewCenter.js'))})
+    const c = createReviewCenter({ homeDir: process.env.HOME, env: process.env, locateClaude: () => null, locateCodex: () => null })
+    c.reconcile()
+    ${body}
+  `
+  const child = spawn(process.execPath, ['-e', script], { env: { ...process.env, ...sb.env, HOME: sb.home }, stdio: ['ignore', 'pipe', 'inherit'] })
+  children.push(child)
+  const exited = new Promise((resolve) => child.on('exit', (code) => resolve(code)))
+  return { child, exited }
+}
+
+it('#88-2 设计审查保存途中断电（对账复核 3 改 5）：真实保存写完规则、正要写审核配置时进程没了；重启后保留 5，审核配置跟到 5，边界审查不受影响', async () => {
+  open().list()
+  center.stop()
   center = null
-  journal('saving', 'review-rules.json', null)
-  fs.writeFileSync(
-    file('review-rules.json'),
-    JSON.stringify({ schemaVersion: 1, overrides: { [RECONCILE]: 5 }, updatedAt: new Date().toISOString() }),
-    { mode: 0o600 },
-  )
-  expect(gateRounds('formal.design-reconcile')).toBe(3)
+  const configBefore = read('review-config.json')
+  // 断电：审核配置一要替换，进程立刻退出（不走任何 catch，和断电一样什么善后都没有）
+  const { exited } = otherCodePal(`
+    const real = fs.renameSync
+    fs.renameSync = (from, to) => { if (to.endsWith('review-config.json')) process.exit(42); return real(from, to) }
+    c.rulesSet({ key: ${JSON.stringify(RECONCILE)}, value: 5 })
+  `)
+  expect(await exited).toBe(42)
+  expect(read('review-rules.json').overrides[RECONCILE]).toBe(5)
+  expect(read('.save-journal.json')).toMatchObject({ state: 'saving', file: 'review-rules.json' })
+  expect(read('review-config.json')).toEqual(configBefore)
   open().reconcile()
   expect(read('review-rules.json').overrides[RECONCILE]).toBe(5)
   expect(gateRounds('formal.design-reconcile')).toBe(5)
   expect(gateRounds('formal.design-boundary')).toBe(2)
+  const { generatedAt, ...after } = read('review-config.json')
+  const { generatedAt: _, ...beforeRest } = configBefore
+  expect(after).toEqual({ ...beforeRest, gates: { ...beforeRest.gates, 'formal.design-reconcile': { rounds: 5 } } })
   expect(fs.existsSync(file('.save-journal.json'))).toBe(false)
 })
 
@@ -716,16 +736,11 @@ it('#88-2 两个 CodePal 改设计审查：另一个持锁时这次保存失败�
   center.stop()
   center = null
   // 另一个 CodePal：独立进程，改对账复核为 5 后一直持锁
-  const script = `
-    const { createReviewCenter } = require(${JSON.stringify(path.resolve('electron/modules/models/reviewCenter.js'))})
-    const c = createReviewCenter({ homeDir: process.env.HOME, env: process.env, locateClaude: () => null, locateCodex: () => null })
-    c.reconcile()
+  const { child: other } = otherCodePal(`
     c.rulesSet({ key: ${JSON.stringify(RECONCILE)}, value: 5 })
     process.stdout.write('saved')
     setTimeout(() => {}, 30000)
-  `
-  const other = spawn(process.execPath, ['-e', script], { env: { ...process.env, ...sb.env, HOME: sb.home }, stdio: ['ignore', 'pipe', 'inherit'] })
-  children.push(other)
+  `)
   await new Promise((resolve, reject) => {
     other.stdout.on('data', (chunk) => String(chunk).includes('saved') && resolve())
     other.on('exit', (code) => reject(new Error(`另一个 CodePal 提前退出：${code}`)))
