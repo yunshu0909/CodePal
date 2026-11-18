@@ -86,8 +86,11 @@ export default function useDevPlugin() {
     setView((prev) => ({ ...prev, status: 'error', error: message }))
   }, [])
 
-  const setRow = useCallback((tool, patch) => {
-    setView((prev) => (prev.rows ? { ...prev, rows: { ...prev.rows, [tool]: { ...prev.rows[tool], ...patch } } } : prev))
+  /** 更新一行；单行重读也带回了两边算出的版本号，一起更新（#83 第 6 条） */
+  const setRow = useCallback((tool, patch, versionText) => {
+    setView((prev) => (prev.rows
+      ? { ...prev, ...(versionText === undefined ? {} : { versionText }), rows: { ...prev.rows, [tool]: { ...prev.rows[tool], ...patch } } }
+      : prev))
   }, [])
 
   /** 某一行还在主进程里保存（再进入页面时）：每秒查一次，做完按读到的值显示 */
@@ -101,7 +104,7 @@ export default function useDevPlugin() {
       }
       if (result.data.saving && result.data.saving[tool]) return pollRow(tool, op)
       busy.current[tool] = false
-      setRow(tool, toRow(result.data[tool], false))
+      setRow(tool, toRow(result.data[tool], false), result.data.versionText)
     }, POLL_MS)
   }, [later, readOnce, setRow, showError])
 
@@ -115,7 +118,7 @@ export default function useDevPlugin() {
       return showError(result.message)
     }
     const stillSaving = Boolean(result.data.saving && result.data.saving[tool])
-    setRow(tool, toRow(result.data[tool], stillSaving))
+    setRow(tool, toRow(result.data[tool], stillSaving), result.data.versionText)
     if (stillSaving) pollRow(tool, op)
     else busy.current[tool] = false
   }, [readOnce, setRow, showError, pollRow])

@@ -290,3 +290,33 @@ it('TC-113 保存等了 10 秒还没结果：先提示没确认，这一行保�
   expect(disabled('Codex')).toBe(false)
   expect(checked('Codex')).toBe(false)
 })
+
+it('#83-6 单行重读（别处改过）时版本号也跟着更新', async () => {
+  let current = state()
+  api({
+    read: () => Promise.resolve(ok(current)),
+    set: () => { current = state({ versionText: '0.13.0' }); return Promise.resolve(fail('changed', '插件状态刚被别处改过，已重新读取')) },
+  })
+  await show()
+  expect(screen.getByText('0.12.22')).toBeTruthy()
+  await act(async () => { fireEvent.click(toggleOf('Codex')) })
+  await act(async () => {})
+  expect(screen.getByText('0.13.0')).toBeTruthy()
+  expect(screen.queryByText('0.12.22')).toBeNull()
+})
+
+it('#83-6 那一行还在保存、轮询读完时版本号也跟着更新', async () => {
+  vi.useFakeTimers()
+  let current = state()
+  api({
+    read: () => Promise.resolve(ok(current)),
+    set: () => { current = state({ saving: { claude: false, codex: true } }); return Promise.resolve(fail('uncertain', '保存结果没确认')) },
+  })
+  await show()
+  await act(async () => { fireEvent.click(toggleOf('Codex')) })
+  await act(async () => {})
+  current = state({ versionText: '0.13.1' })
+  await act(async () => { vi.advanceTimersByTime(1100) })
+  await act(async () => {})
+  expect(screen.getByText('0.13.1')).toBeTruthy()
+})
