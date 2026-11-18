@@ -149,4 +149,18 @@ function modelCapabilities(preset, name) {
   return { efforts: preset.efforts, alwaysThinkingEnabled: preset.alwaysThinkingEnabled }
 }
 
-module.exports = { PRESETS, MAX_OUTPUT_CAP, modelDefaults, modelCapabilities }
+/**
+ * 这个模型实际用的思考强度：存的档位还支持就用它。MiniMax 存的档位它不支持时（#84：升级前正式名被当成未知模型，
+ * 强度存成空）用这个型号的默认档。只在读的时候算，不改写配置文件；其他渠道原样返回。
+ * @param {object} preset - PRESETS 里的一家
+ * @param {{name: string, effort: string|null}} model - 配置里存的模型
+ * @returns {string|null}
+ */
+function modelEffort(preset, model) {
+  const { efforts } = modelCapabilities(preset, model.name)
+  const minimax = preset.id === 'minimax-api' || preset.id === 'minimax-plan'
+  if (!minimax || !efforts.length || efforts.includes(model.effort)) return model.effort
+  return modelDefaults(preset, model.name).effort
+}
+
+module.exports = { PRESETS, MAX_OUTPUT_CAP, modelDefaults, modelCapabilities, modelEffort }

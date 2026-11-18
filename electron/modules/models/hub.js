@@ -12,7 +12,7 @@
  */
 const fs = require('fs')
 const store = require('./store')
-const { PRESETS, modelCapabilities } = require('./presets')
+const { PRESETS, modelCapabilities, modelEffort } = require('./presets')
 const { discoverSubscriptions } = require('./subscriptions')
 
 const COLORS = {
@@ -104,7 +104,7 @@ function providerSources() {
           slug: model.id,
           displayName: model.name,
           efforts: [...modelCapabilities(preset, model.name).efforts],
-          effort: model.effort,
+          effort: modelEffort(preset, model),
         }))
       if (models.length)
         vendors.push({ id: preset.id, name: preset.name, color: COLORS[preset.id], blocked: null, models })

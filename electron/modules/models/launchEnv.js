@@ -16,7 +16,7 @@
  */
 
 const path = require('path')
-const { modelCapabilities } = require('./presets')
+const { modelCapabilities, modelEffort } = require('./presets')
 
 // 父环境里会把请求带去别家、或改变模型 / 能力的变量，启动前一律删掉
 const SCRUB_ENV_KEYS = Object.freeze([
@@ -124,7 +124,7 @@ function buildLaunch({ mode, preset, model, key, parentEnv, userArgs, modelsHome
   checkReservedFlags(mode, userArgs)
   const capabilities = modelCapabilities(preset, model.name)
   const minimax = preset.id === 'minimax-api' || preset.id === 'minimax-plan'
-  const effort = launchEffort(mode, model, capabilities, userArgs, minimax)
+  const effort = launchEffort(mode, { ...model, effort: modelEffort(preset, model) }, capabilities, userArgs, minimax)
   const env = { ...parentEnv }
   for (const k of SCRUB_ENV_KEYS) delete env[k]
   env.ANTHROPIC_BASE_URL = preset.baseUrl

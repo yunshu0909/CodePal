@@ -156,6 +156,47 @@ it('TC-006b #84 正式名 MiniMax-M3.1-Flash 和旧名 -Preview 是同一个模�
   expect(json('review-config.json').models.find(m => m.id === `${plan}:${official}`).effort).not.toBeNull()
 })
 
+it('TC-006c #84 升级前已改成正式名、强度按未知模型存成空：读出来按 max 用，配置文件不改写', async () => {
+  configured('006c')
+  const official = 'MiniMax-M3.1-Flash'
+  // 摆出旧版留下的样子：两个渠道各一个正式名模型（一个原样、一个小写），强度为空
+  const cfg = store.readConfig()
+  const names = { [api]: official, [plan]: official.toLowerCase() }
+  for (const id of [api, plan]) cfg.providers[id].models = [{ ...cfg.providers[id].models[0], id: names[id], name: names[id], effort: null }]
+  fs.writeFileSync(path.join(sb.models, 'models.json'), JSON.stringify(cfg, null, 2) + '\n')
+  const before = fs.readFileSync(path.join(sb.models, 'models.json'), 'utf8')
+  // 模型接入页
+  const { registerModelsHandlers } = require('../../electron/modules/models/ipc.js')
+  const handlers = {}
+  registerModelsHandlers({
+    ipcMain: { handle: (ch, fn) => { handlers[ch] = fn } },
+    getMainWindow: () => null,
+    loginPath: () => sb.bin,
+    hubOptions: { homeDir: sb.home, env: sb.env, locateClaude: () => null, locateCodex: () => null },
+  })
+  const listed = (await handlers['models:list']({})).data.providers
+  for (const id of [api, plan]) {
+    const model = (listed.find ? listed.find(p => p.id === id) : listed[id]).models[0]
+    expect(model).toMatchObject({ name: names[id], effort: 'max', efforts: levels })
+    // 终端启动
+    const stored = store.readConfig().providers[id].models[0]
+    const output = JSON.parse(launch(id, stored, [], 'interactive').args[1])
+    expect(output.env.CLAUDE_CODE_EFFORT_LEVEL).toBe('max')
+    tested(id, names[id])
+  }
+  // 模型汇总和审核清单
+  const h = hub()
+  for (const id of [api, plan]) {
+    expect(miniVendors(h.list()).find(v => v.id === id).models[0]).toMatchObject({ effort: 'max', efforts: levels })
+    h.setEnabled({ id: `${id}:${names[id]}`, enabled: true })
+    expect(json('review-config.json').models.find(m => m.id === `${id}:${names[id]}`).effort).toBe('max')
+  }
+  expect(fs.readFileSync(path.join(sb.models, 'models.json'), 'utf8')).toBe(before)
+  // 用户自己选过的有效档位照旧
+  expect(store.updateModel(plan, names[plan], { effort: 'low' }).effort).toBe('low')
+  expect(JSON.parse(launch(plan, store.readConfig().providers[plan].models[0], [], 'interactive').args[1]).env.CLAUDE_CODE_EFFORT_LEVEL).toBe('low')
+})
+
 it('TC-007 MINIMAX_TC_007 invalid effort and reserved overrides reject without writes', () => {
   const providers = configured('007')
   const before = fs.readFileSync(path.join(sb.models, 'models.json'))

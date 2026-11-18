@@ -24,7 +24,7 @@ const store = require('./store')
 const { createReviewCenter } = require('./reviewCenter')
 const commands = require('./commands')
 const shellProfile = require('./shellProfile')
-const { PRESETS, modelCapabilities } = require('./presets')
+const { PRESETS, modelCapabilities, modelEffort } = require('./presets')
 const { locateClaude, checkClaudeVersion, MIN_CLAUDE_VERSION } = require('./claudeCli')
 
 const WRITE_DENIED = '配置目录没有写入权限，检查权限后重试'
@@ -58,7 +58,8 @@ const bad = (err, opts) => ({ success: false, data: null, error: toError(err, op
 /** 给模型带上这家这个模型可选的思考强度（按模型算，M3 这类没有档位的是空数组），页面照它显示菜单 */
 function withEfforts(providerId, model) {
   const preset = PRESETS[providerId]
-  return { ...model, efforts: preset ? [...modelCapabilities(preset, model.name).efforts] : [] }
+  if (!preset) return { ...model, efforts: [] }
+  return { ...model, effort: modelEffort(preset, model), efforts: [...modelCapabilities(preset, model.name).efforts] }
 }
 
 /** 某家给页面看的数据（不含 Key） */
