@@ -324,6 +324,9 @@ it('SC-007 审核规则页签全貌：顶卡默认值、派审核、两组六道
   expect(adv('failoverMax').textContent).toContain('3 次')
   expect(adv('autoExtendRounds').textContent).toContain('轮次用完自动加')
   expect(adv('autoExtendRounds').textContent).toContain('1 轮')
+  // #91：dev 0.13.3 起开工前检查和代码审核到顶就收尾，这一项只对需求对齐、答后再对齐有效，页面要写清
+  expect(adv('autoExtendRounds').querySelector('.ds').textContent).toBe('只对需求对齐、答后再对齐有效；开工前检查和代码审核到顶就收尾，不自动加')
+  expect(adv('timeoutMinutes').querySelector('.ds')).toBeNull()
 })
 
 it('TC-011 完整开发组带边界审查、对账复核两行时，原有六道关、自审、高级、恢复默认照常', async () => {

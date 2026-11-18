@@ -46,7 +46,9 @@ const GROUPS = [
 const ADVANCED = [
   ['timeoutMinutes', '一次审核最长', [5, 10, 15, 20, 30, 45, 60], (n) => `${n} 分钟`],
   ['failoverMax', '一个模型挂了最多换', [0, 1, 2, 3, 4, 5], (n) => `${n} 次`],
-  ['autoExtendRounds', '轮次用完自动加', [0, 1, 2, 3], (n) => `${n} 轮`],
+  // dev 0.13.3 起开工前检查和代码审核到顶就收尾、不领自动加轮（#91），这一项只剩两道需求对齐还有用
+  ['autoExtendRounds', '轮次用完自动加', [0, 1, 2, 3], (n) => `${n} 轮`,
+    '只对需求对齐、答后再对齐有效；开工前检查和代码审核到顶就收尾，不自动加'],
 ]
 const reviewersLabel = (n) => `${n} 个模型`
 const roundsLabel = (n) => `每个 ${n} 轮`
@@ -350,9 +352,16 @@ export default function RulesTab({ rules, hub, advancedOpen, setAdvancedOpen, me
           {!advancedOpen && <span className="mh-cnt">最长时间、换模型次数、自动加轮</span>}
         </div>
         {advancedOpen &&
-          ADVANCED.map(([key, label, values, format]) => (
+          ADVANCED.map(([key, label, values, format, note]) => (
             <div className="np-row mh-sub" key={key} data-adv={key}>
-              <span className="lb">{label}</span>
+              {note ? (
+                <span className="mh-lab">
+                  <span className="lb">{label}</span>
+                  <span className="ds mh-gsub">{note}</span>
+                </span>
+              ) : (
+                <span className="lb">{label}</span>
+              )}
               <Choice
                 ruleKey={`advanced.${key}`}
                 label={label}
