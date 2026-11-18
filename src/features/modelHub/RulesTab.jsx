@@ -137,12 +137,13 @@ function Choice({ ruleKey, label, value, values, format, className, rules, menu,
 /** 首次加载（定稿 W6）：顶卡两行、派审核一行开关、两组关卡行；说明小字与「其他」等数据到了再出 */
 function RulesSkeleton() {
   const bar = (width, height) => <span className="np-sk" style={height ? { width, height } : { width }} />
-  const gateRows = (count) =>
-    Array.from({ length: count }, (_, index) => (
-      <div className="np-row mh-skeleton-row" key={index}>
+  // 设计阶段审查（有固定说法的那两行）加载完是一句固定说法加一个轮数按钮，骨架照这个样子画，免得加载完跳一下
+  const gateRows = (gates) =>
+    gates.map(([id, , , fixed]) => (
+      <div className="np-row mh-skeleton-row" key={id} data-gate={id}>
         {bar(90)}
         <span className="np-card-acts mh-gate-acts">
-          {bar(96, 24)}
+          {fixed ? <span className="mh-gate-fixed">{bar(64)}</span> : bar(96, 24)}
           {bar(96, 24)}
         </span>
       </div>
@@ -169,7 +170,7 @@ function RulesSkeleton() {
       {GROUPS.map((group) => (
         <Fragment key={group.label}>
           <div className="np-glabel">{group.label}</div>
-          <div className="np-card np-card--form">{gateRows(group.gates.length)}</div>
+          <div className="np-card np-card--form">{gateRows(group.gates)}</div>
         </Fragment>
       ))}
     </>

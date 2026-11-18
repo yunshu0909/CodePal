@@ -370,6 +370,22 @@ it('SC-008 首次加载审核规则页签：分组标题先出、关卡行出骨
   expect(gate('lite.G1')).not.toBeNull()
 })
 
+it('SC-008b 首次加载时两道设计审查的骨架和加载完一样：一段细条加一个轮数按钮，其余关卡两个按钮', async () => {
+  const pending = deferred()
+  await show(undefined, undefined, { modelsRulesGet: vi.fn(() => pending.promise) })
+  await rulesTab()
+  // 按钮形的占位高 24px，细条用默认高度
+  const shapes = (id) =>
+    Array.from(document.querySelectorAll(`.mh-skeleton-row[data-gate="${id}"] .mh-gate-acts .np-sk`)).map((el) =>
+      el.style.height === '24px' ? '按钮' : '细条',
+    )
+  for (const id of ['formal.design-boundary', 'formal.design-reconcile']) expect(shapes(id)).toEqual(['细条', '按钮'])
+  for (const id of ['lite.G0', 'lite.G1', 'formal.G1', 'formal.G2b', 'formal.G3', 'formal.G4'])
+    expect(shapes(id)).toEqual(['按钮', '按钮'])
+  await act(async () => pending.resolve(ok(rules())))
+  expect(document.querySelector('.mh-skeleton-row')).toBeNull()
+})
+
 it('SC-009 审核规则文件坏了：只有审核规则页签整块失败可重试，模型页签照常', async () => {
   const bad = { success: false, data: null, error: { code: 'RULES_FILE_INVALID', message: '审核规则文件无法解析，修好或删除它后重试' } }
   const { api } = await show(undefined, undefined, { modelsRulesGet: vi.fn(async () => bad) })
