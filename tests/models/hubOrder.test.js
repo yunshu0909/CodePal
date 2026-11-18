@@ -221,15 +221,47 @@ it('SC-049 CodePal 运行中 Codex 清单下架了审核在用的模型：不用
     const cache = path.join(sb.home, '.codex/models_cache.json')
     fs.writeFileSync(`${cache}.tmp`, JSON.stringify({ models: [cacheModel('gpt-6-astra')] }))
     fs.renameSync(`${cache}.tmp`, cache)
-    await vi.waitFor(() => expect(configIds()).toEqual(['claude:sonnet', 'deepseek:deepseek-flash']), { timeout: 10000 })
+    await vi.waitFor(() => expect(configIds()).toEqual(['claude:sonnet', 'deepseek:deepseek-flash']), { timeout: 25000 })
     expect(read('hub.json').order).toEqual(['claude:sonnet', 'codex:gpt-6-sol', 'deepseek:deepseek-flash'])
     fs.writeFileSync(`${cache}.tmp`, JSON.stringify({ models: ['gpt-6-astra', 'gpt-6-sol'].map(cacheModel) }))
     fs.renameSync(`${cache}.tmp`, cache)
-    await vi.waitFor(() => expect(configIds()).toEqual(['claude:sonnet', 'codex:gpt-6-sol', 'deepseek:deepseek-flash']), { timeout: 10000 })
+    await vi.waitFor(() => expect(configIds()).toEqual(['claude:sonnet', 'codex:gpt-6-sol', 'deepseek:deepseek-flash']), { timeout: 25000 })
   } finally {
     lifecycle.stop()
   }
-  // 系统的文件变化通知偶尔要等一两秒，给足时间
+  // 系统的文件变化通知偶尔要等一两秒；整套负载重时通知会丢，要等每 2 秒一次的兜底查看，这一查也可能被拖慢（#83 第 8 条）。
+  // 这里只放宽「慢」，「通知全丢也会更新」由下一条测试单独保证
+}, 30000)
+
+it('#83-8 系统的文件变化通知一条都没来：靠每 2 秒一次的兜底查看，审核配置照样自动更新', async () => {
+  machine()
+  store.setKey('deepseek', KEY)
+  store.writeStatus('deepseek', 'deepseek-flash', { ok: true, source: 'test' })
+  // 让目录变化通知彻底失效（等同系统把通知全丢了），只剩兜底的定时查看
+  const watch = vi.spyOn(fs, 'watch').mockImplementation(() => { throw new Error('notifications lost') })
+  const { registerModelsHandlers } = require('../../electron/modules/models/ipc.js')
+  const lifecycle = registerModelsHandlers({
+    ipcMain: { handle: () => {} },
+    getMainWindow: () => null,
+    loginPath: () => sb.bin,
+    hubOptions: {
+      homeDir: sb.home,
+      env: sb.env,
+      locateClaude: () => (state.claude ? FAKE : null),
+      locateCodex: () => (state.codex ? codexBin : null),
+    },
+  })
+  try {
+    expect(watch).toHaveBeenCalled()
+    expect(configIds()).toEqual(['claude:sonnet', 'codex:gpt-6-sol', 'deepseek:deepseek-flash'])
+    const cache = path.join(sb.home, '.codex/models_cache.json')
+    fs.writeFileSync(`${cache}.tmp`, JSON.stringify({ models: [cacheModel('gpt-6-astra')] }))
+    fs.renameSync(`${cache}.tmp`, cache)
+    await vi.waitFor(() => expect(configIds()).toEqual(['claude:sonnet', 'deepseek:deepseek-flash']), { timeout: 25000 })
+  } finally {
+    lifecycle.stop()
+    watch.mockRestore()
+  }
 }, 30000)
 
 it('SC-049 DeepSeek 的 Key 文件读不出：只把这一家移出汇总与审核配置，开关、等级、顺序都留着；读得出后回原位', () => {
