@@ -37,3 +37,16 @@ it('TC-013 模板各章节对审核派谁、付费看哪里说法一致；第 3 
   const three = section(text, '## 3. 红线与必须先问', '## 4. 遇事去哪')
   expect(three).toContain('通过后改包的再确认不占次数')
 })
+
+it('#88 第 6 条 三节说到 project-defaults.json 当后备时，用到的地方和后备哪几项说法一致', () => {
+  const text = read('CLAUDE.md')
+  const three = section(text, '## 3. 红线与必须先问', '## 4. 遇事去哪')
+  const money = three.split('\n').find((line) => line.startsWith('- 花钱'))
+  const six = section(text, '## 6. dev-workflow 项目参数', '## 7. 代码规范')
+  const eight = section(text, '## 8. 知识地图', '## 9. 本协议怎么维护')
+  const review = eight.split('\n').find((line) => line.startsWith('|') && line.includes('付费'))
+  for (const [name, part] of [['第 3 节花钱', money], ['第 6 节', six], ['第 8 节知识地图', review]]) {
+    for (const word of ['独立送审', '裁决席', '模型体检', '审核顺序', '套餐声明', '排除路线', '付费授权'])
+      expect(part, `${name}要写「${word}」`).toContain(word)
+  }
+})

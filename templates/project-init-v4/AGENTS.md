@@ -33,7 +33,7 @@ dev-workflow 读「哪些事必须先问用户」就读这一节。
 **必须先问用户**
 
 - 推送远程、打 tag、正式发版。
-- 花钱：在 CodePal 审核清单（CodePal 里的「审核」设置）里打开的模型就算授权，按清单设置调用；清单外的付费模型一律不派。不挂任务的独立送审和模型体检不经过清单，付费以 `.dev-workflow/project-defaults.json` 里的按条授权为准（默认 0 次）。
+- 花钱：在 CodePal 审核清单（CodePal 里的「审核」设置）里打开的模型就算授权，按清单设置调用；清单外的付费模型一律不派。不挂任务的独立送审、裁决席和模型体检不经过清单，后备看 `.dev-workflow/project-defaults.json`：审核顺序、套餐声明、排除路线照它，付费授权按它里面的按条授权（默认 0 次）。
 - 范围变了、已确认的设计要改、实现和已确认的业务规则冲突。
 - 和设计沾边的任务走简版还是正式版，先问用户；涉及前端设计的走正式版，设计稿签收后再写代码。
 
@@ -98,7 +98,7 @@ dev-workflow 读「哪些事必须先问用户」就读这一节。
 
 ## 6. dev-workflow 项目参数
 
-装了 dev-workflow 插件时，代码任务都走它；流程本身以插件为准。新任务的审核模型、顺序、位数、轮次、付费和加轮看 CodePal 审核清单；私人路径看 `.dev-workflow/project-defaults.json`，它里面的审核路线和付费授权只在不挂任务的独立送审、裁决席和模型体检里当后备。插件要的「哪些事必须先问用户」在第 3 节，其余几项写在这里：
+装了 dev-workflow 插件时，代码任务都走它；流程本身以插件为准。新任务的审核模型、顺序、位数、轮次、付费和加轮看 CodePal 审核清单；私人路径看 `.dev-workflow/project-defaults.json`，它里面的审核路线（审核顺序、套餐声明、排除路线）和付费授权只在不挂任务的独立送审、裁决席和模型体检里当后备。插件要的「哪些事必须先问用户」在第 3 节，其余几项写在这里：
 
 - **沟通档位**：产品经理档（第一句写要用户做什么，不放哈希和英文代号）。
 - **代码根**：`--code-root {{CODE_DIR}}`；规格与证据留在外层 `specs/`。
@@ -132,7 +132,7 @@ dev-workflow 读「哪些事必须先问用户」就读这一节。
 | 某个任务的计划、设计、PRD、测试、证据 | `specs/<版本-简述>/`（索引 `specs/README.md`） |
 | 给人看的视觉件 | `specs/<单元>/_review/` 里的 HTML，**AI 默认不读**，除非被要求看某张 |
 | 滚动计划；跨版本调研与归档 | `docs/plan/`；`docs/research/`、`docs/archive/`（规则见 `docs/README.md`） |
-| 审核派谁、顺序、轮次、付费 | CodePal 审核清单（CodePal 里的「审核」设置）；独立送审、裁决席、模型体检的后备看 `.dev-workflow/project-defaults.json` |
+| 审核派谁、顺序、轮次、付费 | CodePal 审核清单（CodePal 里的「审核」设置）；独立送审、裁决席、模型体检的后备（审核顺序、套餐声明、排除路线、付费授权）看 `.dev-workflow/project-defaults.json` |
 | 私人路径 | `.dev-workflow/project-defaults.json` |
 | 代码 | `{{CODE_DIR}}/` |
 
