@@ -63,6 +63,24 @@ it('TC-001 finds native symlinks and common install directories with a minimal P
   expect(f.locateClaude(f.env)).toBe('/usr/local/bin/claude')
 })
 
+it('#86-1 旧版本地安装（claude migrate-installer 装到 ~/.claude/local/claude）从精简 PATH 也找得到，不用问 shell', () => {
+  const f = fixture()
+  // 只有目录、里面没有可执行的 claude：不算装了，照旧去问 shell
+  fs.mkdirSync(path.join(f.home, '.claude/local'), { recursive: true })
+  expect(f.locateClaude(f.env)).toBeNull()
+  expect(f.spawnSync).toHaveBeenCalledTimes(1)
+  const local = f.executable('.claude/local/claude')
+  expect(f.locateClaude(f.env)).toBe(local)
+  expect(f.spawnSync).toHaveBeenCalledTimes(1)
+  // 新旧两种都在时用新的（~/.local/bin），旧的只是兜底
+  const native = f.executable('.local/bin/claude')
+  expect(f.locateClaude(f.env)).toBe(native)
+  // 不可执行的旧文件不算
+  fs.unlinkSync(native)
+  fs.chmodSync(local, 0o644)
+  expect(f.locateClaude(f.env)).toBeNull()
+})
+
 it('TC-002 queries the account shell with supplied environment and ignores startup noise', () => {
   const f = fixture()
   const custom = f.executable('custom bin/claude')

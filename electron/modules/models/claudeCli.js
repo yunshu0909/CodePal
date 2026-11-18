@@ -44,6 +44,8 @@ function locateClaude(env = process.env) {
   const directories = [
     ...String(env.PATH || '').split(path.delimiter),
     path.join(home, '.local/bin'),
+    // 旧版「本地安装」（claude migrate-installer）装在这里；新旧都在时上一行的新版优先（#86）
+    path.join(home, '.claude/local'),
     path.join(home, '.npm-global/bin'),
     '/opt/homebrew/bin',
     '/usr/local/bin',
