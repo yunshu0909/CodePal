@@ -127,6 +127,35 @@ it('TC-006 MINIMAX_TC_006 capabilities follow model, casing and rename across ch
   expect(store.updateModel(plan, m3, { name: flash }).effort).toBe('max')
 })
 
+it('TC-006b #84 正式名 MiniMax-M3.1-Flash 和旧名 -Preview 是同一个模型：照常有强度、开思考、审核清单强度不空', () => {
+  configured('006b')
+  const official = 'MiniMax-M3.1-Flash'
+  for (const id of [api, plan]) {
+    const preset = presets.PRESETS[id]
+    for (const name of [official, official.toLowerCase()]) {
+      expect(presets.modelDefaults(preset, name)).toMatchObject({ effort: 'max', contextTokens: 1000000, maxOutputTokens: 128000 })
+      expect(presets.modelCapabilities(preset, name)).toEqual({ efforts: levels, alwaysThinkingEnabled: true })
+      const output = JSON.parse(launch(id, { name, ...presets.modelDefaults(preset, name) }, [], 'interactive').args[1])
+      expect(output.alwaysThinkingEnabled).toBe(true)
+      expect(output.env.CLAUDE_CODE_EFFORT_LEVEL).toBe('max')
+    }
+    // 只是开头像的名字不认成 Flash
+    for (const name of ['MiniMax-M3.1-Flash-Lite', 'MiniMax-M3.1']) {
+      expect(presets.modelCapabilities(preset, name).efforts).toEqual([])
+      expect(presets.modelDefaults(preset, name).effort).toBeNull()
+    }
+  }
+  // 旧名设成 medium 后改成正式名：还支持这一档，不被重置
+  store.updateModel(plan, flash, { effort: 'medium' })
+  expect(store.updateModel(plan, flash, { name: official }).effort).toBe('medium')
+  // 改名后测通、在模型汇总里打开：有五档，审核清单里强度不是空
+  tested(plan, official)
+  const h = hub()
+  expect(miniVendors(h.list()).find(v => v.id === plan).models[0]).toMatchObject({ efforts: levels })
+  h.setEnabled({ id: `${plan}:${official}`, enabled: true })
+  expect(json('review-config.json').models.find(m => m.id === `${plan}:${official}`).effort).not.toBeNull()
+})
+
 it('TC-007 MINIMAX_TC_007 invalid effort and reserved overrides reject without writes', () => {
   const providers = configured('007')
   const before = fs.readFileSync(path.join(sb.models, 'models.json'))

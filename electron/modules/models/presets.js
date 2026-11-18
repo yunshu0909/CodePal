@@ -32,9 +32,11 @@ const MINIMAX_DEFAULTS = Object.freeze({
   autoCompactWindow: 786432,
 })
 const MINIMAX_FLASH_DEFAULTS = Object.freeze({ ...MINIMAX_DEFAULTS, effort: 'max' })
+// Flash 转正后正式名是 MiniMax-M3.1-Flash；旧名 -Preview 当同一个模型的别名，两个名字能力和默认值一样（#84）
+const MINIMAX_FLASH_NAMES = Object.freeze(['MiniMax-M3.1-Flash', 'MiniMax-M3.1-Flash-Preview'])
 const MINIMAX_MODELS = Object.freeze({
   'MiniMax-M3': MINIMAX_DEFAULTS,
-  'MiniMax-M3.1-Flash-Preview': MINIMAX_FLASH_DEFAULTS,
+  ...Object.fromEntries(MINIMAX_FLASH_NAMES.map((name) => [name, MINIMAX_FLASH_DEFAULTS])),
 })
 
 function minimaxPreset(id, name, type, defaultModel) {
@@ -141,7 +143,7 @@ function modelDefaults(preset, name) {
 /** 模型能力在两个 MiniMax 渠道间相同；未知型号不推断可调档位。 */
 function modelCapabilities(preset, name) {
   if (preset.id === 'minimax-api' || preset.id === 'minimax-plan') {
-    const flash = String(name).toLowerCase() === 'minimax-m3.1-flash-preview'
+    const flash = MINIMAX_FLASH_NAMES.some((known) => known.toLowerCase() === String(name).toLowerCase())
     return { efforts: flash ? MINIMAX_EFFORTS : [], alwaysThinkingEnabled: flash }
   }
   return { efforts: preset.efforts, alwaysThinkingEnabled: preset.alwaysThinkingEnabled }
