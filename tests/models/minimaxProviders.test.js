@@ -182,6 +182,10 @@ it('TC-006c #84 升级前已改成正式名、强度按未知模型存成空：�
     const stored = store.readConfig().providers[id].models[0]
     const output = JSON.parse(launch(id, stored, [], 'interactive').args[1])
     expect(output.env.CLAUDE_CODE_EFFORT_LEVEL).toBe('max')
+    // 「测一下」入口（核对时发现的漏网处）
+    expect(runCli(['launch', id, names[id], '--test'], { env: sb.env }).status).toBe(0)
+    const argv = readReport(sb.report).argv
+    expect(argv.slice(argv.indexOf('--effort'), argv.indexOf('--effort') + 2)).toEqual(['--effort', 'max'])
     tested(id, names[id])
   }
   // 模型汇总和审核清单

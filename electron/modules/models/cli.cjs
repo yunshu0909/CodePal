@@ -17,7 +17,7 @@
 const os = require('os')
 const path = require('path')
 const store = require('./store')
-const { PRESETS, modelCapabilities } = require('./presets')
+const { PRESETS, modelCapabilities, modelEffort } = require('./presets')
 const launchEnv = require('./launchEnv')
 const { locateClaude, checkClaudeVersion } = require('./claudeCli')
 const { findSettingsConflicts } = require('./conflicts')
@@ -102,7 +102,8 @@ async function main(argv) {
   if (!key) return die('本机保存的 Key 找不到了，重新填写')
 
   // 「测一下」由 CodePal 自己把模型接入里的档位作为 --effort 传进去（后台只认传入的等级），没有档位不传
-  if (test && modelCapabilities(preset, model.name).efforts.includes(model.effort)) userArgs.push('--effort', model.effort)
+  const testEffort = modelEffort(preset, model)
+  if (test && modelCapabilities(preset, model.name).efforts.includes(testEffort)) userArgs.push('--effort', testEffort)
   const modelsHome = store.resolveModelsHome()
   let launch
   try {
