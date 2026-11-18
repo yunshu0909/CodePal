@@ -5,6 +5,7 @@ import {createRequire} from 'node:module'
 import os from 'node:os'
 import fs from 'node:fs'
 import path from 'node:path'
+import { tempDir } from '../helpers/tempDir.js'
 const require=createRequire(import.meta.url)
 const {getEffectivePricing,aggregatePlanCosts,createPlanUsageQuery}=require('../../electron/services/plan/planUsageService')
 const {createPlanPriceOverrideService}=require('../../electron/services/plan/planPriceOverrideService')
@@ -44,7 +45,7 @@ it('TC-010 recordsFrom marks only the cycle that the earliest usage date falls i
  expect((await q('codex','a')).recordsFrom).toBe('2026-03-23');expect((await q('codex','b')).recordsFrom).toBeNull()
 })
 it('TC-011 refresh now replaces the in-memory snapshot, reports stale and network failures',async()=>{
- const dir=fs.mkdtempSync(path.join(os.tmpdir(),'pricing-'))
+ const dir=tempDir('pricing-')
  const spec={name:'pricing',remotePath:'src/config/pricing.json',cacheFileName:'pricing.cache.json',packaged:base({'gpt-5-5':price(5)}),hardcoded:base({'gpt-5-5':price(5)}),validate:validatePricing}
  await loader.initRemoteConfig(spec,{getUserDataPath:()=>dir})
  const reply=body=>vi.stubGlobal('fetch',vi.fn(async()=>({ok:true,status:200,json:async()=>body})))

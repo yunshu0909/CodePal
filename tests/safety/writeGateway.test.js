@@ -11,11 +11,12 @@
  * @module tests/safety/writeGateway.test
  */
 import { afterEach, describe, expect, it } from 'vitest'
-import { mkdtemp, mkdir, readFile, readdir, writeFile, rm } from 'node:fs/promises'
+import { mkdir, readFile, readdir, writeFile, rm } from 'node:fs/promises'
 import { readFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { createRequire } from 'node:module'
+import { tempDir } from '../helpers/tempDir.js'
 
 const require = createRequire(import.meta.url)
 
@@ -165,7 +166,7 @@ afterEach(() => {
 })
 
 async function tempHome() {
-  const home = await mkdtemp(path.join(os.tmpdir(), 'codepal-gateway-'))
+  const home = tempDir('codepal-gateway-')
   await mkdir(path.join(home, '.codex'), { recursive: true })
   return home
 }

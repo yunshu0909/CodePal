@@ -17,6 +17,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { tempDir } from './helpers/tempDir.js'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const SCRIPT = path.join(root, 'templates', 'k28-status-light', 'k28_status.sh')
@@ -33,7 +34,7 @@ const read = (ext) => {
 }
 
 beforeEach(() => {
-  home = fs.mkdtempSync(path.join(os.tmpdir(), 'ss-hook-'))
+  home = tempDir('ss-hook-')
   const dir = path.join(home, '.claude', 'k28-status-light')
   fs.mkdirSync(dir, { recursive: true })
   fs.writeFileSync(path.join(dir, 'tts.conf'), 'STATUS_LIGHT_ENABLED=1\n')

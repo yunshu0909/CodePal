@@ -14,12 +14,13 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { createRequire } from 'node:module'
+import { tempDir } from './helpers/tempDir.js'
 
 const require = createRequire(import.meta.url)
 const { trustCodePalCodexHooks } = require('../electron/services/codexHookTrust.js')
 
 function fakeCodex(hooks) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fake-codex-'))
+  const dir = tempDir('fake-codex-')
   const log = path.join(dir, 'writes.json')
   const bin = path.join(dir, 'codex')
   fs.writeFileSync(bin, `#!/usr/bin/env node

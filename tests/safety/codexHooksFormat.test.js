@@ -14,10 +14,11 @@
  */
 
 import { afterEach, describe, expect, it } from 'vitest'
-import { mkdtemp, mkdir, readFile, writeFile, chmod } from 'node:fs/promises'
+import { mkdir, readFile, writeFile, chmod } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { createRequire } from 'node:module'
+import { tempDir } from '../helpers/tempDir.js'
 
 const require = createRequire(import.meta.url)
 const { parse } = require('smol-toml')
@@ -40,7 +41,7 @@ afterEach(() => {
 })
 
 async function codexHome(config) {
-  const home = await mkdtemp(path.join(os.tmpdir(), 'codepal-hookfmt-'))
+  const home = tempDir('codepal-hookfmt-')
   await mkdir(path.join(home, '.codex'), { recursive: true })
   const file = path.join(home, '.codex', 'config.toml')
   await writeFile(file, config)

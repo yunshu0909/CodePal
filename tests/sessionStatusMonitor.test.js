@@ -16,6 +16,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { tempDir } from './helpers/tempDir.js'
 
 const require = createRequire(import.meta.url)
 const { createSessionStatusMonitor, buildSessionNotification } = require('../electron/services/sessionStatusMonitor')
@@ -138,7 +139,7 @@ describe('sessionStatusMonitor', () => {
   })
 
   it('通知日志文件只留最近 24 小时', () => {
-    const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'notify-log-')), 'notify.log')
+    const file = path.join(tempDir('notify-log-'), 'notify.log')
     const day = 24 * 60 * 60 * 1000
     let now = new Date(2026, 8, 18, 10, 0, 0).getTime()
     createNotifyLog(file, { now: () => now })('旧的一行')

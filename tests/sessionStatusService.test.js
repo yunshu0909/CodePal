@@ -11,11 +11,12 @@
  * @module tests/sessionStatusService
  */
 
-import { mkdir, mkdtemp, writeFile, readFile, readdir } from 'fs/promises'
+import { mkdir, writeFile, readFile, readdir } from 'fs/promises'
 import os from 'os'
 import path from 'path'
 import { createRequire } from 'module'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { tempDir as makeTempDir } from './helpers/tempDir.js'
 
 const require = createRequire(import.meta.url)
 const { _private } = require('../electron/services/sessionStatusService')
@@ -58,7 +59,7 @@ async function writeWorkflowRun(projectsDir, { runId, meta, journalEvents = [], 
 
 describe('sessionStatusService · Claude 动态工作流（沿用原状态灯读取）', () => {
   it('includes running Claude dynamic workflows as active sessions', async () => {
-    const tempDir = await mkdtemp(path.join(os.tmpdir(), 'codepal-k28-status-'))
+    const tempDir = makeTempDir('codepal-k28-status-')
     const projectsDir = path.join(tempDir, '.claude', 'projects')
 
     await writeWorkflowRun(projectsDir, {
@@ -94,7 +95,7 @@ describe('sessionStatusService · Claude 动态工作流（沿用原状态灯读
   })
 
   it('ignores workflows that already have a completion snapshot', async () => {
-    const tempDir = await mkdtemp(path.join(os.tmpdir(), 'codepal-k28-status-'))
+    const tempDir = makeTempDir('codepal-k28-status-')
     const projectsDir = path.join(tempDir, '.claude', 'projects')
 
     await writeWorkflowRun(projectsDir, {
@@ -117,7 +118,7 @@ describe('sessionStatusService · Claude 动态工作流（沿用原状态灯读
   })
 
   it('drops zombie runs whose heartbeat has gone stale', async () => {
-    const tempDir = await mkdtemp(path.join(os.tmpdir(), 'codepal-k28-status-'))
+    const tempDir = makeTempDir('codepal-k28-status-')
     const projectsDir = path.join(tempDir, '.claude', 'projects')
 
     await writeWorkflowRun(projectsDir, {
@@ -269,7 +270,7 @@ describe('打开 / 关掉：临时 HOME 下的往返', () => {
   })
 
   it('打包后模板目录在 asar 里、fs.access 查目录报 ENOENT 时照样能打开（v2.0.0–v2.1.0 的 bug）', async () => {
-    const home = await mkdtemp(path.join(os.tmpdir(), 'ss-home-'))
+    const home = makeTempDir('ss-home-')
     delete process.env.CLAUDE_CONFIG_DIR
     await mkdir(path.join(home, '.claude'), { recursive: true })
     await writeFile(path.join(home, '.claude', 'settings.json'), JSON.stringify({ model: 'opus' }))
@@ -291,7 +292,7 @@ describe('打开 / 关掉：临时 HOME 下的往返', () => {
   })
 
   it('重复打开不重写 Claude settings.json、不攒备份', async () => {
-    const home = await mkdtemp(path.join(os.tmpdir(), 'ss-home-'))
+    const home = makeTempDir('ss-home-')
     delete process.env.CLAUDE_CONFIG_DIR
     await mkdir(path.join(home, '.claude'), { recursive: true })
     await writeFile(path.join(home, '.claude', 'settings.json'), JSON.stringify({ model: 'opus' }))
@@ -307,7 +308,7 @@ describe('打开 / 关掉：临时 HOME 下的往返', () => {
   })
 
   it('打开装好两边钩子、总闸为 1；关掉只删我们的钩子、保留用户的，清空状态、总闸为 0', async () => {
-    const home = await mkdtemp(path.join(os.tmpdir(), 'ss-home-'))
+    const home = makeTempDir('ss-home-')
     delete process.env.CLAUDE_CONFIG_DIR
     await mkdir(path.join(home, '.claude'), { recursive: true })
     await mkdir(path.join(home, '.codex'), { recursive: true })
@@ -346,7 +347,7 @@ describe('打开 / 关掉：临时 HOME 下的往返', () => {
   })
 
   it('旧安装的 conf（总闸为 0、带真实 key）：打开只改总闸，key 和其他行原样保留，并补一段停用说明', async () => {
-    const home = await mkdtemp(path.join(os.tmpdir(), 'ss-home-'))
+    const home = makeTempDir('ss-home-')
     delete process.env.CLAUDE_CONFIG_DIR
     await mkdir(path.join(home, '.claude', 'k28-status-light'), { recursive: true })
     await writeFile(path.join(home, '.claude', 'k28-status-light', 'tts.conf'), 'STATUS_LIGHT_ENABLED=0\nVOLC_API_KEY=sk-***\n')
@@ -359,7 +360,7 @@ describe('打开 / 关掉：临时 HOME 下的往返', () => {
   })
 
   it('Codex：装 6 个时机（含工具用完、会话结束）；旧的 4 个会被升级且不重复；重复打开不改文件、不产生新备份', async () => {
-    const home = await mkdtemp(path.join(os.tmpdir(), 'ss-home-'))
+    const home = makeTempDir('ss-home-')
     delete process.env.CLAUDE_CONFIG_DIR
     await mkdir(path.join(home, '.codex'), { recursive: true })
     const oldBlock = ['SessionStart|idle|startup|resume|clear|compact', 'UserPromptSubmit|busy|', 'PermissionRequest|attention|', 'Stop|done|']
@@ -386,7 +387,7 @@ describe('打开 / 关掉：临时 HOME 下的往返', () => {
   })
 
   it('Codex 顶层 notify（含多行写法）一律不碰：打开、关掉前后都原样', async () => {
-    const home = await mkdtemp(path.join(os.tmpdir(), 'ss-home-'))
+    const home = makeTempDir('ss-home-')
     delete process.env.CLAUDE_CONFIG_DIR
     await mkdir(path.join(home, '.codex'), { recursive: true })
     const notify = 'notify = [\n  "/Applications/Some Tool/bin",\n  "turn-ended",\n]\n'
@@ -403,7 +404,7 @@ describe('打开 / 关掉：临时 HOME 下的往返', () => {
   })
 
   it('Codex 钩子装好后自动信任；信任失败不算装失败，只记一条提示', async () => {
-    const home = await mkdtemp(path.join(os.tmpdir(), 'ss-home-'))
+    const home = makeTempDir('ss-home-')
     delete process.env.CLAUDE_CONFIG_DIR
     await mkdir(path.join(home, '.codex'), { recursive: true })
     const svc = loadFresh(home)
@@ -417,14 +418,14 @@ describe('打开 / 关掉：临时 HOME 下的往返', () => {
   })
 
   it('两个工具都没装：不做任何事，算成功', async () => {
-    const home = await mkdtemp(path.join(os.tmpdir(), 'ss-home-'))
+    const home = makeTempDir('ss-home-')
     const svc = loadFresh(home)
     expect(await svc.installSessionStatus({ trustHooks: noTrust })).toEqual({ success: true, tools: { claude: false, codex: false }, failures: [] })
     await expect(readdir(path.join(home, '.claude'))).rejects.toThrow()
   })
 
   it('配置根不支持且只有 Claude：在任何副作用之前拒绝', async () => {
-    const home = await mkdtemp(path.join(os.tmpdir(), 'ss-home-'))
+    const home = makeTempDir('ss-home-')
     await mkdir(path.join(home, '.claude'), { recursive: true })
     process.env.CLAUDE_CONFIG_DIR = path.join(home, 'elsewhere')
     const svc = loadFresh(home)
@@ -436,7 +437,7 @@ describe('打开 / 关掉：临时 HOME 下的往返', () => {
   })
 
   it('读状态时带上「问什么」', async () => {
-    const home = await mkdtemp(path.join(os.tmpdir(), 'ss-home-'))
+    const home = makeTempDir('ss-home-')
     const dir = path.join(home, '.claude', 'k28-status-light', 'states')
     await mkdir(dir, { recursive: true })
     const epoch = Math.floor(Date.now() / 1000)

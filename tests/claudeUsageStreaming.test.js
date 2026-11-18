@@ -21,6 +21,7 @@ import { createRequire } from 'node:module'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { tempDir } from './helpers/tempDir.js'
 
 const require = createRequire(import.meta.url)
 const { readClaudeUsageLines, scanClaudeLogs } = require('../electron/services/usageLogScanService')
@@ -61,7 +62,7 @@ function newKeptObjects(lines) {
 }
 
 function writeFixture(contents) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'claude-stream-'))
+  const dir = tempDir('claude-stream-')
   const file = path.join(dir, 'session.jsonl')
   fs.writeFileSync(file, contents.join('\n'))
   return { dir, file }
@@ -128,7 +129,7 @@ describe('TC-102 不整份读文件（内存目标）', () => {
 describe('TC-103 边界形态', () => {
   it('末行没有换行结尾时仍产出', async () => {
     const contents = [usageLine(1, 1), usageLine(2, 2)]
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'claude-stream-'))
+    const dir = tempDir('claude-stream-')
     const file = path.join(dir, 'session.jsonl')
     fs.writeFileSync(file, contents.join('\n')) // 无结尾换行
     const lines = await readClaudeUsageLines(file, 10)
