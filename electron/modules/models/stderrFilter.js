@@ -11,11 +11,10 @@
  * 这行本身只是给脚本看的提示，官方文档写明可以按这个开头匹配；请求照样按原名发出。
  *
  * 分块：管道里一行可能拆成几块到达。只有行首的内容还可能是这行时才先攒着，其余立即透传，不额外等待。
+ * 输入是已解码的文字：调用方给流设 utf8 编码，多字节字符跨块由流自己拼好。
  *
  * @module electron/modules/models/stderrFilter
  */
-
-const { StringDecoder } = require('string_decoder')
 
 const UNRECOGNIZED_MODEL_PREFIX = '[claude-code:unrecognized_model]'
 
@@ -39,10 +38,9 @@ function mayBecomePrefixed(head) {
  * @param {object} p
  * @param {string} p.modelName - 这次启动 CodePal 配的模型名（与 Claude Code 打出的 model 字段逐字比较）
  * @param {(text: string) => void} p.write - 过滤后的内容交给谁
- * @returns {{push: (chunk: Buffer|string) => void, end: () => void}} push 每块原始输出；end 在子进程结束后调一次，交出攒着的尾巴
+ * @returns {{push: (text: string) => void, end: () => void}} push 每块输出；end 在子进程结束后调一次，交出攒着的尾巴
  */
 function createStderrFilter({ modelName, write }) {
-  const decoder = new StringDecoder('utf8')
   let pending = ''
   let atLineStart = true
 
@@ -73,9 +71,8 @@ function createStderrFilter({ modelName, write }) {
   }
 
   return {
-    push: (chunk) => consume(typeof chunk === 'string' ? chunk : decoder.write(chunk)),
+    push: consume,
     end: () => {
-      consume(decoder.end())
       const rest = pending
       pending = ''
       if (rest && !isConfiguredModelLine(lineOf(rest), modelName)) write(rest)
