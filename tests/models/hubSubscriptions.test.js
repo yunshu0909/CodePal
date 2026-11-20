@@ -1,5 +1,6 @@
 /** @vitest-environment node
- * v2.1.24 TC-006（守着）：没设过等级的订阅模型仍按定稿字面 high，Codex 来源发现照旧
+ * v2.1.24 TC-006：Codex 来源发现照旧。没设过等级的订阅模型原按定稿字面 high；#79（用户 2026-11-20 选 B）起
+ * 不支持 high 时和档位失效同一套退法（high → 模型自己的默认档 → 支持列表第一个），见 SC-022 与 effortFallback/unsetDefault
  */
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import fs from 'node:fs'
@@ -261,7 +262,7 @@ it('模型接入配置损坏仅降级该来源；订阅可用且坏文件保持'
   )
 })
 
-it('SC-022 未设强度仍按定稿字面high，不偷偷替换成首档；菜单与保存只认支持档位', async () => {
+it('SC-022 #79 未设强度且不支持high：退到模型能跑的档（无默认档时列表第一个）；菜单与保存只认支持档位', async () => {
   ready()
   const item = model('gpt-6-astra')
   item.supported_reasoning_levels = [{ effort: 'low' }, { effort: 'ultra' }]
@@ -269,7 +270,7 @@ it('SC-022 未设强度仍按定稿字面high，不偷偷替换成首档；菜�
   open()
   const data = await list()
   expect(vendor(data, 'codex').models[0]).toMatchObject({
-    effort: 'high',
+    effort: 'low',
     efforts: ['low', 'ultra'],
     enabled: true,
   })
@@ -277,7 +278,7 @@ it('SC-022 未设强度仍按定稿字面high，不偷偷替换成首档；菜�
     fs.readFileSync(path.join(sb.models, 'review-config.json'), 'utf8'),
   )
   expect(snapshot.models.find((m) => m.id === 'codex:gpt-6-astra').effort).toBe(
-    'high',
+    'low',
   )
   expect(
     (

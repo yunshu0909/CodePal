@@ -2,7 +2,7 @@
  * v2.1.24 TC-001（#72）：审核用的等级存过、后来模型不再支持这一档时，退回模型自己支持的档——
  * 支持 high 就用 high；不支持就用它自己的默认档；默认档也不在支持列表里就用列表第一个。
  * 页面显示的等级与写进审核配置的等级相同，原值仍以 effortUnsupported 提示。
- * 没设过等级的初始值（v2.1.12 定稿字面 high）不在本条范围，由 hubSubscriptions 的 SC-022 守着。
+ * 没设过等级的初始值（#79 起同一套退法，但不提示原值）不在本条范围，由 unsetDefault 与 hubSubscriptions 的 SC-022 守着。
  */
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import fs from 'node:fs'
