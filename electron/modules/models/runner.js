@@ -58,9 +58,8 @@ function runClaude({ claudePath, env, args, mode, stdinText, timeoutMs, configur
       if (configuredModel) {
         stderrFilter = createStderrFilter({
           modelName: configuredModel,
-          write: (text) => { err.write(text); stderr = appendCapped(stderr, Buffer.from(text, 'utf8')) },
+          write: (bytes) => { err.write(bytes); stderr = appendCapped(stderr, bytes) },
         })
-        child.stderr.setEncoding('utf8')
         child.stderr.on('data', (c) => stderrFilter.push(c))
       } else {
         child.stderr.on('data', (c) => { err.write(c); stderr = appendCapped(stderr, c) })
