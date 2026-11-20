@@ -77,6 +77,32 @@ if (mode === 'conn') {
   process.stderr.write('Connection error.\n')
   process.exit(1)
 }
+// #90：真 Claude Code 2.1.325 对认不出的模型名在标准错误写的诊断行（原文格式，模型名取这次启动配的）
+const unrecognized = (model, source = 'sdk') => `[claude-code:unrecognized_model] ${JSON.stringify({ model, query_source: source })}\n`
+if (mode === 'unrecognized') {
+  process.stderr.write('before line\n')
+  process.stderr.write(unrecognized(process.env.ANTHROPIC_MODEL))
+  process.stderr.write(unrecognized('some-typo-model', 'agent:helper'))
+  process.stderr.write('after line\n')
+  process.stdout.write(JSON.stringify(base))
+  process.exit(0)
+}
+if (mode === 'unrecognized-split') {
+  // 一行拆成几块、隔一会儿才写完：模拟管道里分块到达
+  const line = unrecognized(process.env.ANTHROPIC_MODEL)
+  const parts = ['[claude-co', line.slice(10, 40), line.slice(40), 'tail without newline']
+  let i = 0
+  const next = () => {
+    if (i < parts.length) { process.stderr.write(parts[i++]); setTimeout(next, 80); return }
+    process.stdout.write(JSON.stringify(base))
+    process.exit(0)
+  }
+  next()
+}
+if (mode === 'unrecognized-fail') {
+  process.stderr.write(unrecognized(process.env.ANTHROPIC_MODEL))
+  process.exit(1)
+}
 if (mode === 'exit3') process.exit(3)
 if (mode === 'hang') {
   setTimeout(() => process.exit(0), 120000)
