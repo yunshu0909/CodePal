@@ -5,7 +5,7 @@
  * - 读并校验 hub.json；坏了抛 HUB_FILE_INVALID（不改写）
  * - 发现当前能用的模型来源（Claude Code、Codex、模型接入里测通的）
  * - 第一次打开的开关、顺序与等级（A-016）；从上一版升级时补顺序（后-45）
- * - 给页面看的模型列表：开关、审核用的等级（档位不再支持时退回默认档并标出原值，后-29）
+ * - 给页面看的模型列表：开关、审核用的等级（没设过或档位不再支持时退回模型能跑的档，失效的标出原值，后-29、#79）
  * - 审核在用的可见顺序（暂时消失的模型留在 order 里，恢复后回原位，后-35）
  *
  * @module electron/modules/models/hub
@@ -130,33 +130,38 @@ function currentSources(options) {
 
 const isSubscription = (vendorId) => vendorId === 'claude' || vendorId === 'codex'
 
-/** 没设过审核等级时的默认档：订阅照定稿字面 high（v2.1.12 已确认，不偷偷换成首档）；接入模型沿用它在模型接入里的值 */
-function defaultEffort(vendorId, model) {
-  if (!model.efforts.length) return null
-  if (isSubscription(vendorId)) return 'high'
-  return model.efforts.includes(model.effort) ? model.effort : model.efforts[0]
-}
-
 /**
- * 存过的档位不再支持时退回哪一档（后-29「只用这个模型实际支持的档位」）：
- * 订阅模型支持 high 就用 high（和没设过时一致）→ 模型自己的默认档 → 支持列表第一个；接入模型同 defaultEffort（本来就只给支持的档）
+ * 订阅模型能跑的档：支持 high 就用 high → 模型自己的默认档 → 支持列表第一个。
+ * 没设过等级（#79，用户 2026-11-20 选 B，替换 v2.1.12 定稿「未设强度仍按字面 high」）
+ * 与存过的档位失效（后-29、#72）共用这一条退法。
  */
-function fallbackEffort(vendorId, model) {
-  if (!isSubscription(vendorId)) return defaultEffort(vendorId, model)
+function subscriptionEffort(model) {
   if (model.efforts.includes('high')) return 'high'
   if (model.efforts.includes(model.defaultEffort)) return model.defaultEffort
   return model.efforts[0]
 }
 
 /**
- * 审核用的等级（后-29）：保存的档位还支持就用它；不再支持退回模型支持的档并带出原值；没有档位为 null
+ * 审核用的等级没存过、或存过的不再支持时用哪一档：订阅模型见 subscriptionEffort；
+ * 接入模型沿用它在模型接入里的值（本来就只给支持的档），不在支持列表里就用第一个
+ * @returns {string|null} 没有档位为 null
+ */
+function defaultEffort(vendorId, model) {
+  if (!model.efforts.length) return null
+  if (isSubscription(vendorId)) return subscriptionEffort(model)
+  return model.efforts.includes(model.effort) ? model.effort : model.efforts[0]
+}
+
+/**
+ * 审核用的等级（后-29）：保存的档位还支持就用它；没存过就用模型能跑的档（不提示）；
+ * 不再支持也退回模型能跑的档，并带出原值供页面提示；没有档位为 null
  * @returns {{effort: string|null, effortUnsupported?: string}}
  */
 function hubEffort(vendorId, model, preferences, id) {
   if (!model.efforts.length) return { effort: null }
   const saved = preferences.effort[id]
   if (saved === undefined || model.efforts.includes(saved)) return { effort: saved ?? defaultEffort(vendorId, model) }
-  return { effort: fallbackEffort(vendorId, model), effortUnsupported: saved }
+  return { effort: defaultEffort(vendorId, model), effortUnsupported: saved }
 }
 
 /**
