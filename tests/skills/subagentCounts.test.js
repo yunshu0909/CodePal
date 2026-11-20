@@ -57,6 +57,11 @@ async function claudeSession(sessionId, target, readsAt) {
   await jsonl(claudeMain(sessionId), [claudeStart(sessionId),
     ...readsAt.flatMap((when, index) => claudeRead(sessionId, sessionId + '-read-' + index, target, when))])
 }
+// 子代理里显式再调一次 skill（Skill 工具）后重读：开一个新的加载过程
+function claudeSkillCall(sessionId, id, name, when, extra = {}) {
+  return { type: 'assistant', uuid: 'use-' + id, timestamp: when, sessionId, ...extra,
+    message: { content: [{ type: 'tool_use', id, name: 'Skill', input: { skill: name } }] } }
+}
 async function claudeSubagent(sessionId, agentId, target, readsAt) {
   const extra = { agentId, isSidechain: true }
   await jsonl(claudeAgent(sessionId, agentId), [claudeStart(sessionId, extra),
@@ -164,6 +169,51 @@ describe('#81 子代理不进主数字', () => {
     const data = await scan()
     expect(runsOf(data)).toHaveLength(1)
     expect(runsOf(data)[0].agentCount).toBe(2)
+  })
+
+  it('审核意见 1：同一个子代理隔了 30 分钟以上重读，仍是一行、1 个子代理', async () => {
+    const target = await install()
+    await claudeSession('main', target, [])
+    await claudeSubagent('main', 'slow', target, [at(300), at(260)])
+    const data = await scan()
+    expect(runsOf(data).map((run) => [run.triggeredAt, run.agentCount, run.lastReadAt])).toEqual([[at(300), 1, at(260)]])
+  })
+
+  it('审核意见 1：子代理自己的重读不把两波派出连成一行（只按各子代理第一次读取分组）', async () => {
+    const target = await install()
+    await claudeSession('main', target, [])
+    const extra = { agentId: 'a', isSidechain: true }
+    await jsonl(claudeAgent('main', 'a'), [claudeStart('main', extra), ...claudeRead('main', 'a-first', target, at(300), extra),
+      claudeSkillCall('main', 'a-again', 'alpha', at(291), extra), ...claudeRead('main', 'a-reread', target, at(291), extra)])
+    await claudeSubagent('main', 'b', target, [at(282)])
+    const data = await scan()
+    expect(runsOf(data).map((run) => [run.triggeredAt, run.agentCount])).toEqual([[at(300), 1], [at(282), 1]])
+  })
+
+  it('审核意见 2：旧版 Claude 子代理日志只有 isSidechain、没有 agentId，也不进主数字', async () => {
+    const target = await install()
+    await claudeSession('main', target, [at(300)])
+    const extra = { isSidechain: true }
+    await jsonl(claudeAgent('main', 'legacy'), [claudeStart('main', extra), ...claudeRead('main', 'legacy-read', target, at(260), extra)])
+    const data = await scan()
+    expect(skillOf(data)).toMatchObject({ total: 1, claude: 1 })
+    expect(data.records).toHaveLength(1)
+    expect(runsOf(data).map((run) => [run.triggeredAt, run.agentCount])).toEqual([[at(260), 1]])
+  })
+
+  it('审核意见 3：合成行里排在后面的子代理日志读不了时，明细照旧报读不了', async () => {
+    const target = await install()
+    await claudeSession('main', target, [at(400)])
+    await claudeSubagent('main', 'first', target, [at(300)])
+    await claudeSubagent('main', 'second', target, [at(299)])
+    const data = await scan()
+    expect(runsOf(data)[0].agentCount).toBe(2)
+    const file = claudeAgent('main', 'second')
+    await fs.chmod(file, 0)
+    try {
+      await expect(listSkillInvocationRecords(deps(), { assetId: skillOf(data).assetId, batchId: data.batchId, windowDays: 30, ledgerPath: ledgerPath() }))
+        .rejects.toThrow('SKILL_USAGE_SOURCE_UNREADABLE')
+    } finally { await fs.chmod(file, 0o600) }
   })
 
   it('只被子代理读过的 skill 主数字是 0，其它 skill 不受影响', async () => {

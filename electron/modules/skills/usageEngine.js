@@ -5,7 +5,7 @@ const { readUsageSources } = require('./usageSources')
 const {
   contextId,
   classifyContexts,
-  subagentRoots,
+  subagentFiles,
   groupSubagentRuns,
   removeProvenReplay,
   loadProcesses,
@@ -259,9 +259,10 @@ function assembleResult({
   return result
 }
 
-function rememberBatch(result, registry) {
+function rememberBatch(result, registry, runSources) {
   const key = registry.storeDir + ':' + result.batchId
-  batches.set(key, { result, registry })
+  // runSources：每行子代理用到的全部日志，只留在主进程，查明细时逐个复核权限
+  batches.set(key, { result, registry, runSources })
   while (batches.size > 24) batches.delete(batches.keys().next().value)
 }
 
@@ -283,14 +284,24 @@ async function aggregate(deps, options = {}) {
   const classes = classifyContexts(history.files)
   const state = collectUncertainty(registry, indexed, history, classes, inWindow)
   const events = collectLoadEvents(registry, history, classes, inWindow, state)
-  const loaded = loadProcesses(removeProvenReplay(events, history.files)).filter((record) =>
-    inWindow(record.triggeredAt)
-  )
-  // #81：用户会话派出的子代理不进次数和调用记录，按派出合成一行另给明细
-  const roots = subagentRoots(history.files)
-  const delegated = (record) => record.classification === 'user' && roots.has(record.contextId)
+  // #81：用户会话派出的子代理不进次数和调用记录，按派出合成一行另给明细。按日志文件认子代理，
+  // 给它自己的上下文键，免得旧版 sidechain 和主会话的读取合成一个加载过程
+  const agentFiles = subagentFiles(history.files)
+  const roots = new Map()
+  const tagged = removeProvenReplay(events, history.files).map((event) => {
+    const agent = event.classification === 'user' && agentFiles.get(event.fileKey)
+    if (!agent) return event
+    roots.set(agent.agentId, agent.rootId)
+    return { ...event, contextId: agent.agentId }
+  })
+  const loaded = loadProcesses(tagged).filter((record) => inWindow(record.triggeredAt))
+  const delegated = (record) => roots.has(record.contextId)
   const processes = loaded.filter((record) => !delegated(record))
-  const subagentRuns = groupSubagentRuns(loaded.filter(delegated), roots)
+  const runSources = new Map()
+  const subagentRuns = groupSubagentRuns(loaded.filter(delegated), roots).map(({ sessions, ...run }) => {
+    runSources.set(run.runId, sessions)
+    return run
+  })
   const batchId = crypto.randomUUID()
   const result = assembleResult({
     registry,
@@ -306,7 +317,7 @@ async function aggregate(deps, options = {}) {
     days,
     batchId,
   })
-  rememberBatch(result, registry)
+  rememberBatch(result, registry, runSources)
   return result
 }
 /**
@@ -354,7 +365,7 @@ async function listUsageRecords(deps, options = {}) {
       skillNames: options.skillName ? [options.skillName] : [],
     })
     const registry = await readUsageSources(deps)
-    batch = { result, registry }
+    batch = batches.get(registry.storeDir + ':' + result.batchId) || { result, registry }
   }
   const selected = options.assetId
     ? batch.result.skills.find((asset) => asset.assetId === options.assetId)
@@ -362,7 +373,13 @@ async function listUsageRecords(deps, options = {}) {
   if (!selected) throw new Error('SKILL_ASSET_ID_INVALID')
   const records = batch.result.records.filter((record) => record.assetId === selected.assetId)
   const subagentRuns = (batch.result.subagentRuns || []).filter((run) => run.assetId === selected.assetId)
-  for (const record of [...records, ...subagentRuns]) {
+  const sources = [
+    ...records.map((record) => ({ tool: record.tool, session: record.session })),
+    ...subagentRuns.flatMap((run) =>
+      (batch.runSources?.get(run.runId) || [run.session]).map((session) => ({ tool: run.tool, session }))
+    ),
+  ]
+  for (const record of sources) {
     const root = batch.registry.roots[record.tool]
     const file = path.resolve(root, record.session.relativePath)
     if (!file.startsWith(root + path.sep)) throw new Error('SKILL_RECORD_PATH_INVALID')

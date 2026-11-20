@@ -4,8 +4,10 @@
  */
 import React from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import SkillDetail from '../../src/pages/skills/SkillDetail'
+import SkillsPage from '../../src/pages/skills/SkillsPage'
+import { resetSkillUsageCache } from '../../src/hooks/useSkillUsage'
 
 vi.mock('../../src/store/skillRepoPath', () => ({ skillRepoPath: { getRepoPath: vi.fn(async () => '/library'), getCachedRepoPath: vi.fn(() => '/library') } }))
 
@@ -23,7 +25,7 @@ const run = (overrides = {}) => ({ runId: 'run-1', skillName: 'alpha', assetId: 
 const props = (overrides) => ({ skill: alpha, snapshot, usageFailed: false, usageStatus: 'ready', pluginNames: [], pendingKeys: new Set(),
   onToggle: vi.fn(), onDelete: vi.fn(), onRetryUsage: vi.fn(), ...overrides })
 
-afterEach(() => { cleanup() })
+afterEach(() => { cleanup(); vi.restoreAllMocks() })
 
 describe('#81 子代理在调用明细里合成一行', () => {
   it('主记录 1 条 + 子代理 1 行：次数只数主会话，子代理那行写「Claude Code 派了 11 个子代理」，按时间新的在上', () => {
@@ -47,6 +49,28 @@ describe('#81 子代理在调用明细里合成一行', () => {
     expect(screen.queryByText('近 30 天没用')).not.toBeNull()
     expect(view.container.querySelectorAll('.np-lrow')).toHaveLength(1)
     expect(screen.queryByText('Claude Code 派了 11 个子代理')).not.toBeNull()
+    expect(screen.queryByText('近 30 天没有记录到调用')).toBeNull()
+  })
+
+  it('审核意见 4：真实 Skills 页把明细接口给的子代理行带到详情里（主数字 0 的 skill）', async () => {
+    resetSkillUsageCache()
+    const beta = { ...alpha, name: 'beta', displayName: 'beta', locations: [{ toolId: 'central', path: '/library/beta' }] }
+    const pageSnapshot = { ...snapshot, skills: [alpha, beta] }
+    window.electronAPI = {
+      getSkillControlSnapshot: vi.fn(async () => ({ success: true, data: pageSnapshot })),
+      executeSkillCommand: vi.fn(async () => ({ success: true, snapshot: pageSnapshot })),
+      skillUsageAggregate: vi.fn(async () => ({ success: true, data: { batchId: 'batch-a', skills: [{ ...usage(0) }, { ...usage(2), name: 'beta', assetId: 'asset-beta' }] } })),
+      skillUsageRecords: vi.fn(async (options) => ({ success: true, data: { batchId: options.batchId, records: [], subagentRuns: [run()] } })),
+    }
+    render(<SkillsPage />)
+    await screen.findByText('beta', { selector: '.np-li b' })
+    // 主数字 0 的 skill 在「没用」页签；等次数读完、页签定下再切
+    await waitFor(() => expect(screen.getByRole('tab', { name: /在用/ }).getAttribute('aria-selected')).toBe('true'))
+    await act(async () => {})
+    fireEvent.click(screen.getByRole('tab', { name: /没用/ }))
+    fireEvent.click(await screen.findByText('alpha', { selector: '.np-li b' }))
+    await waitFor(() => expect(screen.queryByText('Claude Code 派了 11 个子代理')).not.toBeNull())
+    expect(screen.queryByText('近 30 天没用')).not.toBeNull()
     expect(screen.queryByText('近 30 天没有记录到调用')).toBeNull()
   })
 })
