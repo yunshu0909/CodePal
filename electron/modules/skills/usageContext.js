@@ -53,6 +53,77 @@ function classifyContexts(files) {
 }
 
 /**
+ * 子代理上下文 → 发起它的最上层主会话上下文（#81：子代理不进主数字，明细里按主会话合成一行）。
+ * Claude 子代理和主会话同一 sessionId、自带 agentId；Codex 子线程记着父线程号，子代理再派的一路找到顶。
+ * 与主会话共用同一上下文键的（旧版无 agentId 的 sidechain）不算子代理，免得把主会话自己的读取也挪走。
+ * @param {object[]} files - 当前及已保留的真实会话元数据。
+ * @returns {Map<string, string>} 子代理 contextId → 主会话 contextId；父会话找不到的子代理不在里面（分类本就是 unknown）。
+ */
+function subagentRoots(files) {
+  // Claude 子代理文件和主会话同一 sessionId：只拿主会话那份当「会话」
+  const sessions = new Map(
+    files
+      .filter((file) => !file.meta.agentId && !file.meta.sidechain)
+      .map((file) => [file.meta.tool + '\0' + file.meta.sessionId, file.meta])
+  )
+  const roots = new Map()
+  for (const { meta } of files) {
+    const claudeAgent = meta.tool === 'claude' && (meta.agentId || meta.sidechain)
+    if (!claudeAgent && !meta.parentId) continue
+    let root = claudeAgent ? sessions.get(meta.tool + '\0' + meta.sessionId) : meta
+    const visited = new Set()
+    while (root?.parentId && !visited.has(root.sessionId)) {
+      visited.add(root.sessionId)
+      root = sessions.get(root.tool + '\0' + root.parentId)
+    }
+    if (!root || root.parentId) continue
+    const own = contextId(meta)
+    const top = contextId(root)
+    if (own !== top) roots.set(own, top)
+  }
+  return roots
+}
+
+/** 同一次派出里，相邻两个子代理首次读取最多隔这么久（#81 合成一行的规则） */
+const DISPATCH_GAP_MS = 10 * 60 * 1000
+/**
+ * 把子代理的加载过程合成「一次派出」：同一资产、同一工具、同一主会话，按首次读取排开，相邻不超过 10 分钟算同一次。
+ * @param {object[]} processes - loadProcesses 的结果，只传子代理那部分。
+ * @param {Map<string, string>} roots - subagentRoots 的结果。
+ * @returns {object[]} 每次派出一行：最早读取时间、派出的不同子代理个数；不修改输入。
+ */
+function groupSubagentRuns(processes, roots) {
+  const open = new Map()
+  const runs = []
+  for (const record of [...processes].sort(
+    (a, b) => Date.parse(a.triggeredAt) - Date.parse(b.triggeredAt) || a.invocationId.localeCompare(b.invocationId)
+  )) {
+    const key = [record.tool, record.assetId, roots.get(record.contextId)].join('\0')
+    const run = open.get(key)
+    if (run && Date.parse(record.triggeredAt) - Date.parse(run.lastStartAt) <= DISPATCH_GAP_MS) {
+      run.agents.add(record.contextId)
+      run.lastStartAt = record.triggeredAt
+      if (Date.parse(record.lastReadAt) > Date.parse(run.lastReadAt)) run.lastReadAt = record.lastReadAt
+      continue
+    }
+    const next = {
+      runId: 'subagents_' + hash(key + '\0' + record.invocationId).slice(0, 24),
+      skillName: record.skillName,
+      assetId: record.assetId,
+      tool: record.tool,
+      triggeredAt: record.triggeredAt,
+      lastReadAt: record.lastReadAt,
+      lastStartAt: record.triggeredAt,
+      agents: new Set([record.contextId]),
+      session: record.session,
+    }
+    open.set(key, next)
+    runs.push(next)
+  }
+  return runs.map(({ agents, lastStartAt, ...run }) => ({ ...run, agentCount: agents.size }))
+}
+
+/**
  * @param {object[]} events - 已验证正文证据。
  * @param {object[]} files - 含真实分叉祖先的会话元数据。
  * @returns {object[]} 只去掉已证明复制到子上下文的相同事件，不修改输入。
@@ -119,4 +190,11 @@ function loadProcesses(events) {
   }
   return processes
 }
-module.exports = { contextId, classifyContexts, removeProvenReplay, loadProcesses }
+module.exports = {
+  contextId,
+  classifyContexts,
+  subagentRoots,
+  groupSubagentRuns,
+  removeProvenReplay,
+  loadProcesses,
+}

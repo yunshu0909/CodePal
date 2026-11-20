@@ -6,7 +6,7 @@
  * - 最近收进卡（这个名字最近一次还没撤回的收进，见 InboxDetail 的 RecentCard）
  * - 启用：每个工具一个开关（只读的是状态点 + 去哪关；工具读不出 / 没找到禁用）；工具的全局位置被一份不是资产库链接的占着时
  *   开关灰、写原因，一样的独立文件夹和指向别处的链接给「换成链接」（定稿 C13）；没做完的收进或撤回时开关都先停着；隶属插件；装了两份
- * - 近 30 天调用记录、说明、位置（名字一行、完整路径一行）、删除
+ * - 近 30 天调用记录（子代理那一串合成一行，不计入次数，#81）、说明、位置（名字一行、完整路径一行）、删除
  *
  * @module pages/skills/SkillDetail
  */
@@ -15,7 +15,7 @@ import React from 'react'
 import Button from '../../components/Button/Button'
 import Toggle from '../../components/Toggle'
 import { RecentCard } from './InboxDetail'
-import { TOOLS, formatRecordTime, isReadOnly, readOnlyKind, recordProject, sourceLabel, toolStatus } from './skillsModel'
+import { TOOLS, formatRecordTime, isReadOnly, readOnlyKind, recordProject, sourceLabel, subagentRunText, toolStatus } from './skillsModel'
 
 const TOOL_ICON = {
   'claude-code': { className: 'sk-ic-claude', path: 'M3 4.5 6.5 8 3 11.5M8 12h5' },
@@ -105,7 +105,7 @@ export function ToolRow({ tool, skill, snapshot, pending, frozen = false, onTogg
  * @param {boolean} props.usageFailed
  * @param {'loading'|'error'|'ready'} [props.usageStatus='ready'] - 数字读取中时清除旧数字与记录。
  * @param {() => void} props.onRetryUsage
- * @param {{status: string, records: Array}} props.records
+ * @param {{status: string, records: Array, runs?: Array}} props.records - runs 是子代理按派出合成的行
  * @param {string[]} props.pluginNames - 同名的插件
  * @param {Set<string>} props.pendingKeys
  * @param {(toolId: string, enabled: boolean) => void} props.onToggle
@@ -130,11 +130,16 @@ export default function SkillDetail({ skill, snapshot, usage, usageFailed, usage
     : usageUnavailable ? <>近 30 天 <span className="num">—</span> 次</>
       : total > 0 ? <>近 30 天 <span className="num">{total}</span> 次</> : <span>近 30 天没用</span>
   const duplicateTool = TOOLS.find((tool) => skill.tools?.[tool.id]?.duplicate)
-  const recordList = loading || records?.status === 'loading' ? [] : records?.records || []
+  const shown = !loading && records?.status !== 'loading'
+  // 主会话记录和子代理合成行按时间混排，新的在上；子代理行只换中间那栏的字
+  const recordList = shown ? [
+    ...(records?.records || []).map((record) => ({ ...record, rowKey: record.invocationId, label: record.tool === 'codex' ? 'Codex' : 'Claude Code' })),
+    ...(records?.runs || []).map((run) => ({ ...run, rowKey: run.runId, label: subagentRunText(run) })),
+  ].sort((a, b) => Date.parse(b.triggeredAt) - Date.parse(a.triggeredAt)) : []
   const recordRows = recordList.map((record) => (
-    <div key={record.invocationId} className="np-lrow">
+    <div key={record.rowKey} className="np-lrow">
       <span className="t">{formatRecordTime(record.triggeredAt)}</span>
-      <span>{record.tool === 'codex' ? 'Codex' : 'Claude Code'}</span>
+      <span>{record.label}</span>
       <span className="e">{recordProject(record)}</span>
     </div>
   ))

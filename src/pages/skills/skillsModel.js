@@ -477,6 +477,15 @@ export function recordProject(record) {
 }
 
 /**
+ * 调用明细里子代理合成的那一行（#81，2026-11-20 用户选 B：子代理不进次数，明细里合成一行）
+ * @param {{tool: string, agentCount: number}} run
+ * @returns {string} 如「Claude Code 派了 11 个子代理」
+ */
+export function subagentRunText(run) {
+  return `${run?.tool === 'codex' ? 'Codex' : 'Claude Code'} 派了 ${run?.agentCount || 0} 个子代理`
+}
+
+/**
  * 详情栏头的来源说明
  * @param {object} skill
  * @returns {string}

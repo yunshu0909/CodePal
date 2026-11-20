@@ -2,7 +2,14 @@
 const crypto = require('crypto')
 const path = require('path')
 const { readUsageSources } = require('./usageSources')
-const { contextId, classifyContexts, removeProvenReplay, loadProcesses } = require('./usageContext')
+const {
+  contextId,
+  classifyContexts,
+  subagentRoots,
+  groupSubagentRuns,
+  removeProvenReplay,
+  loadProcesses,
+} = require('./usageContext')
 const { readIndexedFiles, fileVersion } = require('./usageIndex')
 const { reconcileHistory } = require('./usageHistory')
 const { defaultLedgerPath } = require('../../services/skillInvocationLedgerService')
@@ -168,6 +175,7 @@ function assembleResult({
   names,
   selectedIds,
   processes,
+  subagentRuns,
   state,
   now,
   start,
@@ -209,6 +217,9 @@ function assembleResult({
   const independentRecords = processes
     .filter((record) => wantedIds.has(record.assetId) && record.classification === 'independent')
     .sort((a, b) => a.invocationId.localeCompare(b.invocationId))
+  const runs = subagentRuns
+    .filter((run) => wantedIds.has(run.assetId))
+    .sort((a, b) => b.triggeredAt.localeCompare(a.triggeredAt) || a.runId.localeCompare(b.runId))
   const sources = Object.fromEntries(
     Object.keys(registry.roots).map((tool) => [
       tool,
@@ -229,6 +240,7 @@ function assembleResult({
     records,
     invocations: records,
     independentRecords,
+    subagentRuns: runs,
     diagnostics: state.diagnostics,
     sources,
     totals: {
@@ -271,9 +283,14 @@ async function aggregate(deps, options = {}) {
   const classes = classifyContexts(history.files)
   const state = collectUncertainty(registry, indexed, history, classes, inWindow)
   const events = collectLoadEvents(registry, history, classes, inWindow, state)
-  const processes = loadProcesses(removeProvenReplay(events, history.files)).filter((record) =>
+  const loaded = loadProcesses(removeProvenReplay(events, history.files)).filter((record) =>
     inWindow(record.triggeredAt)
   )
+  // #81：用户会话派出的子代理不进次数和调用记录，按派出合成一行另给明细
+  const roots = subagentRoots(history.files)
+  const delegated = (record) => record.classification === 'user' && roots.has(record.contextId)
+  const processes = loaded.filter((record) => !delegated(record))
+  const subagentRuns = groupSubagentRuns(loaded.filter(delegated), roots)
   const batchId = crypto.randomUUID()
   const result = assembleResult({
     registry,
@@ -282,6 +299,7 @@ async function aggregate(deps, options = {}) {
     names,
     selectedIds,
     processes,
+    subagentRuns,
     state,
     now,
     start,
@@ -295,7 +313,8 @@ async function aggregate(deps, options = {}) {
  * 普通 Skill 唯一统计入口；同一私有存储串行处理并发查询。
  * @param {object} deps - 主进程 homeDir，以及可选 env/storeDir/nowFn。
  * @param {object} options - 名字或 assetIds、windowDays；内部校验可禁用索引。
- * @returns {Promise<object>} total 是近 30 天确认的加载次数（与 confirmedTotal 相同，始终是数字）；
+ * @returns {Promise<object>} total 是近 30 天确认的加载次数（与 confirmedTotal 相同，始终是数字），只数主会话，
+ * 子代理的加载按派出合成 subagentRuns 另给（#81）；
  * completeness 只作诊断（有读不懂的日志行等），不影响 total；availability 表示来源是否可读。
  * 返回随机 batchId 绑定当次资产、窗口及记录；只写并行的新索引/元数据历史，旧账本只读。
  */
@@ -315,7 +334,7 @@ function aggregateUsage(deps, options = {}) {
  * 返回某一普通资产的确认加载过程；提供 batchId 时严格使用原聚合窗口与记录。
  * @param {object} deps - 与 aggregateUsage 相同的主进程依赖。
  * @param {object} options - assetId 或 skillName，以及可选 batchId/windowDays。
- * @returns {Promise<object>} 同批记录与完整性/可读性；批次失效或路径不再可读时拒绝。
+ * @returns {Promise<object>} 同批记录（只含主会话）、子代理合成行 subagentRuns 与完整性/可读性；批次失效或路径不再可读时拒绝。
  * 无批次时先执行聚合；检查记录来源权限，不读取正文，也不改用户资产或旧账本。
  */
 async function listUsageRecords(deps, options = {}) {
@@ -342,7 +361,8 @@ async function listUsageRecords(deps, options = {}) {
     : batch.result.skills.find((asset) => asset.name === options.skillName)
   if (!selected) throw new Error('SKILL_ASSET_ID_INVALID')
   const records = batch.result.records.filter((record) => record.assetId === selected.assetId)
-  for (const record of records) {
+  const subagentRuns = (batch.result.subagentRuns || []).filter((run) => run.assetId === selected.assetId)
+  for (const record of [...records, ...subagentRuns]) {
     const root = batch.registry.roots[record.tool]
     const file = path.resolve(root, record.session.relativePath)
     if (!file.startsWith(root + path.sep)) throw new Error('SKILL_RECORD_PATH_INVALID')
@@ -362,6 +382,7 @@ async function listUsageRecords(deps, options = {}) {
     completeness: selected.completeness,
     availability: selected.availability,
     records,
+    subagentRuns,
   }
 }
 module.exports = { aggregateUsage, listUsageRecords }

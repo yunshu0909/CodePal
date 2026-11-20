@@ -65,7 +65,7 @@ function stillInInbox(result, name) {
  * @param {object} usage - 当前聚合中该项的真实身份。
  * @param {string|null} batchId - 明细必须绑定当前聚合批次。
  * @param {'loading'|'error'|'ready'} usageStatus - 聚合读取状态。
- * @returns {object} 记录读取状态和同批记录；刷新/切换立即隐藏旧记录，迟到响应不得回写。
+ * @returns {object} 记录读取状态、同批记录和子代理合成行（runs）；刷新/切换立即隐藏旧记录，迟到响应不得回写。
  */
 function useRecords(skillName, refreshToken, usage, batchId, usageStatus) {
   const api = typeof window !== 'undefined' ? window.electronAPI : null
@@ -92,7 +92,7 @@ function useRecords(skillName, refreshToken, usage, batchId, usageStatus) {
     query(options).then((result) => {
       if (cancelled) return
       const matched = !modern || result?.data?.batchId === batchId
-      setRecords(result?.success && matched ? { status: 'ready', records: result.data?.records || [], key } : { status: 'error', records: [], key })
+      setRecords(result?.success && matched ? { status: 'ready', records: result.data?.records || [], runs: result.data?.subagentRuns || [], key } : { status: 'error', records: [], key })
     }).catch(() => {
       if (!cancelled) setRecords({ status: 'error', records: [], key })
     })
