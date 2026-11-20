@@ -1,6 +1,8 @@
-/** v2.1.28 TC-004（D149、#87 同版）：审核规则页签「复杂需求 · 完整开发」组最上面加边界审查、对账复核两行
+/** v2.1.28 TC-004（D149、#87 同版）：审核规则页签加边界审查、对账复核两行
+ * #89（2026-11-20 用户在对比页选定方案三）：这两行单独成一组「复杂需求 · 设计审查」，放在完整开发组上面
  *
- * - 各只有一个「每个 N 轮」按钮（1～5，点了就保存）；派几个的位置写「同需求对齐」「原审核者」，不是按钮
+ * - 各只有一个「每个 N 轮」按钮（1～5，点了就保存）；「派几个」那格不放东西
+ * - 组下面一行说明个数谁定（用户认过的原文）
  * - 保存的键是 designGates.<门>.rounds，成功提示已保存
  * - 能来审的模型数橙字只看「派几个模型」，不受这两行影响
  */
@@ -52,13 +54,13 @@ function rules() {
 }
 const ok = (data) => ({ success: true, data, error: null })
 
-async function show() {
+async function show(rulesData = rules()) {
   const api = {
     modelsHubList: vi.fn(async () => ok(hub())),
     modelsHubSetEnabled: vi.fn(async (payload) => ok(payload)),
     modelsHubSetEffort: vi.fn(async (payload) => ok(payload)),
     modelsHubSetOrder: vi.fn(async (payload) => ok(payload)),
-    modelsRulesGet: vi.fn(async () => ok(rules())),
+    modelsRulesGet: vi.fn(async () => ok(rulesData)),
     modelsRulesSet: vi.fn(async ({ key, value }) => ok({ key, value, changed: true })),
     modelsRulesReset: vi.fn(async () => ok({ effective: rules().effective, changed: false })),
     modelsConfigRepublish: vi.fn(async () => ok({ exportOk: true })),
@@ -78,23 +80,57 @@ afterEach(() => {
   delete window.electronAPI
 })
 
-it('TC-004 完整开发组最上面是边界审查、对账复核两行，只有轮数按钮，派几个写固定说法；选 4 轮按这一项保存', async () => {
-  const api = await show()
-  const formal = [...document.querySelectorAll('.np-glabel')].find((el) => el.textContent === '复杂需求 · 完整开发')
-  const card = formal.nextElementSibling
-  const order = [...card.querySelectorAll('[data-gate]')].map((el) => el.getAttribute('data-gate'))
-  expect(order).toEqual([BOUNDARY, RECONCILE, 'formal.G1', 'formal.G2b', 'formal.G3', 'formal.G4'])
+const DESIGN_LABEL = '复杂需求 · 设计审查'
+const DESIGN_NOTE = '这两道派几个由 dev 定：边界审查和需求对齐派一样多，对账复核找原审核者'
+const glabel = (name) => [...document.querySelectorAll('.np-glabel')].find((el) => el.textContent === name)
+const cardIds = (label) => [...glabel(label).nextElementSibling.querySelectorAll('[data-gate]')].map((el) => el.getAttribute('data-gate'))
 
-  for (const [id, name, fixed, rounds] of [
-    [BOUNDARY, '边界审查', '同需求对齐', '每个 2 轮'],
-    [RECONCILE, '对账复核', '原审核者', '每个 3 轮'],
+it('TC-004 #89 边界审查、对账复核单独成一组「复杂需求 · 设计审查」，在完整开发组上面', async () => {
+  await show()
+  expect([...document.querySelectorAll('.np-glabel')].map((el) => el.textContent)).toEqual([
+    '派审核',
+    '简单需求 · 快速开发',
+    DESIGN_LABEL,
+    '复杂需求 · 完整开发',
+    '其他',
+  ])
+  expect(cardIds(DESIGN_LABEL)).toEqual([BOUNDARY, RECONCILE])
+  expect(cardIds('复杂需求 · 完整开发')).toEqual(['formal.G1', 'formal.G2b', 'formal.G3', 'formal.G4'])
+})
+
+it('TC-004 #89 设计审查组下面紧跟一行说明，写清个数谁定', async () => {
+  await show()
+  const note = glabel(DESIGN_LABEL).nextElementSibling.nextElementSibling
+  expect(note.classList.contains('mh-foot')).toBe(true)
+  expect(note.textContent).toBe(DESIGN_NOTE)
+  expect(document.body.textContent.split(DESIGN_NOTE)).toHaveLength(2)
+})
+
+it('TC-004 #89 主进程没给出两道设计审查时整组不出，不留空组名和说明', async () => {
+  const data = rules()
+  delete data.effective.designGates
+  await show(data)
+  expect(gate('lite.G1')).not.toBeNull()
+  expect(glabel(DESIGN_LABEL)).toBeUndefined()
+  expect(document.body.textContent).not.toContain(DESIGN_NOTE)
+  expect(cardIds('复杂需求 · 完整开发')).toEqual(['formal.G1', 'formal.G2b', 'formal.G3', 'formal.G4'])
+})
+
+it('TC-004 两行只有轮数按钮，派几个那格不放东西；选 4 轮按这一项保存', async () => {
+  const api = await show()
+  for (const [id, name, sub, rounds] of [
+    [BOUNDARY, '边界审查', '后端规则有没有漏掉的边界', '每个 2 轮'],
+    [RECONCILE, '对账复核', '改完的规则和审核意见对不对得上', '每个 3 轮'],
   ]) {
     expect(gate(id).textContent).toContain(name)
-    expect(gate(id).textContent).toContain(fixed)
+    expect(gate(id).textContent).toContain(sub)
+    expect(gate(id).textContent).not.toMatch(/同需求对齐|原审核者/)
     expect(gate(id).querySelector('.mh-gate-n')).toBeNull()
     expect(gate(id).querySelectorAll('button')).toHaveLength(1)
+    expect(gate(id).querySelector('.mh-gate-acts').children).toHaveLength(1)
     expect(gate(id).querySelector('.mh-gate-r').textContent).toContain(rounds)
   }
+  expect(document.querySelector('.mh-gate-fixed')).toBeNull()
 
   fireEvent.click(gate(RECONCILE).querySelector('.mh-gate-r'))
   const menu = screen.getByRole('menu')

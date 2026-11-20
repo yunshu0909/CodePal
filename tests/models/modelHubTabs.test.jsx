@@ -2,6 +2,7 @@
  * v2.1.24 TC-008（守着）：既有界面行为照常
  * v2.1.28 TC-011（守着）：完整开发组加了边界审查、对账复核两行之后，原有关卡行、自审、高级、恢复默认照常
  * v2.1.29 TC-007（守着）：模型汇总两页签的既有界面行为照常。
+ * #89：边界审查、对账复核单独成一组「复杂需求 · 设计审查」（完整开发组上面），只有轮数按钮，组下一行说明
  */
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
@@ -293,6 +294,8 @@ it('SC-007 审核规则页签全貌：顶卡默认值、派审核、两组六道
     '关着时只找别家的模型',
     '按「模型」里的顺序从上往下找，每道关派下面设的个数',
     '简单需求 · 快速开发',
+    '复杂需求 · 设计审查',
+    '这两道派几个由 dev 定：边界审查和需求对齐派一样多，对账复核找原审核者',
     '复杂需求 · 完整开发',
     '其他',
   ])
@@ -329,16 +332,17 @@ it('SC-007 审核规则页签全貌：顶卡默认值、派审核、两组六道
   expect(adv('timeoutMinutes').querySelector('.ds')).toBeNull()
 })
 
-it('TC-011 完整开发组带边界审查、对账复核两行时，原有六道关、自审、高级、恢复默认照常', async () => {
+it('TC-011 边界审查、对账复核在设计审查组里时，原有六道关、自审、高级、恢复默认照常', async () => {
   await show()
   await rulesTab()
   const design = [
-    ['formal.design-boundary', '边界审查', '后端规则有没有漏掉的边界', '同需求对齐', '每个 2 轮'],
-    ['formal.design-reconcile', '对账复核', '改完的规则和审核意见对不对得上', '原审核者', '每个 3 轮'],
+    ['formal.design-boundary', '边界审查', '后端规则有没有漏掉的边界', '每个 2 轮'],
+    ['formal.design-reconcile', '对账复核', '改完的规则和审核意见对不对得上', '每个 3 轮'],
   ]
-  for (const [id, name, sub, who, r] of design) {
+  for (const [id, name, sub, r] of design) {
     expect(gate(id), id).not.toBeNull()
-    for (const t of [name, sub, who]) expect(gate(id).textContent, `${id} ${t}`).toContain(t)
+    for (const t of [name, sub]) expect(gate(id).textContent, `${id} ${t}`).toContain(t)
+    expect(gate(id).querySelector('.mh-gate-n'), id).toBeNull()
     expect(gateButton(id, 'rounds').textContent).toContain(r)
   }
   const original = [
@@ -364,16 +368,22 @@ it('SC-008 首次加载审核规则页签：分组标题先出、关卡行出骨
   await show(undefined, undefined, { modelsRulesGet: vi.fn(() => pending.promise) })
   await rulesTab()
   expect(text()).toContain('派审核')
-  expect(text()).toContain('简单需求 · 快速开发')
-  expect(text()).toContain('复杂需求 · 完整开发')
+  expect([...document.querySelectorAll('.np-glabel')].map((el) => el.textContent)).toEqual([
+    '派审核',
+    '简单需求 · 快速开发',
+    '复杂需求 · 设计审查',
+    '复杂需求 · 完整开发',
+  ])
   expect(document.querySelectorAll('.mh-skeleton-row').length).toBeGreaterThan(0)
+  // 组下面的说明和这页其他说明一样，数据到了再出
+  expect(text()).not.toContain('这两道派几个由 dev 定')
   expect(text()).not.toContain('每个 3 轮')
   expect(text()).not.toContain('读取失败')
   await act(async () => pending.resolve(ok(rules())))
   expect(gate('lite.G1')).not.toBeNull()
 })
 
-it('SC-008b 首次加载时两道设计审查的骨架和加载完一样：一段细条加一个轮数按钮，其余关卡两个按钮', async () => {
+it('SC-008b 首次加载时两道设计审查的骨架和加载完一样：只有一个轮数按钮灰块（#89 去掉细条），其余关卡两个按钮', async () => {
   const pending = deferred()
   await show(undefined, undefined, { modelsRulesGet: vi.fn(() => pending.promise) })
   await rulesTab()
@@ -382,7 +392,12 @@ it('SC-008b 首次加载时两道设计审查的骨架和加载完一样：一�
     Array.from(document.querySelectorAll(`.mh-skeleton-row[data-gate="${id}"] .mh-gate-acts .np-sk`)).map((el) =>
       el.style.height === '24px' ? '按钮' : '细条',
     )
-  for (const id of ['formal.design-boundary', 'formal.design-reconcile']) expect(shapes(id)).toEqual(['细条', '按钮'])
+  for (const id of ['formal.design-boundary', 'formal.design-reconcile']) expect(shapes(id)).toEqual(['按钮'])
+  const designCard = [...document.querySelectorAll('.np-glabel')].find((el) => el.textContent === '复杂需求 · 设计审查').nextElementSibling
+  expect([...designCard.querySelectorAll('.mh-skeleton-row')].map((el) => el.getAttribute('data-gate'))).toEqual([
+    'formal.design-boundary',
+    'formal.design-reconcile',
+  ])
   for (const id of ['lite.G0', 'lite.G1', 'formal.G1', 'formal.G2b', 'formal.G3', 'formal.G4'])
     expect(shapes(id)).toEqual(['按钮', '按钮'])
   await act(async () => pending.resolve(ok(rules())))
