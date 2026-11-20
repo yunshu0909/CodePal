@@ -120,6 +120,7 @@ async function main(argv) {
     args,
     mode,
     stdinText: test ? TEST_PROMPT : undefined,
+    configuredModel: model.name,
     timeoutMs: test ? Number(process.env.CODEPAL_TEST_TIMEOUT_MS) || TEST_TIMEOUT_MS : undefined,
   })
 
