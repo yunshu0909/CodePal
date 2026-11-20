@@ -7,6 +7,7 @@
  * - 用 Node 跑真实 cli.cjs + 替身 claude（替身按 Claude Code 2.1.325 原文写 [claude-code:unrecognized_model] 行）
  * - 只去掉 CodePal 这次配的模型名那一行；别的模型名的同类行、其他标准错误照常透传，顺序不变
  * - 分块到达也认得出；标准输出、退出码不变；「测一下」的失败原因不是这行
+ * - 其余字节原样透传（不做编码转换）；已能确定不是要去掉的那行时立即透传，不等换行
  *
  * @module tests/models/unrecognizedModelLine.test
  */
@@ -15,7 +16,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import fs from 'node:fs'
 import path from 'node:path'
 import { createRequire } from 'node:module'
-import { makeSandbox, runCli, KEY } from './helpers'
+import { spawnSync } from 'node:child_process'
+import { makeSandbox, runCli, spawnCli, KEY, CLI } from './helpers'
 
 const require = createRequire(import.meta.url)
 const store = require('../../electron/modules/models/store.js')
@@ -72,5 +74,28 @@ describe('#90 后台模式不再透传这次模型名的 unrecognized_model 行'
     expect(r.stderr).toContain('before line\n')
     expect(r.stderr).toContain('after line\n')
     expect(r.status).toBe(0)
+  })
+
+  it('其余字节原样透传，不是 UTF-8 的内容也不被改写', () => {
+    const r = spawnSync(process.execPath, [CLI, ...L, ...PRINT], { env: env({ FAKE_CLAUDE_MODE: 'unrecognized-bytes' }), input: 'hi\n', timeout: 30000 })
+    expect([...r.stderr]).toEqual([0x63, 0x61, 0x66, 0xe9, 0x0a, 0xff, 0xfe, 0x0a])
+    expect(r.status).toBe(0)
+  })
+
+  it('别的模型名的整行先到、换行晚到：不等换行就透传', async () => {
+    const child = spawnCli([...L, ...PRINT], { env: env({ FAKE_CLAUDE_MODE: 'unrecognized-late-newline' }) })
+    const start = Date.now()
+    let seenAt = null
+    let text = ''
+    child.stderr.on('data', (c) => {
+      text += c.toString('utf8')
+      if (seenAt === null && text.includes('some-typo-model')) seenAt = Date.now() - start
+    })
+    const code = await new Promise((resolve) => child.on('close', resolve))
+    const doneAt = Date.now() - start
+    expect(code).toBe(0)
+    expect(text).toBe(`${MARK} {"model":"some-typo-model","query_source":"sdk"}\n`)
+    expect(seenAt).not.toBeNull()
+    expect(doneAt - seenAt).toBeGreaterThan(1000)
   })
 })

@@ -99,6 +99,23 @@ if (mode === 'unrecognized-split') {
   }
   next()
 }
+if (mode === 'unrecognized-bytes') {
+  // 不是 UTF-8 的字节（Latin-1 的 café）必须原样透传
+  process.stderr.write(Buffer.from([0x63, 0x61, 0x66, 0xe9, 0x0a]))
+  process.stderr.write(unrecognized(process.env.ANTHROPIC_MODEL))
+  process.stderr.write(Buffer.from([0xff, 0xfe, 0x0a]))
+  process.stdout.write(JSON.stringify(base))
+  process.exit(0)
+}
+if (mode === 'unrecognized-late-newline') {
+  // 别的模型名的整行先到、换行晚到：已经能确定不是要去掉的那行，应立即透传
+  process.stderr.write(unrecognized('some-typo-model').trimEnd())
+  setTimeout(() => {
+    process.stderr.write('\n')
+    process.stdout.write(JSON.stringify(base))
+    process.exit(0)
+  }, 1500)
+}
 if (mode === 'unrecognized-fail') {
   process.stderr.write(unrecognized(process.env.ANTHROPIC_MODEL))
   process.exit(1)
