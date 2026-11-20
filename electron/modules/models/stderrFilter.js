@@ -10,8 +10,9 @@
  * 把这个名字当成某个 Claude 模型，连发给模型的系统提示都会改（2026-11-20 用 2.1.325 抓包实测）。
  * 这行本身只是给脚本看的提示，官方文档写明可以按这个开头匹配；请求照样按原名发出。
  *
- * 分块：管道里一行可能拆成几块到达。只有行首已收到的内容仍和这行的开头逐字一致时才先攒着（最多 MAX_HELD 字节），
- * 一旦对不上就立即透传，不等换行。
+ * 分块：管道里一行可能拆成几块到达。行首内容还可能是这次模型名那行时先攒着（最多 MAX_HELD 字节）：
+ * 还没收全前缀时看是否和前缀逐字一致；收全前缀后，一旦已经读到一个完整的 "model" 值且不是这次的模型名，
+ * 就立即透传，不等换行。整行到齐后按 JSON 解析判断，所以多空格、字段换顺序等等价写法也认得出。
  *
  * @module electron/modules/models/stderrFilter
  */
@@ -22,6 +23,8 @@ const NEWLINE = 0x0a
 const CARRIAGE_RETURN = 0x0d
 // 诊断行只有一两百字节；攒到这么多还没换行就不再当它是诊断行，原样放行
 const MAX_HELD = 64 * 1024
+// 已收到的正文里第一个完整的 "model" 字符串值
+const MODEL_VALUE_RE = /"model"\s*:\s*("(?:[^"\\]|\\.)*")/
 
 /**
  * 建一个过滤器
@@ -31,24 +34,32 @@ const MAX_HELD = 64 * 1024
  * @returns {{push: (chunk: Buffer) => void, end: () => void}} push 每块原始输出；end 在子进程结束后调一次，交出攒着的尾巴
  */
 function createStderrFilter({ modelName, write }) {
-  // Claude Code 2.1.325 打出的这行开头逐字是这样（官方错误文档示例同格式）
-  const lead = Buffer.from(`${UNRECOGNIZED_MODEL_PREFIX} {"model":${JSON.stringify(modelName)}`, 'utf8')
   let pending = Buffer.alloc(0)
   let atLineStart = true
 
   /** 行首这段还没换行的内容，再收到一些后还可能是要去掉的那行 */
   const mayBeTarget = (head) => {
     if (head.length > MAX_HELD) return false
-    const n = Math.min(head.length, lead.length)
-    return head.subarray(0, n).equals(lead.subarray(0, n))
+    const n = Math.min(head.length, PREFIX_BYTES.length)
+    if (!head.subarray(0, n).equals(PREFIX_BYTES.subarray(0, n))) return false
+    if (head.length <= PREFIX_BYTES.length) return true
+    const seen = MODEL_VALUE_RE.exec(head.subarray(PREFIX_BYTES.length).toString('utf8'))
+    if (!seen) return true
+    try {
+      return JSON.parse(seen[1]) === modelName
+    } catch {
+      return true
+    }
   }
 
-  /** 这一整行（不含换行）是不是要去掉的那行 */
+  /** 这一整行（不含换行）是不是要去掉的那行；超长的一律不算，和分块方式无关 */
   const isTarget = (line) => {
     const body = line.length && line[line.length - 1] === CARRIAGE_RETURN ? line.subarray(0, -1) : line
-    if (body.length < lead.length || !body.subarray(0, lead.length).equals(lead)) return false
+    if (body.length > MAX_HELD || body.length < PREFIX_BYTES.length) return false
+    if (!body.subarray(0, PREFIX_BYTES.length).equals(PREFIX_BYTES)) return false
     try {
-      return JSON.parse(body.subarray(PREFIX_BYTES.length).toString('utf8')).model === modelName
+      const fields = JSON.parse(body.subarray(PREFIX_BYTES.length).toString('utf8'))
+      return fields !== null && typeof fields === 'object' && fields.model === modelName
     } catch {
       return false
     }
