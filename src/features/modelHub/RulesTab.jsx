@@ -1,6 +1,7 @@
 /**
- * 模型汇总 ·「审核规则」页签：默认值、派审核（自审）、两组关卡的个数与轮数、其他 · 高级（dev 插件状态 v2.1.25 起在「开发流程 › 插件管理」看）
- * 完整开发组最上面是设计阶段的边界审查、对账复核（v2.1.28）：只有轮数，派几个由 dev 定，按钮位置写固定说法。
+ * 模型汇总 ·「审核规则」页签：默认值、派审核（自审）、三组关卡的个数与轮数、其他 · 高级（dev 插件状态 v2.1.25 起在「开发流程 › 插件管理」看）
+ * 设计阶段的边界审查、对账复核（v2.1.28）单独成一组「复杂需求 · 设计审查」，在完整开发组上面（#89 方案三）：
+ * 只有轮数按钮，派几个由 dev 定，组下面一行说明谁定。
  *
  * 所有设置点了就保存（保存中禁用这个控件、失败退回并红色提示）；恢复默认先确认；
  * 审核配置写不进去时顶卡下红字可重试，按 dev 实际在用的写两种说法（没了或坏了 → 默认规则；还有上一份 → 上一次存下的规则）。数据来自 useReviewRules，能来审的模型数按模型页签的数据算。
@@ -22,7 +23,8 @@ const CHEVRON = (
     <path d="M3 4 5 2 7 4M3 6 5 8 7 6" />
   </svg>
 )
-// 关卡行：[门, 名字, 小字, 派几个的固定说法]；有固定说法的是设计阶段审查，只设轮数（规则键在 designGates 下）
+// 关卡行：[门, 名字, 小字]。design 组是设计阶段审查：只设轮数（规则键在 designGates 下），
+// 派几个由 dev 定，不放「派几个」按钮，组下面的 note 说明谁定
 const GROUPS = [
   {
     label: '简单需求 · 快速开发',
@@ -32,10 +34,17 @@ const GROUPS = [
     ],
   },
   {
+    label: '复杂需求 · 设计审查',
+    design: true,
+    note: '这两道派几个由 dev 定：边界审查和需求对齐派一样多，对账复核找原审核者',
+    gates: [
+      ['formal.design-boundary', '边界审查', '后端规则有没有漏掉的边界'],
+      ['formal.design-reconcile', '对账复核', '改完的规则和审核意见对不对得上'],
+    ],
+  },
+  {
     label: '复杂需求 · 完整开发',
     gates: [
-      ['formal.design-boundary', '边界审查', '后端规则有没有漏掉的边界', '同需求对齐'],
-      ['formal.design-reconcile', '对账复核', '改完的规则和审核意见对不对得上', '原审核者'],
       ['formal.G1', '需求对齐', '计划有没有理解歪你的原话'],
       ['formal.G2b', '答后再对齐', '选择题的回答有没有写对'],
       ['formal.G3', '开工前检查', '文档、测试用例和漏问的选择'],
@@ -136,16 +145,16 @@ function Choice({ ruleKey, label, value, values, format, className, rules, menu,
   )
 }
 
-/** 首次加载（定稿 W6）：顶卡两行、派审核一行开关、两组关卡行；说明小字与「其他」等数据到了再出 */
+/** 首次加载（定稿 W6）：顶卡两行、派审核一行开关、三组关卡行；说明小字与「其他」等数据到了再出 */
 function RulesSkeleton() {
   const bar = (width, height) => <span className="np-sk" style={height ? { width, height } : { width }} />
-  // 设计阶段审查（有固定说法的那两行）加载完是一句固定说法加一个轮数按钮，骨架照这个样子画，免得加载完跳一下
-  const gateRows = (gates) =>
-    gates.map(([id, , , fixed]) => (
+  // 设计审查组加载完每行只有一个轮数按钮，骨架照这个样子画一个按钮灰块，免得加载完跳一下
+  const gateRows = (group) =>
+    group.gates.map(([id]) => (
       <div className="np-row mh-skeleton-row" key={id} data-gate={id}>
         {bar(90)}
         <span className="np-card-acts mh-gate-acts">
-          {fixed ? <span className="mh-gate-fixed">{bar(64)}</span> : bar(96, 24)}
+          {!group.design && bar(96, 24)}
           {bar(96, 24)}
         </span>
       </div>
@@ -172,7 +181,7 @@ function RulesSkeleton() {
       {GROUPS.map((group) => (
         <Fragment key={group.label}>
           <div className="np-glabel">{group.label}</div>
-          <div className="np-card np-card--form">{gateRows(group.gates)}</div>
+          <div className="np-card np-card--form">{gateRows(group)}</div>
         </Fragment>
       ))}
     </>
@@ -281,51 +290,54 @@ export default function RulesTab({ rules, hub, advancedOpen, setAdvancedOpen, me
         </div>
       )}
 
-      {GROUPS.map((group) => (
-        <Fragment key={group.label}>
-          <div className="np-glabel">{group.label}</div>
-          <div className="np-card np-card--form">
-            {group.gates.map(([id, name, sub, fixed]) => {
-              const design = Boolean(fixed)
-              const value = design ? effective.designGates?.[id] : effective.gates[id]
-              // 主进程还没给出两道设计审查（只在测试替身里出现）时不画这一行
-              if (!value) return null
-              return (
-                <div className="np-row mh-gate" key={id} data-gate={id}>
-                  <span className="mh-lab">
-                    <span className="lb">{name}</span>
-                    <span className="ds mh-gsub">{sub}</span>
-                  </span>
-                  <span className="np-card-acts mh-gate-acts">
-                    {design ? (
-                      <span className="ds mh-gate-fixed">{fixed}</span>
-                    ) : (
+      {GROUPS.map((group) => {
+        const { design } = group
+        const values = design ? effective.designGates || {} : effective.gates
+        const gates = group.gates.filter(([id]) => values[id])
+        // 主进程还没给出两道设计审查（只在测试替身里出现）时整组不画，不留空组名和说明
+        if (!gates.length) return null
+        return (
+          <Fragment key={group.label}>
+            <div className="np-glabel">{group.label}</div>
+            <div className="np-card np-card--form">
+              {gates.map(([id, name, sub]) => {
+                const value = values[id]
+                return (
+                  <div className="np-row mh-gate" key={id} data-gate={id}>
+                    <span className="mh-lab">
+                      <span className="lb">{name}</span>
+                      <span className="ds mh-gsub">{sub}</span>
+                    </span>
+                    <span className="np-card-acts mh-gate-acts">
+                      {!design && (
+                        <Choice
+                          ruleKey={`gates.${id}.reviewers`}
+                          label="派几个模型"
+                          value={value.reviewers}
+                          values={[1, 2, 3]}
+                          format={reviewersLabel}
+                          className="mh-gate-n"
+                          {...{ rules, menu, setMenu }}
+                        />
+                      )}
                       <Choice
-                        ruleKey={`gates.${id}.reviewers`}
-                        label="派几个模型"
-                        value={value.reviewers}
-                        values={[1, 2, 3]}
-                        format={reviewersLabel}
-                        className="mh-gate-n"
+                        ruleKey={`${design ? 'designGates' : 'gates'}.${id}.rounds`}
+                        label="每个审几轮"
+                        value={value.rounds}
+                        values={[1, 2, 3, 4, 5]}
+                        format={roundsLabel}
+                        className="mh-gate-r"
                         {...{ rules, menu, setMenu }}
                       />
-                    )}
-                    <Choice
-                      ruleKey={`${design ? 'designGates' : 'gates'}.${id}.rounds`}
-                      label="每个审几轮"
-                      value={value.rounds}
-                      values={[1, 2, 3, 4, 5]}
-                      format={roundsLabel}
-                      className="mh-gate-r"
-                      {...{ rules, menu, setMenu }}
-                    />
-                  </span>
-                </div>
-              )
-            })}
-          </div>
-        </Fragment>
-      ))}
+                    </span>
+                  </div>
+                )
+              })}
+            </div>
+            {group.note && <div className="mh-foot">{group.note}</div>}
+          </Fragment>
+        )
+      })}
 
       <div className="np-glabel">其他</div>
       <div className="np-card np-card--form">

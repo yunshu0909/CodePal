@@ -189,11 +189,6 @@
 .mh-page .mh-pick {
   min-width: 96px;
 }
-/* 设计阶段审查的「派几个」位置是固定说法，占和按钮一样的宽度，两列轮数按钮上下对齐 */
-.mh-page .mh-gate-fixed {
-  min-width: 96px;
-  text-align: center;
-}
 .mh-page .mh-gate-acts .mh-menu,
 .mh-page .mh-sub .mh-menu {
   width: 150px;
