@@ -232,9 +232,11 @@ describe('#74 TC-001 identity, execution context and load processes', () => {
     }
     await jsonl(logPath('codex', 'independent'), [codexMeta('independent', { originator: 'codex_exec', source: 'exec' }), ...codexRead('auto', target)])
     const data = await scan()
-    expect(skillOf(data)).toMatchObject({ total: 2, codex: 2, completeness: 'complete' })
+    // #81（2026-11-20 用户选 B）：子代理不进主数字，合成一行放在 subagentRuns
+    expect(skillOf(data)).toMatchObject({ total: 0, codex: 0, completeness: 'complete' })
     expect(data.independentRecords).toHaveLength(1)
-    expect(data.records).toHaveLength(2)
+    expect(data.records).toHaveLength(0)
+    expect(data.subagentRuns).toMatchObject([{ tool: 'codex', agentCount: 2 }])
   })
   it('CASE-014 unknown or missing parent classification stays pending', async () => {
     const target = await install()
