@@ -294,11 +294,17 @@ async function aggregate(deps, options = {}) {
     roots.set(agent.agentId, agent.rootId)
     return { ...event, contextId: agent.agentId }
   })
-  const loaded = loadProcesses(tagged).filter((record) => inWindow(record.triggeredAt))
+  const loaded = loadProcesses(tagged)
   const delegated = (record) => roots.has(record.contextId)
-  const processes = loaded.filter((record) => !delegated(record))
+  const processes = loaded.filter((record) => !delegated(record) && inWindow(record.triggeredAt))
+  // 子代理不先按窗口筛：分组要看它真正的第一次读取；每个加载过程带上它涉及的全部日志，供明细复核权限
+  const sessionOf = new Map(tagged.map((event) => [event.eventId, event.session]))
+  const agentProcesses = loaded.filter(delegated).map((record) => ({
+    ...record,
+    sessions: record.evidenceIds.map((id) => sessionOf.get(id)).filter(Boolean),
+  }))
   const runSources = new Map()
-  const subagentRuns = groupSubagentRuns(loaded.filter(delegated), roots).map(({ sessions, ...run }) => {
+  const subagentRuns = groupSubagentRuns(agentProcesses, roots, inWindow).map(({ sessions, ...run }) => {
     runSources.set(run.runId, sessions)
     return run
   })

@@ -216,6 +216,35 @@ describe('#81 子代理不进主数字', () => {
     } finally { await fs.chmod(file, 0o600) }
   })
 
+  it('复查意见 1：子代理第一次读取在 30 天之前、窗口里只是它的重读，不再当成一次派出', async () => {
+    const target = await install()
+    const windowStart = NOW.getTime() - 30 * 24 * 60 * MINUTE
+    const t = (minutes) => new Date(windowStart + minutes * MINUTE).toISOString()
+    await claudeSession('main', target, [])
+    const extra = { agentId: 'early', isSidechain: true }
+    await jsonl(claudeAgent('main', 'early'), [claudeStart('main', { ...extra, timestamp: t(-10) }), ...claudeRead('main', 'early-first', target, t(-3), extra),
+      claudeSkillCall('main', 'early-again', 'alpha', t(6), extra), ...claudeRead('main', 'early-reread', target, t(6), extra)])
+    await claudeSubagent('main', 'late', target, [t(15)])
+    const data = await scan()
+    expect(runsOf(data).map((run) => [run.triggeredAt, run.agentCount])).toEqual([[t(15), 1]])
+  })
+
+  it('复查意见 3：同一个子代理在另一份日志里接着读，那份日志读不了时明细也报读不了', async () => {
+    const target = await install()
+    await claudeSession('main', target, [at(400)])
+    const extra = { agentId: 'split', isSidechain: true }
+    await jsonl(claudeAgent('main', 'split'), [claudeStart('main', extra), ...claudeRead('main', 'split-1', target, at(300), extra)])
+    const second = path.join(env.CLAUDE_CONFIG_DIR, 'projects', '-demo', 'main', 'subagents', 'agent-split-cont.jsonl')
+    await jsonl(second, [claudeStart('main', extra), ...claudeRead('main', 'split-2', target, at(295), extra)])
+    const data = await scan()
+    expect(runsOf(data).map((run) => run.agentCount)).toEqual([1])
+    await fs.chmod(second, 0)
+    try {
+      await expect(listSkillInvocationRecords(deps(), { assetId: skillOf(data).assetId, batchId: data.batchId, windowDays: 30, ledgerPath: ledgerPath() }))
+        .rejects.toThrow('SKILL_USAGE_SOURCE_UNREADABLE')
+    } finally { await fs.chmod(second, 0o600) }
+  })
+
   it('只被子代理读过的 skill 主数字是 0，其它 skill 不受影响', async () => {
     const alpha = await install('alpha')
     const beta = await install('beta')

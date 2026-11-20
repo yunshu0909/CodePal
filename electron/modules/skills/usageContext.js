@@ -94,18 +94,20 @@ const DISPATCH_GAP_MS = 10 * 60 * 1000
 /**
  * 把子代理的加载过程合成「一次派出」：同一资产、同一工具、同一主会话，每个子代理只拿它第一次读取排开，
  * 相邻不超过 10 分钟算同一次；子代理自己的重读只更新末次读取，不另起一行，也不把两波连起来。
- * @param {object[]} processes - loadProcesses 的结果，只传子代理那部分。
+ * @param {object[]} processes - loadProcesses 的结果，只传子代理那部分，不先按窗口筛（要看到子代理真正的第一次读取）；
+ * 可带 sessions（这个加载过程涉及的全部日志）。
  * @param {Map<string, string>} roots - 子代理上下文键 → 主会话上下文键。
+ * @param {(at: string) => boolean} [inWindow] - 只留第一次读取落在窗口里的子代理。
  * @returns {object[]} 每次派出一行：最早读取时间、末次读取、不同子代理个数；sessions 是这一行用到的全部日志，
  * 只给主进程复核权限用。不修改输入。
  */
-function groupSubagentRuns(processes, roots) {
+function groupSubagentRuns(processes, roots, inWindow = () => true) {
   const agents = new Map()
   for (const record of processes) {
     const key = [record.tool, record.assetId, record.contextId].join('\0')
     const agent = agents.get(key)
     if (!agent) {
-      agents.set(key, { ...record, sessions: [record.session] })
+      agents.set(key, { ...record, sessions: [...(record.sessions || [record.session])] })
       continue
     }
     if (Date.parse(record.lastReadAt) > Date.parse(agent.lastReadAt)) agent.lastReadAt = record.lastReadAt
@@ -117,12 +119,12 @@ function groupSubagentRuns(processes, roots) {
       agent.invocationId = record.invocationId
       agent.session = record.session
     }
-    if (!agent.sessions.some((session) => session.relativePath === record.session?.relativePath))
-      agent.sessions.push(record.session)
+    for (const session of record.sessions || [record.session])
+      if (!agent.sessions.some((known) => known.relativePath === session?.relativePath)) agent.sessions.push(session)
   }
   const open = new Map()
   const runs = []
-  for (const agent of [...agents.values()].sort(
+  for (const agent of [...agents.values()].filter((agent) => inWindow(agent.triggeredAt)).sort(
     (a, b) => Date.parse(a.triggeredAt) - Date.parse(b.triggeredAt) || a.invocationId.localeCompare(b.invocationId)
   )) {
     const key = [agent.tool, agent.assetId, roots.get(agent.contextId)].join('\0')
