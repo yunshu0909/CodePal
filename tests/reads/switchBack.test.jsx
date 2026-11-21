@@ -575,7 +575,7 @@ describe('订阅管理', () => {
     expect(notifyToast).toHaveBeenCalledWith({ message: 'Claude Code 用量读取失败，显示的是上次读到的结果', type: 'error' })
   })
 
-  it('垫着上次的卡时改订阅费：按看着的那一版提交（账本已经变了由主进程拒绝，不把旧设置配上新版本）', async () => {
+  it('垫着上次的卡时改订阅费：只交改过的订阅费，账单日照账本最新的、用最新版本提交（不把旧账单日配上新版本）', async () => {
     const a = api()
     ;(await visit(<PlanManagementPage />)).unmount()
     a.readPlan = vi.fn(async ({ planId }) => ({ success: true, data: { plan: planId === 'claude' ? { ...plan, version: 2, billingDay: 5 } : { cycles: [], version: 0, stopped: false }, metadata: { type: 'Pro' }, today: '2026-09-16' } }))
@@ -586,7 +586,7 @@ describe('订阅管理', () => {
     fireEvent.change(screen.getByLabelText('订阅费'), { target: { value: '100' } })
     fireEvent.keyDown(screen.getByLabelText('订阅费'), { key: 'Enter' })
     await waitFor(() => expect(a.savePlan).toHaveBeenCalledTimes(1))
-    expect(a.savePlan.mock.calls[0][0].expectedVersion).toBe(1)
+    expect(a.savePlan.mock.calls[0][0]).toMatchObject({ expectedVersion: 2, price: 100, billingDay: 5, autoRenew: false })
   })
 
   it('改了订阅费再切回：显示改后的', async () => {
