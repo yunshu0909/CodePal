@@ -39,11 +39,14 @@ function readRecord() {
   }
 }
 
-/** 存一条；写不进不影响页面（下次重开再查一遍而已） */
-function writeRecord(bin, fingerprint, version) {
+/**
+ * 存一条；写不进不影响页面（下次重开再查一遍而已）
+ * @param {string} file - 开始查时定下的位置：查到一半环境变了也不写到别处
+ */
+function writeRecord(file, bin, fingerprint, version) {
   try {
     const rec = { schema: RECORD_SCHEMA, bin, fingerprint, version, at: new Date().toISOString() }
-    store.writePrivate(recordFile(), `${JSON.stringify(rec, null, 2)}\n`)
+    store.writePrivate(file, `${JSON.stringify(rec, null, 2)}\n`)
   } catch {}
 }
 
@@ -57,7 +60,8 @@ function infoFor(bin, version) {
 /**
  * 建一个检查器（每次注册 models:* 通道建一个）
  * @param {{env?: () => object}} [options] - env：查的时候用的环境（默认当时的 process.env）
- * @returns {{peek: () => {info: object|null, checking: boolean}, status: () => Promise<object>, recheck: () => Promise<object>}}
+ * @returns {{peek: () => {info: object|null, checking: boolean}, status: () => Promise<object>, recheck: () => Promise<object>,
+ *   stop: () => void}} stop 之后还在跑的那次结果不再记、不再写
  */
 function createClaudeCheck({ env = () => process.env } = {}) {
   // memo：本次运行查过的结果 { bin, fingerprint, info }
@@ -65,12 +69,15 @@ function createClaudeCheck({ env = () => process.env } = {}) {
   // inflight：正在查的那次 { gen, quickFp, promise }；gen 不是最新的那次查完不算数
   let inflight = null
   let gen = 0
+  let stopped = false
 
   const quickFingerprint = (e) => claudeCli.claudeFingerprint(claudeCli.locateClaudeQuick(e))
 
   /** 开一次后台查；之前那次还在跑的作废 */
   const start = () => {
+    if (stopped) return
     const e = env()
+    const file = recordFile()
     const me = { gen: ++gen, quickFp: quickFingerprint(e) }
     me.promise = (async () => {
       let next
@@ -83,9 +90,9 @@ function createClaudeCheck({ env = () => process.env } = {}) {
       } catch {
         next = { bin: null, fingerprint: null, info: infoFor(null), version: null }
       }
-      if (me.gen !== gen) return
+      if (me.gen !== gen || stopped) return
       memo = { bin: next.bin, fingerprint: next.fingerprint, info: next.info }
-      if (next.bin && next.fingerprint && next.version) writeRecord(next.bin, next.fingerprint, next.version)
+      if (next.bin && next.fingerprint && next.version) writeRecord(file, next.bin, next.fingerprint, next.version)
       inflight = null
     })()
     inflight = me
@@ -129,7 +136,14 @@ function createClaudeCheck({ env = () => process.env } = {}) {
     return status()
   }
 
-  return { peek, status, recheck }
+  /** 通道注销时调用：正在跑的那次作废 */
+  const stop = () => {
+    stopped = true
+    gen += 1
+    inflight = null
+  }
+
+  return { peek, status, recheck, stop }
 }
 
 module.exports = { createClaudeCheck, recordFile }

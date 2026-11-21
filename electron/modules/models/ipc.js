@@ -414,6 +414,7 @@ function registerModelsHandlers({ ipcMain, getMainWindow, cliPath = defaultCliPa
       clearTimeout(codexTimer)
       if (codexWatcher) codexWatcher.close()
       for (const file of codexPolled) fs.unwatchFile(file, codexChanged)
+      claudeCheck.stop()
       center.stop()
     },
   }

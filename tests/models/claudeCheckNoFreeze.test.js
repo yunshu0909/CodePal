@@ -178,6 +178,18 @@ describe('#99 进模型接入不等 Claude Code 版本', () => {
     expect((await call('models:claudeStatus')).data).toMatchObject({ found: true, version: '2.1.300' })
   }, 15000)
 
+  it('通道注销后还在跑的那次不写记录，环境换了也不写到别处（测试泄漏到真实目录的教训）', async () => {
+    await call('models:list')
+    api.stop()
+    const elsewhere = path.join(sb.root, 'elsewhere')
+    process.env.CODEPAL_MODELS_HOME = elsewhere
+    await new Promise((resolve) => setTimeout(resolve, SLOW_MS + 500))
+    expect(fs.existsSync(recordFile())).toBe(false)
+    expect(fs.existsSync(path.join(elsewhere, 'claude-check.json'))).toBe(false)
+    process.env.CODEPAL_MODELS_HOME = sb.models
+    register()
+  }, 10000)
+
   it('重新检测不卡主进程；重查期间旧的那次结果不写回', async () => {
     await call('models:list')
     // 第一次还在睡，这时换成新版本并点「重新检测」
