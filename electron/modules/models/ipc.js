@@ -98,6 +98,7 @@ function providerView(cfg, statuses, providerId) {
 function registerModelsHandlers({ ipcMain, getMainWindow, cliPath = defaultCliPath(), appExecPath = process.execPath, loginPath, loginEnv, shellOptions = {}, hubOptions = {} }) {
   // Claude Code 版本：后台查，进页面只看上次结果（#99）
   const claudeCheck = createClaudeCheck()
+  let stopped = false
   // 审核配置刷新要知道 claude 在不在：本次查过就用查到的，不在主进程里同步等登录 shell；还不知道才照旧自己找
   const hubLocateClaude = hubOptions.locateClaude || locateClaude
   const hubLocate = (e) => {
@@ -344,7 +345,8 @@ function registerModelsHandlers({ ipcMain, getMainWindow, cliPath = defaultCliPa
   ipcMain.handle('models:recheckClaude', async () => {
     try {
       const info = await claudeCheck.recheck()
-      refreshHubQuietly()
+      // 查的途中通道已注销（应用在退出）：不再刷新审核配置，免得重新建起已经放掉的写锁
+      if (!stopped) refreshHubQuietly()
       return ok(info)
     } catch (err) {
       return bad(err)
@@ -435,6 +437,7 @@ function registerModelsHandlers({ ipcMain, getMainWindow, cliPath = defaultCliPa
 
   return {
     stop: () => {
+      stopped = true
       for (const t of timers.values()) clearTimeout(t)
       if (watcher) watcher.close()
       clearTimeout(codexTimer)

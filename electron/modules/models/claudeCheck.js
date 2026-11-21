@@ -66,7 +66,7 @@ function infoFor(bin, version) {
  *   knownBin: (env?: object) => string|null|undefined, stop: () => void}} stop 之后还在跑的那次结果不再记、不再写
  */
 function createClaudeCheck({ env = () => process.env, reverifyMs = 5000 } = {}) {
-  // memo：本次运行查过的结果 { bin, fingerprint, info, at }
+  // memo：本次运行查过的结果 { bin, fingerprint, info, at, certain }；certain = 「没找到」是 shell 正常答出来的，不是没答上来
   let memo = null
   // inflight：正在查的那次 { gen, quickFp, abort }；gen 不是最新的那次查完不算数
   let inflight = null
@@ -93,16 +93,17 @@ function createClaudeCheck({ env = () => process.env, reverifyMs = 5000 } = {}) 
     ;(async () => {
       let next
       try {
-        const bin = await claudeCli.locateClaudeAsync(e, { signal: me.abort.signal })
+        const found = await claudeCli.locateClaudeAsync(e, { signal: me.abort.signal })
+        const bin = found || null
         // 指纹在查版本之前取：查的这份就是指纹对应的那份
         const fingerprint = claudeCli.claudeFingerprint(bin)
         const version = bin ? (await claudeCli.checkClaudeVersionAsync(bin, e, { signal: me.abort.signal })).current : null
-        next = { bin, fingerprint, info: infoFor(bin, version), version }
+        next = { bin, fingerprint, info: infoFor(bin, version), version, certain: found !== undefined }
       } catch {
-        next = { bin: null, fingerprint: null, info: infoFor(null), version: null }
+        next = { bin: null, fingerprint: null, info: infoFor(null), version: null, certain: false }
       }
       if (me.gen !== gen || stopped) return
-      memo = { bin: next.bin, fingerprint: next.fingerprint, info: next.info, at: Date.now() }
+      memo = { bin: next.bin, fingerprint: next.fingerprint, info: next.info, at: Date.now(), certain: next.certain }
       if (next.bin && next.fingerprint && next.version) writeRecord(file, next.bin, next.fingerprint, next.version)
       inflight = null
       settle()
@@ -122,8 +123,10 @@ function createClaudeCheck({ env = () => process.env, reverifyMs = 5000 } = {}) 
     if (memo) {
       const bin = quickBin || memo.bin
       if (claudeCli.claudeFingerprint(bin) === memo.fingerprint) {
-        // 常见位置找不到时，指纹只能看出旧文件没变，看不出 shell 里换了路径、刚装好：后台再问一次 shell
-        if (!quickBin && !inflight && Date.now() - memo.at >= reverifyMs) start()
+        // 常见位置找不到时，指纹只能看出旧文件没变，看不出 shell 里换了路径、刚装好：后台再问一次 shell；
+        // 上次版本命令没读出版本号（偶发失败）也再查一次
+        const shaky = !quickBin || (memo.info.found && !memo.info.version)
+        if (shaky && !inflight && Date.now() - memo.at >= reverifyMs) start()
         return { info: memo.info, checking: Boolean(inflight) }
       }
     } else {
@@ -154,13 +157,14 @@ function createClaudeCheck({ env = () => process.env, reverifyMs = 5000 } = {}) 
   /**
    * 不问 shell 就知道的 claude 位置（给审核配置刷新用，免得它在主进程里同步等登录 shell）
    * @param {object} [e]
-   * @returns {string|null|undefined} 路径；null = 本次查过、确实没找到；undefined = 不知道，调用方自己找
+   * @returns {string|null|undefined} 路径；null = 本次查过、shell 也正常答了没有；undefined = 不知道（含 shell 没答上来），调用方自己找。
+   *   偶发没答上来不能当「没装」，否则审核配置会把还能用的 Claude 模型去掉
    */
   const knownBin = (e = env()) => {
     const quick = claudeCli.locateClaudeQuick(e)
     if (quick) return quick
     if (!memo) return undefined
-    if (!memo.bin) return null
+    if (!memo.bin) return memo.certain ? null : undefined
     return claudeCli.claudeFingerprint(memo.bin) === memo.fingerprint ? memo.bin : undefined
   }
 

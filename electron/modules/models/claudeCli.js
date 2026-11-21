@@ -110,7 +110,7 @@ function parseShellAnswer(stdout) {
  * 找 claude，后台版：常见位置照旧查文件；都没有时在子进程里问登录 shell，主进程不停下等
  * @param {object} [env=process.env]
  * @param {{signal?: AbortSignal}} [options] - 作废时停掉 shell 子进程
- * @returns {Promise<string|null>}
+ * @returns {Promise<string|null|undefined>} 路径；null = shell 正常答了「没有」；undefined = shell 没答上来（超时、出错），不算确定没装
  */
 function locateClaudeAsync(env = process.env, { signal } = {}) {
   if (env.CODEPAL_CLAUDE_BIN) return Promise.resolve(isExecutable(env.CODEPAL_CLAUDE_BIN) ? env.CODEPAL_CLAUDE_BIN : null)
@@ -119,10 +119,10 @@ function locateClaudeAsync(env = process.env, { signal } = {}) {
   return new Promise((resolve) => {
     try {
       execFile(accountShell(env), ['-ilc', SHELL_QUERY], { env, encoding: 'utf8', timeout: 5000, signal }, (err, stdout) => {
-        resolve(err ? null : parseShellAnswer(stdout))
+        resolve(err ? undefined : parseShellAnswer(stdout))
       })
     } catch {
-      resolve(null)
+      resolve(undefined)
     }
   })
 }

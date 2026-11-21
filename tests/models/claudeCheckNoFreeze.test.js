@@ -288,4 +288,50 @@ describe('#99 只有登录 shell 找得到的 claude', () => {
       viaShell.mockRestore()
     }
   }, 10000)
+
+  it('shell 没答上来（超时、出错）不当「没装」：审核配置照旧自己找；shell 正常答了没有才算确定', async () => {
+    const quick = vi.spyOn(claudeCli, 'locateClaudeQuick').mockReturnValue(null)
+    const viaShell = vi.spyOn(claudeCli, 'locateClaudeAsync').mockResolvedValue(undefined)
+    const check = createClaudeCheck({ reverifyMs: 0 })
+    try {
+      expect(await check.status()).toMatchObject({ found: false })
+      expect(check.knownBin()).toBeUndefined()
+      viaShell.mockResolvedValue(null)
+      expect(await check.recheck()).toMatchObject({ found: false })
+      expect(check.knownBin()).toBeNull()
+    } finally {
+      check.stop()
+      quick.mockRestore()
+      viaShell.mockRestore()
+    }
+  }, 10000)
+
+  it('版本命令偶发没读出版本号：文件没变也会在下次进页时再查', async () => {
+    const flag = path.join(sb.root, 'ok-now')
+    fs.writeFileSync(fakeBin, `#!/bin/sh\n[ -f '${flag}' ] || exit 1\nprintf '2.1.300 (Claude Code)\\n'\n`, { mode: 0o755 })
+    const check = createClaudeCheck({ reverifyMs: 0 })
+    try {
+      check.peek()
+      expect(await check.status()).toMatchObject({ found: true, version: null })
+      fs.writeFileSync(flag, '')
+      expect(check.peek().checking).toBe(true)
+      expect(await check.status()).toMatchObject({ found: true, version: '2.1.300', tooOld: false })
+    } finally {
+      check.stop()
+    }
+  }, 10000)
 })
+
+describe('#99 退出时', () => {
+  it('重新检测途中应用退出：不再刷新审核配置，不留下写锁', async () => {
+    writeFake('2.1.300', { sleepMs: 500 })
+    const pending = call('models:recheckClaude')
+    await new Promise((resolve) => setTimeout(resolve, 100))
+    api.stop()
+    await pending
+    await new Promise((resolve) => setTimeout(resolve, 100))
+    expect(fs.existsSync(path.join(sb.models, '.write.lock'))).toBe(false)
+    register()
+  }, 10000)
+})
+
