@@ -7,10 +7,11 @@
  *   后台读到新周期 / 新账本版本时，新数字出来之前整张卡照上次的显示（不出骨架），出来了整张换；
  *   重读失败、卡上已有内容：数字留着，Toast 说明显示的是上次读到的结果。页里一动手（改设置、翻周期）就不再垫上次的。
  * - 停在页里统计变了、后台读到新账本版本 / 新周期：同一套「垫着」，新数字出来之前照刚才那张卡显示。
- * - 写入排在本卡的写入队列里；轮到时账本正在重读就先等它回来（最多 3 秒）。
+ * - 写入排在本卡的写入队列里；轮到时账本正在重读就先等它回来（等的时候又开始的读取接着等，合起来最多 3 秒）。
  *   订阅设置按那一刻的账本版本提交，没交的格子照那一刻的账本补齐（账本还没设过才用弹层里的提示值）。
  *   续费 / 停 / 改已结束周期价格按用户看着的那一版和那一期提交，中间只隔着本页自己存的几笔时用最新版本；
- *   要续的那一期已经被本页自己存的几笔续上了，这次点的续费算已经做到。写入失败不放掉垫着的卡，马上重读一次。
+ *   这次点的续费 / 不续 / 重新开始已经被本页自己存的几笔做到了（连点、刚勾的自动续费已经续上），算已经做到、不再写。
+ *   写入失败不放掉垫着的卡，马上重读一次。
  * @module pages/plan/usePlanData
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -214,13 +215,15 @@ export default function usePlanData(notify) {
   // 切回时垫着上次的卡，它可能比刚读到的旧：按看到的提交，账本在别处变过主进程就拒绝
   const mutate = useCallback((id, kind, value, operationId, seen) => {
     const run = async () => {
-      const reading = pendingRead.current[id];
-      if (reading) {
+      // 等的时候统计变了又开始一次新的读取：接着等最新那次，合起来最多 3 秒
+      const deadline = Date.now() + 3000;
+      for (let reading = pendingRead.current[id]; reading && Date.now() < deadline; reading = pendingRead.current[id]) {
         let timer;
         await Promise.race([reading.catch(() => {}), new Promise(resolve => {
-          timer = setTimeout(resolve, 3000);
+          timer = setTimeout(resolve, Math.max(0, deadline - Date.now()));
         })]);
         clearTimeout(timer);
+        if (pendingRead.current[id] === reading) break;
       }
       // 看着的那一版之后只多了本页自己存的几笔：不算账本在别处变过
       const now = current(id).plan;
@@ -228,10 +231,9 @@ export default function usePlanData(notify) {
         length: now.version - seen.version
       }, (_, i) => seen.version + 1 + i).every(v => ownVersions.current[id].has(v));
       const target = seen?.cycleId ?? now.cycles.at(-1)?.id;
-      if (kind === 'action' && value === 'renew' && ownSince && target !== now.cycles.at(-1)?.id) {
-        // 要续的那一期已经被本页自己存的几笔续上了（比如刚勾的自动续费、连点两次）：这次点的算已经做到，不再写
-        return { success: true, data: { plan: now, changed: false } };
-      }
+      // 这次点的事已经被本页自己刚存的几笔做到了（连点两次、刚勾的自动续费已经续上）：算做到，不再写
+      const done = value === 'renew' ? target !== now.cycles.at(-1)?.id : value === 'stop' ? now.stopped : !now.stopped;
+      if (kind === 'action' && ownSince && done) return { success: true, data: { plan: now, changed: false } };
       ++reads.current[id];
       ++seq.current[id];
       if (kind === 'action') patch(id, () => ({

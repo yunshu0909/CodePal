@@ -41,10 +41,12 @@ export default function PlanSettingsPopover({
     canceled = useRef(false),
     // 用户在这一格里输入过：交的时候交它，新读到的订阅也不再盖它
     dirty = useRef({ price: false, billingDay: false }),
-    // 上一笔交出去的内容：连着同一笔只交一次，中间改过别的（包括改回原值）照交
+    // 上一笔交出去的内容：连着同一笔只交一次，中间改过别的（包括改回原值）照交；账本换了版本就重新算
     lastSent = useRef(null),
+    draftNow = useRef(null),
     session = useRef(globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}`),
     sequence = useRef(0);
+  draftNow.current = draft;
   const parsed = {
     price: numeric(draft.price),
     billingDay: numeric(draft.billingDay),
@@ -80,6 +82,9 @@ export default function PlanSettingsPopover({
     };
     if (Object.keys(follow).length) setDraft(old => ({...old, ...follow}));
   }, [plan.price, plan.billingDay]);
+  useEffect(() => {
+    lastSent.current = null;
+  }, [plan.version]);
   useEffect(() => {
     if (renewalPromise.current) return;
     const autoRenew = plan.autoRenew ?? false;
@@ -129,6 +134,8 @@ export default function PlanSettingsPopover({
     } catch {}
     // 没存上：同一笔可以再交
     if (!ok && lastSent.current === key) lastSent.current = null;
+    // 存上了、之后没再输入的格子：算回「没输入过」，以后跟着新读到的订阅走，也不再跟着别的格子交
+    if (ok) for (const field of ['price', 'billingDay']) if (field in value && numeric(draftNow.current[field]) === value[field]) dirty.current[field] = false;
   }
   function blur(field, event) {
     if (canceled.current) return;
