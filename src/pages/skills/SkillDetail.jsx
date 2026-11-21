@@ -105,7 +105,8 @@ export function ToolRow({ tool, skill, snapshot, pending, frozen = false, onTogg
  * @param {boolean} props.usageFailed
  * @param {'loading'|'error'|'ready'} [props.usageStatus='ready'] - 数字读取中时清除旧数字与记录。
  * @param {() => void} props.onRetryUsage
- * @param {{status: string, records: Array, runs?: Array}} props.records - runs 是子代理按派出合成的行
+ * @param {{status: string, records: Array, runs?: Array, unrecognized?: number}} props.records - runs 是子代理按派出合成的行；
+ *   unrecognized 是认不出的调用次数（#97，只在明细里提示，不进次数）
  * @param {string[]} props.pluginNames - 同名的插件
  * @param {Set<string>} props.pendingKeys
  * @param {(toolId: string, enabled: boolean) => void} props.onToggle
@@ -126,9 +127,11 @@ export default function SkillDetail({ skill, snapshot, usage, usageFailed, usage
   const loading = usageStatus === 'loading'
   const usageUnavailable = usageFailed || usage?.availability === 'error'
   const failed = usageUnavailable || records?.status === 'error'
+  // #97：认不出的调用只提示、不算数；确认数 0 时栏头写「近 30 天 0 次」，免得和提示打架
+  const unrecognized = !loading && records?.status === 'ready' ? records.unrecognized || 0 : 0
   const countText = loading ? <span className="np-sk np-sk--pulse" style={{ width: 48, height: 12 }} />
     : usageUnavailable ? <>近 30 天 <span className="num">—</span> 次</>
-      : total > 0 ? <>近 30 天 <span className="num">{total}</span> 次</> : <span>近 30 天没用</span>
+      : total > 0 || unrecognized > 0 ? <>近 30 天 <span className="num">{total}</span> 次</> : <span>近 30 天没用</span>
   const duplicateTool = TOOLS.find((tool) => skill.tools?.[tool.id]?.duplicate)
   const shown = !loading && records?.status !== 'loading'
   // 主会话记录和子代理合成行按时间混排，新的在上；子代理行只换中间那栏的字
@@ -193,8 +196,13 @@ export default function SkillDetail({ skill, snapshot, usage, usageFailed, usage
               ) : loading || records?.status === 'loading' ? (
                 <div className="np-row"><span className="np-empty">读取中…</span></div>
               ) : recordList.length === 0 ? (
-                <div className="np-row"><span className="np-empty">近 30 天没有记录到调用</span></div>
-              ) : recordRows}
+                <div className="np-row"><span className="np-empty">{unrecognized > 0 ? `有 ${unrecognized} 次调用没认出来，次数可能偏少` : '近 30 天没有记录到调用'}</span></div>
+              ) : (
+                <>
+                  {unrecognized > 0 && <div className="np-row"><span className="np-empty">另有 {unrecognized} 次调用没认出来，次数可能偏少</span></div>}
+                  {recordRows}
+                </>
+              )}
             </div>
           </>
         )}

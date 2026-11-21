@@ -92,7 +92,7 @@ function useRecords(skillName, refreshToken, usage, batchId, usageStatus) {
     query(options).then((result) => {
       if (cancelled) return
       const matched = !modern || result?.data?.batchId === batchId
-      setRecords(result?.success && matched ? { status: 'ready', records: result.data?.records || [], runs: result.data?.subagentRuns || [], key } : { status: 'error', records: [], key })
+      setRecords(result?.success && matched ? { status: 'ready', records: result.data?.records || [], runs: result.data?.subagentRuns || [], unrecognized: result.data?.unrecognized || 0, key } : { status: 'error', records: [], key })
     }).catch(() => {
       if (!cancelled) setRecords({ status: 'error', records: [], key })
     })

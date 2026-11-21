@@ -77,6 +77,15 @@ async function reconcileHistory(registry, indexed, ledgerPath) {
   history.unknownPriorHistory = readFailed || Boolean(prior?.unknownPriorHistory)
   if (prior && !compatible) {
     history.ruleGaps = Object.keys(prior.files || {})
+    // 规则版本变了：现存日志按新规则重读；原日志已经删掉的，上一版确认过的加载照旧保留（v2.1.19 CASE-020，#97）。
+    // 只搬同一结构（schemaVersion 3）的确认事件和它们的会话元数据（分类、子代理要用）；待核的不搬。
+    if (prior.schemaVersion === 3) {
+      const present = new Set(indexed.files.map((file) => file.tool + ':' + file.relativePath))
+      for (const [id, event] of Object.entries(prior.events || {}))
+        if (event?.fileKey && !present.has(event.fileKey)) history.events[id] = event
+      for (const [key, meta] of Object.entries(prior.files || {}))
+        if (!present.has(key)) history.files[key] = meta
+    }
   }
   if (readFailed)
     diagnostics.push({ code: 'HISTORY_READ_FAILED', scope: 'all', availability: 'error' })

@@ -118,7 +118,66 @@ function collectLoadEvents(registry, history, classes, inWindow, state) {
   return events
 }
 
-function summarizeAsset(asset, processes, state, batchId) {
+const UNRECOGNIZED = new Set(['REQUEST_ONLY', 'INJECTION_NOT_VERIFIED'])
+const PAIR_GAP_MS = 30 * 60 * 1000
+/**
+ * #97：认不出的调用——「调用了、没找到正文」和「看到正文、配不上调用」——只数来提示，不进次数。
+ * 只数用户自己的主会话（子代理、程序自动跑的不数，和主数字口径一致）；报错的调用本来就不是待核；
+ * 有路径的只认资产库那一份（不按名字退到同名资产）；同一会话里前后 30 分钟内已经确认读过的不数。
+ * 两头是同一次的：同会话同资产，正文前 30 分钟内还没配上的那次调用和它配成一对，只数一次。
+ * @returns {Map<string, number>} 资产 → 窗口内认不出的调用次数。
+ */
+function countUnrecognized(registry, history, classes, agentFiles, events, inWindow) {
+  const candidates = []
+  for (const candidate of history.pending) {
+    if (!UNRECOGNIZED.has(candidate.reason) || !inWindow(candidate.at)) continue
+    if (classes.get(candidate.contextId) !== 'user' || agentFiles.has(candidate.fileKey)) continue
+    let asset = null
+    if (candidate.target) {
+      const resolved = registry.resolve(candidate.target, candidate.at)
+      if (resolved.excluded) continue
+      asset = resolved.asset
+    } else if (candidate.name && !candidate.name.includes(':')) asset = registry.preferred.get(candidate.name)
+    if (asset) candidates.push({ ...candidate, assetId: asset.assetId })
+  }
+  const confirmed = new Map()
+  for (const event of events) {
+    const key = event.contextId + '\0' + event.assetId
+    if (!confirmed.has(key)) confirmed.set(key, [])
+    confirmed.get(key).push(Date.parse(event.at))
+  }
+  const groups = new Map()
+  for (const candidate of removeProvenReplay(candidates, history.files)) {
+    const key = candidate.contextId + '\0' + candidate.assetId
+    const at = Date.parse(candidate.at)
+    if ((confirmed.get(key) || []).some((time) => Math.abs(time - at) <= PAIR_GAP_MS)) continue
+    if (!groups.has(key)) groups.set(key, [])
+    groups.get(key).push(candidate)
+  }
+  const counts = new Map()
+  for (const group of groups.values()) {
+    const open = []
+    let count = 0
+    for (const candidate of group.sort(
+      (a, b) => Date.parse(a.at) - Date.parse(b.at) || (a.reason === 'REQUEST_ONLY' ? -1 : 1)
+    )) {
+      const at = Date.parse(candidate.at)
+      if (candidate.reason === 'REQUEST_ONLY') {
+        open.push(at)
+        count += 1
+        continue
+      }
+      const pair = open.findIndex((time) => time <= at && at - time <= PAIR_GAP_MS)
+      if (pair >= 0) open.splice(pair, 1)
+      else count += 1
+    }
+    const assetId = group[0].assetId
+    counts.set(assetId, (counts.get(assetId) || 0) + count)
+  }
+  return counts
+}
+
+function summarizeAsset(asset, processes, state, batchId, unrecognized = new Map()) {
   const loaded = processes.filter((record) => record.assetId === asset.assetId && record.classification === 'user')
   const assetState = state.uncertain.get(asset.assetId)
   const pending = state.allPending || Boolean(assetState)
@@ -142,6 +201,8 @@ function summarizeAsset(asset, processes, state, batchId) {
     confirmedTotal: loaded.length,
     claude: loaded.filter((record) => record.tool === 'claude').length,
     codex: loaded.filter((record) => record.tool === 'codex').length,
+    // #97：认不出的调用只用来在明细里提示，不进 total
+    unrecognized: unrecognized.get(asset.assetId) || 0,
     lastUsed: first,
     lastUsedAt: first,
     lastRead,
@@ -176,6 +237,7 @@ function assembleResult({
   selectedIds,
   processes,
   subagentRuns,
+  unrecognized,
   state,
   now,
   start,
@@ -183,7 +245,7 @@ function assembleResult({
   batchId,
 }) {
   const assets = registry.assets
-    .map((asset) => summarizeAsset(asset, processes, state, batchId))
+    .map((asset) => summarizeAsset(asset, processes, state, batchId, unrecognized))
     .sort((a, b) => a.assetId.localeCompare(b.assetId))
   const wanted = selectedIds
     ? registry.assets.filter((asset) => selectedIds.has(asset.assetId))
@@ -202,6 +264,7 @@ function assembleResult({
       confirmedTotal: 0,
       claude: 0,
       codex: 0,
+      unrecognized: 0,
       lastUsed: null,
       lastUsedAt: null,
       lastRead: null,
@@ -308,6 +371,7 @@ async function aggregate(deps, options = {}) {
     runSources.set(run.runId, sessions)
     return run
   })
+  const unrecognized = countUnrecognized(registry, history, classes, agentFiles, events, inWindow)
   const batchId = crypto.randomUUID()
   const result = assembleResult({
     registry,
@@ -317,6 +381,7 @@ async function aggregate(deps, options = {}) {
     selectedIds,
     processes,
     subagentRuns,
+    unrecognized,
     state,
     now,
     start,
@@ -351,7 +416,8 @@ function aggregateUsage(deps, options = {}) {
  * 返回某一普通资产的确认加载过程；提供 batchId 时严格使用原聚合窗口与记录。
  * @param {object} deps - 与 aggregateUsage 相同的主进程依赖。
  * @param {object} options - assetId 或 skillName，以及可选 batchId/windowDays。
- * @returns {Promise<object>} 同批记录（只含主会话）、子代理合成行 subagentRuns 与完整性/可读性；批次失效或路径不再可读时拒绝。
+ * @returns {Promise<object>} 同批记录（只含主会话）、子代理合成行 subagentRuns、认不出的调用次数 unrecognized（#97，只提示）
+ * 与完整性/可读性；批次失效或路径不再可读时拒绝。
  * 无批次时先执行聚合；检查记录来源权限，不读取正文，也不改用户资产或旧账本。
  */
 async function listUsageRecords(deps, options = {}) {
@@ -406,6 +472,8 @@ async function listUsageRecords(deps, options = {}) {
     availability: selected.availability,
     records,
     subagentRuns,
+    // #97：认不出的调用次数，只给明细提示用，不进次数
+    unrecognized: selected.unrecognized || 0,
   }
 }
 module.exports = { aggregateUsage, listUsageRecords }
