@@ -29,22 +29,32 @@ async function wrap(fn) {
 const PREWARM_DELAY_MS = 300
 
 /**
- * 启动预读：第一个窗口的页面加载完后，后台读一次对话列表，把主进程内存索引填好。
+ * 启动预读：第一个加载完的窗口出来后，后台读一次对话列表，把主进程内存索引填好。
  * 只在内存里，不写磁盘；同一次运行只读一次（窗口重载、关于窗口、关窗再开都不再读）。
- * 页面在读完前进来会接上同一批在途读取，不会重读。出错只记日志，进页时照常再读。
- * @param {import('electron').App} app - 用它的 browser-window-created 找第一个窗口
+ * 窗口没加载完就关了，不算用掉这次机会，下一个窗口加载完再读。
+ * 页面在读完前进来会接上同一次在途扫描；页面已经先要过列表，就不再预读。出错只记日志，进页时照常再读。
+ * @param {import('electron').App} app - 用它的 browser-window-created 找窗口
  * @param {object} service - 对话服务
+ * @returns {{ markListed: Function }} 页面要过列表时调用
  */
 function prewarmAfterFirstWindowLoads(app, service) {
-  app.once('browser-window-created', (_event, window) => {
+  let scheduled = false
+  let listed = false
+  const onWindow = (_event, window) => {
     window.webContents.once('did-finish-load', () => {
+      if (scheduled) return
+      scheduled = true
+      app.removeListener('browser-window-created', onWindow)
       setTimeout(() => {
+        if (listed) return
         Promise.resolve()
           .then(() => service.listRecent())
           .catch((error) => console.warn('[session-browser] prewarm failed:', error?.message || error))
       }, PREWARM_DELAY_MS)
     })
-  })
+  }
+  app.on('browser-window-created', onWindow)
+  return { markListed: () => { listed = true } }
 }
 
 /**
@@ -55,12 +65,15 @@ function prewarmAfterFirstWindowLoads(app, service) {
  * @param {import('electron').App} [deps.app] - 传了就在第一个窗口加载完后预读对话列表
  */
 function registerSessionBrowserHandlers({ ipcMain, service = defaultService, app = null }) {
-  if (app) prewarmAfterFirstWindowLoads(app, service)
+  const prewarm = app ? prewarmAfterFirstWindowLoads(app, service) : null
 
   // 每个窗口只保留一个进行中的搜索：新搜索来了就取消上一个，主进程不再白扫
   const searches = new Map()
 
-  ipcMain.handle('session:listRecent', () => wrap(() => service.listRecent()))
+  ipcMain.handle('session:listRecent', () => {
+    prewarm?.markListed()
+    return wrap(() => service.listRecent())
+  })
 
   ipcMain.handle('session:readSession', (_event, projectId, sessionId, options = {}) =>
     wrap(() => service.readSessionPage(projectId, sessionId, {

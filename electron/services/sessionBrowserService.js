@@ -27,8 +27,13 @@ const TARGET_MAX = 60
 const SNIPPET_SIDE = 40
 const META_LIMIT = 10_000
 // 主进程内存索引：只在本次运行里，不写磁盘。不按闲置时间过期（#102：启动时预读，隔很久再进页也不用等）；
-// 文件身份一变就重读那一个，下一次完整列表没再见到的条目就清掉，总数封顶 META_LIMIT。
+// 文件身份一变就重读那一个，下一次完整列表没再见到的条目就清掉。满 META_LIMIT 后不再收新条目
+// （不挤掉旧的：按同样顺序扫描时，挤掉的正是下一条要用的，整份索引会轮流失效）。
 const metadataIndex = new Map()
+// 每次扫描开始加一；条目记下建立时的值，旧扫描清理时不动比它晚开始的扫描建的条目
+let scanGeneration = 0
+// 不带参数的列表（页面、启动预读）共用同一次在途扫描
+let sharedListing = null
 const SAFE_ID = /^[a-zA-Z0-9_-]+$/
 
 /**
@@ -234,18 +239,18 @@ function metadataKey(root, projectId, file) {
   return JSON.stringify([root, projectId, file])
 }
 
-async function indexedSessionMeta(root, projectId, file) {
+async function indexedSessionMeta(source, projectId, file) {
   const stat = await fsp.stat(file)
   const identity = metadataIdentity(stat)
-  const key = metadataKey(root, projectId, file)
+  const key = metadataKey(source.realRoot, projectId, file)
   const prior = metadataIndex.get(key)
   if (prior?.identity === identity && (prior.pending || prior.ready)) {
     return structuredClone(await (prior.pending || Promise.resolve(prior.value)))
   }
-  const entry = { root, identity, pending: null, value: null, ready: false }
+  if (!prior && metadataIndex.size >= META_LIMIT) return readSessionMeta(projectId, file, stat)
+  const entry = { root: source.realRoot, sourceRoot: source.root, projectId, gen: scanGeneration, identity, pending: null, value: null, ready: false }
   metadataIndex.delete(key)
   metadataIndex.set(key, entry)
-  while (metadataIndex.size > META_LIMIT) metadataIndex.delete(metadataIndex.keys().next().value)
   entry.pending = readSessionMeta(projectId, file, stat).then(async value => {
     const after = await fsp.stat(file)
     if (metadataIndex.get(key) === entry) {
@@ -264,15 +269,51 @@ async function indexedSessionMeta(root, projectId, file) {
 
 /**
  * 跨项目的最近对话
- * @param {{projectsDir?: string}} [options]
+ * 不带参数的调用（页面、启动预读）在扫描途中再来，接上同一次扫描，各拿一份拷贝。
+ * @param {{projectsDir?: string, signal?: AbortSignal}} [options]
  * @returns {Promise<{projectsDirExists: boolean, sessions: Array<object>}>} 按修改时间倒序
  */
 async function listRecent(options = {}) {
+  if (Object.keys(options).length > 0) return scanRecent(options)
+  if (!sharedListing) {
+    const listing = scanRecent({}).finally(() => {
+      if (sharedListing === listing) sharedListing = null
+    })
+    sharedListing = listing
+  }
+  return structuredClone(await sharedListing)
+}
+
+/**
+ * 清理这次扫描确认已经不在的条目。只清这次扫描开始前建的；子目录读不了的项目不清（可能只是一时读不到）。
+ * @param {number} generation - 这次扫描开始时的编号
+ * @param {Set<string>} seenRoots - 完整枚举过的来源（真实路径）
+ * @param {Set<string>} missingRoots - 确认不存在的来源（配置的路径）
+ * @param {Set<string>} seenKeys - 这次见到的条目
+ * @param {Set<string>} unreadProjects - 子目录读不了的项目
+ */
+function pruneIndex(generation, seenRoots, missingRoots, seenKeys, unreadProjects) {
+  for (const [key, entry] of metadataIndex) {
+    if (entry.pending || entry.gen > generation) continue
+    if (missingRoots.has(entry.sourceRoot)) {
+      metadataIndex.delete(key)
+      continue
+    }
+    if (!seenRoots.has(entry.root) || seenKeys.has(key)) continue
+    if (unreadProjects.has(JSON.stringify([entry.root, entry.projectId]))) continue
+    metadataIndex.delete(key)
+  }
+}
+
+async function scanRecent(options) {
   const { signal } = options
   if (signal?.aborted) throw cancelledError()
+  const generation = ++scanGeneration
   const sessions = []
   const seenRoots = new Set()
+  const missingRoots = new Set()
   const seenKeys = new Set()
+  const unreadProjects = new Set()
   for (const { root, source } of sourceRoots(options)) {
     let realRoot
     let entries
@@ -282,16 +323,21 @@ async function listRecent(options = {}) {
       entries = await fsp.readdir(realRoot, { withFileTypes: true })
       seenRoots.add(realRoot)
     } catch (error) {
-      if (error.code === 'ENOENT') continue
+      if (error.code === 'ENOENT') {
+        missingRoots.add(root)
+        continue
+      }
       if (error.code === 'EACCES' || error.code === 'EPERM') throw new Error(`没有权限读取 ${tildify(root)}`)
       throw error
     }
+    const indexSource = { root, realRoot }
     for (const entry of entries) {
       if (!entry.isDirectory() || entry.name.startsWith('.')) continue
       let files
       try {
         files = await fsp.readdir(path.join(realRoot, entry.name))
       } catch {
+        unreadProjects.add(JSON.stringify([realRoot, entry.name]))
         continue
       }
       for (const name of files) {
@@ -300,7 +346,7 @@ async function listRecent(options = {}) {
         try {
           const file = await confinedFile(realRoot, entry.name, name.slice(0, -6))
           seenKeys.add(metadataKey(realRoot, entry.name, file))
-          const meta = await indexedSessionMeta(realRoot, entry.name, file)
+          const meta = await indexedSessionMeta(indexSource, entry.name, file)
           if (signal?.aborted) throw cancelledError()
           if (meta) meta.sessionId = name.slice(0, -6)
           if (meta) sessions.push(source ? { ...meta, projectId: `codepal:${entry.name}`, source, auto: true } : meta)
@@ -312,10 +358,8 @@ async function listRecent(options = {}) {
     }
   }
   if (signal?.aborted) throw cancelledError()
-  // Cleanup is request-driven; no watcher or timer. Only roots fully listed this time are pruned.
-  for (const [key, entry] of metadataIndex) {
-    if (!entry.pending && seenRoots.has(entry.root) && !seenKeys.has(key)) metadataIndex.delete(key)
-  }
+  // Cleanup is request-driven; no watcher or timer.
+  pruneIndex(generation, seenRoots, missingRoots, seenKeys, unreadProjects)
   sessions.sort((a, b) => (a.modifiedAt < b.modifiedAt ? 1 : a.modifiedAt > b.modifiedAt ? -1 : 0))
   return { projectsDirExists: seenRoots.size > 0, sessions }
 }

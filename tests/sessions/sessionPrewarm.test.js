@@ -12,6 +12,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { EventEmitter } from 'node:events'
 import fs from 'node:fs'
+import fsp from 'node:fs/promises'
+import path from 'node:path'
 import { createRequire } from 'node:module'
 import { L, stamp, makeProjectsDir } from './fixtures'
 
@@ -80,6 +82,59 @@ describe('启动预读', () => {
   })
 })
 
+describe('启动预读和页面不重复扫描', () => {
+  beforeEach(() => { vi.useFakeTimers() })
+  afterEach(() => { vi.useRealTimers() })
+
+  function setup() {
+    const app = new EventEmitter()
+    const handlers = {}
+    const service = { listRecent: vi.fn(async () => ({ projectsDirExists: true, sessions: [] })) }
+    registerSessionBrowserHandlers({ ipcMain: { handle: (ch, fn) => { handlers[ch] = fn } }, service, app })
+    return { app, handlers, service }
+  }
+
+  it('页面在预读开始前就要了列表，预读不再跑', async () => {
+    const { app, handlers, service } = setup()
+    const main = fakeWindow()
+    app.emit('browser-window-created', {}, main)
+    main.webContents.emit('did-finish-load')
+    await handlers['session:listRecent']()
+    await vi.advanceTimersByTimeAsync(5000)
+    expect(service.listRecent).toHaveBeenCalledTimes(1)
+  })
+
+  it('第一个窗口没加载完就关了，下一个窗口加载完照样预读', async () => {
+    const { app, service } = setup()
+    app.emit('browser-window-created', {}, fakeWindow()) // 没加载完就关了
+    const reopened = fakeWindow()
+    app.emit('browser-window-created', {}, reopened)
+    reopened.webContents.emit('did-finish-load')
+    await vi.advanceTimersByTimeAsync(300)
+    expect(service.listRecent).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('预读途中进页，共用同一次扫描', () => {
+  let p
+  beforeEach(() => { p = makeProjectsDir(); process.env.CODEPAL_CLAUDE_PROJECTS_DIR = p.dir })
+  afterEach(() => { delete process.env.CODEPAL_CLAUDE_PROJECTS_DIR; vi.restoreAllMocks(); p.cleanup() })
+
+  it('两次不带参数的列表同时进行，只枚举一次目录，各拿一份互不影响的结果', async () => {
+    p.write('-a', 's1', stamp([L.user('shared')], { cwd: '/fixture/project' }))
+    const readdir = vi.spyOn(fsp, 'readdir')
+    const [a, b] = await Promise.all([svc.listRecent(), svc.listRecent()])
+    expect(readdir).toHaveBeenCalledTimes(2) // 根目录一次、项目目录一次
+    expect(a).toEqual(b)
+    a.sessions[0].title = 'changed'
+    expect(b.sessions[0].title).toBe('shared')
+    // 扫描结束后再来的请求重新核对文件
+    readdir.mockClear()
+    await svc.listRecent()
+    expect(readdir).toHaveBeenCalledTimes(2)
+  })
+})
+
 describe('内存索引不因闲置过期', () => {
   let p
   beforeEach(() => { p = makeProjectsDir() })
@@ -119,5 +174,58 @@ describe('内存索引不因闲置过期', () => {
     fs.unlinkSync(removed)
     await svc.listRecent(options)
     expect(svc.metadataIndexSizeForTests()).toBe(base + 1)
+  })
+
+  it('整个来源目录被删掉，索引里的条目也清掉', async () => {
+    p.write('-a', 's1', stamp([L.user('one')], { cwd: '/fixture/project' }))
+    p.write('-b', 's2', stamp([L.user('two')], { cwd: '/fixture/project' }))
+    const options = { projectsDir: p.dir }
+    const base = svc.metadataIndexSizeForTests()
+    await svc.listRecent(options)
+    expect(svc.metadataIndexSizeForTests()).toBe(base + 2)
+    fs.rmSync(p.dir, { recursive: true, force: true })
+    expect((await svc.listRecent(options)).sessions).toEqual([])
+    expect(svc.metadataIndexSizeForTests()).toBe(base)
+  })
+
+  it('子目录一时读不了，不把它的条目当成删掉', async () => {
+    p.write('-a', 's1', stamp([L.user('one')], { cwd: '/fixture/project' }))
+    const options = { projectsDir: p.dir }
+    const base = svc.metadataIndexSizeForTests()
+    await svc.listRecent(options)
+    const real = fsp.readdir.bind(fsp)
+    const spy = vi.spyOn(fsp, 'readdir').mockImplementation((dir, ...rest) => (
+      String(dir).endsWith(`${path.sep}-a`) ? Promise.reject(Object.assign(new Error('busy'), { code: 'EMFILE' })) : real(dir, ...rest)))
+    await svc.listRecent(options)
+    expect(svc.metadataIndexSizeForTests()).toBe(base + 1)
+    spy.mockRestore()
+    reader.resetReaderStats()
+    expect((await svc.listRecent(options)).sessions).toHaveLength(1)
+    expect(reader.getReaderStats().bytesRead).toBe(0)
+  })
+
+  it('先开始的扫描后结束，不清掉后开始的扫描新建的条目', async () => {
+    p.write('-a', 's1', stamp([L.user('old')], { cwd: '/fixture/project' }))
+    const options = { projectsDir: p.dir }
+    await svc.listRecent(options)
+    // 让第一次扫描停在枚举之后
+    const real = fsp.realpath.bind(fsp)
+    let release
+    const gate = new Promise((resolve) => { release = resolve })
+    let paused = false
+    const spy = vi.spyOn(fsp, 'realpath').mockImplementation(async (target) => {
+      if (!paused && String(target).endsWith('s1.jsonl')) { paused = true; await gate }
+      return real(target)
+    })
+    const stale = svc.listRecent(options)
+    while (!paused) await new Promise((resolve) => setTimeout(resolve, 1))
+    p.write('-a', 's2', stamp([L.user('new')], { cwd: '/fixture/project' }))
+    await svc.listRecent(options)
+    release()
+    await stale
+    spy.mockRestore()
+    reader.resetReaderStats()
+    expect((await svc.listRecent(options)).sessions).toHaveLength(2)
+    expect(reader.getReaderStats().bytesRead).toBe(0)
   })
 })
