@@ -3,8 +3,9 @@
  * - Outside pointerdown/Escape cancel unsubmitted numeric edits before blur.
  * - Renewal saves independently, survives closing and rolls back on failure.
  * - Submitted saves survive closing; only touched fields turn invalid.
- * - Enter/blur submits only the numeric fields that differ from the saved plan; the write queue fills the rest
- *   from the ledger at write time. Untouched fields follow a newer plan read while open.
+ * - Enter/blur submits only the numeric fields the user typed in (decided at that moment); the write queue fills
+ *   the rest from the ledger at write time, using the shown hints only while the ledger is still unset.
+ *   Untouched fields follow a newer plan read while open. Only an identical consecutive submission is dropped.
  * @module pages/plan/PlanSettingsPopover
  */
 import React, { useEffect, useRef, useState } from 'react';
@@ -38,13 +39,10 @@ export default function PlanSettingsPopover({
   savedRenewal.current = plan.autoRenew ?? false;
   const root = useRef(null),
     canceled = useRef(false),
-    // Safe hints populate the draft; equality must compare saved settings.
-    committed = useRef({
-      price: numeric(String(plan.price ?? '')),
-      billingDay: numeric(String(plan.billingDay ?? '')),
-      autoRenew: plan.autoRenew ?? false
-    }),
-    pending = useRef(new Map()),
+    // 用户在这一格里输入过：交的时候交它，新读到的订阅也不再盖它
+    dirty = useRef({ price: false, billingDay: false }),
+    // 上一笔交出去的内容：连着同一笔只交一次，中间改过别的（包括改回原值）照交
+    lastSent = useRef(null),
     session = useRef(globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}`),
     sequence = useRef(0);
   const parsed = {
@@ -74,23 +72,17 @@ export default function PlanSettingsPopover({
       document.removeEventListener('keydown', esc, true);
     };
   }, [onClose]);
-  // 弹层开着时卡上换成新读到的订阅（切回后后台读到、别处改过）：没动过的格子跟着换成新的，
-  // 交的时候也只交和已存的不一样的那几格，旧值不会跟着存进去
+  // 弹层开着时卡上换成新读到的订阅（切回后后台读到、别处改过）：没输入过的格子跟着换成新的
   useEffect(() => {
-    const price = numeric(String(plan.price ?? '')),
-      billingDay = numeric(String(plan.billingDay ?? ''));
-    const before = committed.current;
-    setDraft(old => ({
-      ...old,
-      ...(Number.isFinite(price) && numeric(old.price) === before.price ? { price: String(plan.price) } : {}),
-      ...(Number.isFinite(billingDay) && numeric(old.billingDay) === before.billingDay ? { billingDay: String(plan.billingDay) } : {})
-    }));
-    committed.current = {...committed.current, price, billingDay};
+    const follow = {
+      ...(!dirty.current.price && plan.price != null ? { price: String(plan.price) } : {}),
+      ...(!dirty.current.billingDay && plan.billingDay != null ? { billingDay: String(plan.billingDay) } : {})
+    };
+    if (Object.keys(follow).length) setDraft(old => ({...old, ...follow}));
   }, [plan.price, plan.billingDay]);
   useEffect(() => {
     if (renewalPromise.current) return;
     const autoRenew = plan.autoRenew ?? false;
-    committed.current = {...committed.current, autoRenew};
     setDraft(old => ({...old, autoRenew}));
   }, [plan.autoRenew]);
   function saveRenewal(autoRenew) {
@@ -103,11 +95,9 @@ export default function PlanSettingsPopover({
     catch (error) { request = Promise.reject(error); }
     renewalPromise.current = request.then(result => {
       if (result?.success === false) throw Error('save');
-      committed.current = {...committed.current, autoRenew};
     }).catch(() => {
       // Keep numeric edits; only the failed preference returns to its saved state.
       const autoRenew = savedRenewal.current;
-      committed.current = {...committed.current, autoRenew};
       setDraft(old => ({...old, autoRenew}));
     }).finally(() => {
       renewalPromise.current = null;
@@ -121,23 +111,24 @@ export default function PlanSettingsPopover({
       billingDay: true
     });
     if (!legal(parsed)) return;
-    // Enter/number blur must use the result of an in-flight independent renewal save.
-    if (renewalPromise.current) await renewalPromise.current;
-    // 只交改过的（没存过的算改过）；自动续费和没改的那一格由写入队列照写入那一刻的账本补齐
-    const value = {};
-    if (parsed.price !== committed.current.price) value.price = parsed.price;
-    if (parsed.billingDay !== committed.current.billingDay) value.billingDay = parsed.billingDay;
-    if (!Object.keys(value).length) return;
+    // 回车这一刻就定下交什么：输入过的格子交用户填的；没输入过的交给写入队列照写入那一刻的账本，
+    // 账本那时还没设过才用这里显示的提示值（fallback）。自动续费不交，由队列照账本补齐。
+    const value = {},
+      fallback = {};
+    for (const field of ['price', 'billingDay']) (dirty.current[field] ? value : fallback)[field] = parsed[field];
+    const saved = plan.price != null && plan.billingDay != null;
+    if (!Object.keys(value).length && saved) return;
+    if (!saved && Object.keys(fallback).length) value.fallback = fallback;
     const key = JSON.stringify(value);
-    if (pending.current.has(key)) return;
+    if (lastSent.current === key) return;
+    lastSent.current = key;
     const id = `${planId}:${session.current}:${++sequence.current}`;
-    pending.current.set(key, id);
+    let ok = false;
     try {
-      const result = await onSave(value, id);
-      if (result?.success !== false) committed.current = {...committed.current, ...value};
-    } catch {} finally {
-      pending.current.delete(key);
-    }
+      ok = (await onSave(value, id))?.success !== false;
+    } catch {}
+    // 没存上：同一笔可以再交
+    if (!ok && lastSent.current === key) lastSent.current = null;
   }
   function blur(field, event) {
     if (canceled.current) return;
@@ -157,14 +148,16 @@ export default function PlanSettingsPopover({
   }}>
   <div className="plan-pop-title">{name} 订阅</div>
   <div className="plan-pop-row"><span>类型</span><div className="plan-in np-in plan-readonly" title={metadata?.type}>{metadata?.type && metadata.type !== '未知' ? `${metadata.type} · 本机读到` : '未知'}</div></div>
-  <label className="plan-pop-row"><span>订阅费</span><div className="plan-in np-in"><span>$</span><input aria-label="订阅费" inputMode="decimal" autoFocus value={draft.price} aria-invalid={Boolean(touched.price && (!Number.isFinite(parsed.price) || parsed.price <= 0))} onChange={e => setDraft(old => ({
-          ...old,
-          price: e.target.value
-        }))} onBlur={e => blur('price', e)} /></div></label>
-  <label className="plan-pop-row"><span>账单日</span><div className="plan-in np-in"><span>每月</span><input aria-label="账单日" className="plan-day-input" inputMode="numeric" value={draft.billingDay} aria-invalid={Boolean(touched.billingDay && (!Number.isInteger(parsed.billingDay) || parsed.billingDay < 1 || parsed.billingDay > 31))} onChange={e => setDraft(old => ({
-          ...old,
-          billingDay: e.target.value
-        }))} onBlur={e => blur('billingDay', e)} /><span>号</span></div></label>
+  <label className="plan-pop-row"><span>订阅费</span><div className="plan-in np-in"><span>$</span><input aria-label="订阅费" inputMode="decimal" autoFocus value={draft.price} aria-invalid={Boolean(touched.price && (!Number.isFinite(parsed.price) || parsed.price <= 0))} onChange={e => {
+          dirty.current.price = true;
+          const price = e.target.value;
+          setDraft(old => ({...old, price}));
+        }} onBlur={e => blur('price', e)} /></div></label>
+  <label className="plan-pop-row"><span>账单日</span><div className="plan-in np-in"><span>每月</span><input aria-label="账单日" className="plan-day-input" inputMode="numeric" value={draft.billingDay} aria-invalid={Boolean(touched.billingDay && (!Number.isInteger(parsed.billingDay) || parsed.billingDay < 1 || parsed.billingDay > 31))} onChange={e => {
+          dirty.current.billingDay = true;
+          const billingDay = e.target.value;
+          setDraft(old => ({...old, billingDay}));
+        }} onBlur={e => blur('billingDay', e)} /><span>号</span></div></label>
   <div className="plan-pop-row"><span>自动续费</span><label className="plan-check"><input type="checkbox" aria-label="到期自动进下一周期" checked={draft.autoRenew} disabled={savingRenewal} onChange={e => saveRenewal(e.target.checked)} /><span>到期自动进下一周期</span></label></div>
   {warn && <div className="plan-hint plan-warn">改价从本周期起按 {formatUSD(parsed.price)} 算，倍数会变；已结束的周期按当时价格保留。</div>}
   <div className="plan-hint">回车保存。不勾自动续费，到期后会停下来让你确认一次。</div>

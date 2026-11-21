@@ -7,9 +7,10 @@
  *   后台读到新周期 / 新账本版本时，新数字出来之前整张卡照上次的显示（不出骨架），出来了整张换；
  *   重读失败、卡上已有内容：数字留着，Toast 说明显示的是上次读到的结果。页里一动手（改设置、翻周期）就不再垫上次的。
  * - 停在页里统计变了、后台读到新账本版本 / 新周期：同一套「垫着」，新数字出来之前照刚才那张卡显示。
- * - 订阅设置的写入排在本卡的写入队列里，轮到时按那一刻的账本版本提交，没交的格子照那一刻的账本补齐；
- *   续费 / 停 / 改已结束周期价格按用户看着的那一版提交，中间只隔着本页自己存的几笔时用最新版本。
- *   写入失败不放掉垫着的卡，马上重读一次。
+ * - 写入排在本卡的写入队列里；轮到时账本正在重读就先等它回来（最多 3 秒）。
+ *   订阅设置按那一刻的账本版本提交，没交的格子照那一刻的账本补齐（账本还没设过才用弹层里的提示值）。
+ *   续费 / 停 / 改已结束周期价格按用户看着的那一版和那一期提交，中间只隔着本页自己存的几笔时用最新版本；
+ *   要续的那一期已经被本页自己存的几笔续上了，这次点的续费算已经做到。写入失败不放掉垫着的卡，马上重读一次。
  * @module pages/plan/usePlanData
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -73,6 +74,8 @@ export default function usePlanData(notify) {
   const metadataReady = useRef({ claude: false, codex: false });
   // 本页自己的写入存出来的账本版本：看着的那一版之后只多了这些，就不算账本在别处变过
   const ownVersions = useRef({ claude: new Set(), codex: new Set() });
+  // 正在进行的账本读取：写入轮到时先等它回来，按读到的账本提交
+  const pendingRead = useRef({ claude: null, codex: null });
   const toast = useRef(notify);
   toast.current = notify;
   const patch = useCallback((id, fn) => {
@@ -158,11 +161,15 @@ export default function usePlanData(notify) {
   const refresh = useCallback(async (id, ledgerOnly = false) => {
     const ticket = ++reads.current[id],
       version = current(id).plan.version;
+    let request = null;
     try {
-      const result = await window.electronAPI.readPlan({
+      request = Promise.resolve(window.electronAPI.readPlan({
         planId: id,
         ...(ledgerOnly && metadataReady.current[id] ? { includeMetadata: false } : {})
-      });
+      }));
+      pendingRead.current[id] = request;
+      const result = await request;
+      if (pendingRead.current[id] === request) pendingRead.current[id] = null;
       if (!alive.current || ticket !== reads.current[id] || version !== current(id).plan.version) return;
       if (!result?.success) throw new Error('read');
       const before = current(id);
@@ -173,6 +180,7 @@ export default function usePlanData(notify) {
         void query(id);
       }
     } catch {
+      if (pendingRead.current[id] === request) pendingRead.current[id] = null;
       if (!alive.current || ticket !== reads.current[id]) return;
       // 卡上已经有读到的订阅（切回时上次的）：留着，提示显示的是上次的；没有才照原来出失败
       const kept = current(id).plan.version > 0 || Boolean(current(id).usage) || Boolean(held.current[id]);
@@ -202,10 +210,28 @@ export default function usePlanData(notify) {
       if (typeof remove === 'function') remove();
     };
   }, [refresh]);
-  // seenVersion：用户看着的那张卡的账本版本。切回时垫着上次的卡，它可能比刚读到的旧；
-  // 按用户看到的版本提交，账本已经变了主进程就拒绝，不会把旧设置配上新版本存进去
-  const mutate = useCallback((id, kind, value, operationId, seenVersion) => {
+  // seen：用户点的时候看着的那张卡的账本版本和最后一期（续费 / 停 / 改已结束周期价格用）。
+  // 切回时垫着上次的卡，它可能比刚读到的旧：按看到的提交，账本在别处变过主进程就拒绝
+  const mutate = useCallback((id, kind, value, operationId, seen) => {
     const run = async () => {
+      const reading = pendingRead.current[id];
+      if (reading) {
+        let timer;
+        await Promise.race([reading.catch(() => {}), new Promise(resolve => {
+          timer = setTimeout(resolve, 3000);
+        })]);
+        clearTimeout(timer);
+      }
+      // 看着的那一版之后只多了本页自己存的几笔：不算账本在别处变过
+      const now = current(id).plan;
+      const ownSince = seen !== undefined && seen.version < now.version && Array.from({
+        length: now.version - seen.version
+      }, (_, i) => seen.version + 1 + i).every(v => ownVersions.current[id].has(v));
+      const target = seen?.cycleId ?? now.cycles.at(-1)?.id;
+      if (kind === 'action' && value === 'renew' && ownSince && target !== now.cycles.at(-1)?.id) {
+        // 要续的那一期已经被本页自己存的几笔续上了（比如刚勾的自动续费、连点两次）：这次点的算已经做到，不再写
+        return { success: true, data: { plan: now, changed: false } };
+      }
       ++reads.current[id];
       ++seq.current[id];
       if (kind === 'action') patch(id, () => ({
@@ -214,25 +240,23 @@ export default function usePlanData(notify) {
       try {
         const c = current(id);
         const latest = c.plan.version;
-        // 订阅设置：轮到这一笔时按最新账本提交，没交的格子照它补齐（同一版本，主进程照旧按版本把关）
-        const numeric = kind === 'save' && ('price' in value || 'billingDay' in value);
+        // 订阅设置：轮到这一笔时按最新账本提交，没交的格子照它补齐（同一版本，主进程照旧按版本把关）；
+        // 账本那时还没设过的格子才用弹层里的提示值
+        const { fallback = {}, ...edits } = kind === 'save' ? value : {};
+        const numeric = kind === 'save' && ('price' in edits || 'billingDay' in edits || Object.keys(fallback).length > 0);
         const fields = numeric ? {
-          price: c.plan.price,
-          billingDay: c.plan.billingDay,
-          autoRenew: c.plan.autoRenew ?? false,
-          ...value
-        } : value;
-        const ownSince = seenVersion !== undefined && seenVersion < latest && Array.from({
-          length: latest - seenVersion
-        }, (_, i) => seenVersion + 1 + i).every(v => ownVersions.current[id].has(v));
-        const expectedVersion = kind === 'save' || seenVersion === undefined || ownSince ? latest : seenVersion;
+          price: edits.price ?? c.plan.price ?? fallback.price,
+          billingDay: edits.billingDay ?? c.plan.billingDay ?? fallback.billingDay,
+          autoRenew: c.plan.autoRenew ?? false
+        } : kind === 'save' ? edits : value;
+        const expectedVersion = kind === 'save' || seen === undefined || ownSince ? latest : seen.version;
         const payload = {
           planId: id,
           operationId,
           expectedVersion,
           ...(kind === 'action' ? {
             action: value,
-            cycleId: c.plan.cycles.at(-1)?.id
+            cycleId: target
           } : fields)
         };
         const method = kind === 'save' ? 'savePlan' : kind === 'cycle-price' ? 'setPlanCyclePrice' : 'actPlan';
@@ -338,11 +362,16 @@ export default function usePlanData(notify) {
     cards: shown.map(c => ({
       ...c,
       onSave: (draft, id) => mutate(c.planId, 'save', draft, id),
-      onAction: action => mutate(c.planId, 'action', action, globalThis.crypto.randomUUID(), c.plan.version),
+      onAction: action => mutate(c.planId, 'action', action, globalThis.crypto.randomUUID(), {
+        version: c.plan.version,
+        cycleId: c.plan.cycles.at(-1)?.id
+      }),
       onSaveCyclePrice: (cycleId, price) => mutate(c.planId, 'cycle-price', {
         cycleId,
         price
-      }, globalThis.crypto.randomUUID(), c.plan.version),
+      }, globalThis.crypto.randomUUID(), {
+        version: c.plan.version
+      }),
       onRefreshPrice,
       onSaveLocalPrice,
       onClearLocalPrice,

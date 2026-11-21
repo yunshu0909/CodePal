@@ -46,7 +46,7 @@ it('TC-007/TC-016 complete first-time prefill stays draft until Enter and then c
  fireEvent.click(screen.getByRole('button',{name:'Claude Code 订阅设置'}));
  expect(screen.getByLabelText('订阅费')).toHaveValue('20');expect(screen.getByLabelText('账单日')).toHaveValue('20');expect(onSave).toHaveBeenCalledTimes(0);
  fireEvent.keyDown(screen.getByLabelText('订阅费'),{key:'Enter'});await act(async()=>{});
- expect(onSave).toHaveBeenCalledTimes(1);expect(onSave.mock.calls[0][0]).toEqual({price:20,billingDay:20});
+ expect(onSave).toHaveBeenCalledTimes(1);expect(onSave.mock.calls[0][0]).toEqual({fallback:{price:20,billingDay:20}});
  fireEvent.keyDown(screen.getByLabelText('订阅费'),{key:'Enter'});fireEvent.blur(screen.getByLabelText('订阅费'),{relatedTarget:screen.getByLabelText('账单日')});await act(async()=>{});expect(onSave).toHaveBeenCalledTimes(1);
 })
 
