@@ -90,7 +90,7 @@ describe('#74 visible count and record states', () => {
 })
 
 describe('#74 TC-008 refresh and identity boundaries', () => {
-  it('CASE-029 manual refresh hides previous count immediately and late response cannot overwrite newer batch', async () => {
+  it('CASE-029 manual refresh keeps previous count marked refreshing (#101) and late response cannot overwrite newer batch', async () => {
     const first = deferred()
     const fresh = deferred()
     api.aggregateSkillUsage.mockReturnValueOnce(first.promise).mockReturnValueOnce(fresh.promise)
@@ -103,8 +103,9 @@ describe('#74 TC-008 refresh and identity boundaries', () => {
     const reread = deferred()
     api.aggregateSkillUsage.mockReturnValueOnce(reread.promise)
     hook.rerender({ token: 2 })
-    expect(hook.result.current.status).toBe('loading')
-    expect(hook.result.current.usageMap.size).toBe(0)
+    // #101 用户 11-21 定（题 1，原话「可以 按你推荐的来」）：重新读取时旧数字留着、标更新中，取代 #74 的「立即藏起」
+    expect(hook.result.current.status).toBe('refreshing')
+    expect(hook.result.current.usageMap.get('alpha')?.total).toBe(9)
     await act(async () => reread.resolve(reply([complete('alpha', 10)])))
   })
   it('CASE-034 name unchanged but verified asset mapping changes invalidate five-minute cache', async () => {
