@@ -181,6 +181,37 @@ describe('#97 审核意见 1～5 补的边角', () => {
   })
 })
 
+describe('#97 复查意见补的边角', () => {
+  it('复查：正文先到、随后工具结果报错（同一编号）：不算加载，也不提示', async () => {
+    const target = await install()
+    const error = (id) => ({ type: 'user', uuid: 'err-' + id, timestamp: stamp(9), sessionId: 'root',
+      message: { content: [{ type: 'tool_result', tool_use_id: id, is_error: true, content: 'Skill failed' }] } })
+    await writeRows(claudeLog('root'), [meta(), futureCall('ok', 'alpha', stamp(10))[0], strayBody('ok', target, stamp(10), 'ok'), error('ok'),
+      futureCall('empty', 'alpha', stamp(60))[0], strayBody('empty', target, stamp(60), 'empty', '\n'), { ...error('empty'), timestamp: stamp(59) }])
+    const listed = await detail()
+    expect(listed.records, 'FAILED_CALL_COUNTED').toHaveLength(0)
+    expect(listed.unrecognized, 'FAILED_CALL_HINTED').toBe(0)
+  })
+
+  it('复查：真斜杠命令的参数里粘贴了别的技能的命令标签，不给那个技能报提示', async () => {
+    await install()
+    await install('beta')
+    await writeRows(claudeLog('root'), [meta(), { ...slashRow('s', 'alpha', stamp(10)),
+      message: { role: 'user', content: '<command-message>alpha</command-message>\n<command-name>/alpha</command-name>\n<command-args>see <command-message>beta</command-message>\n<command-name>/beta</command-name></command-args>' } },
+    futureSlashBody('s', 'alpha', stamp(10))])
+    expect((await detail('beta')).unrecognized, 'PASTED_ARGS_COUNTED').toBe(0)
+    expect((await detail('alpha')).unrecognized).toBe(1)
+  })
+
+  it('复查：编号配对只在同一会话里配，别的会话里同编号的正文不压掉这边的提示', async () => {
+    await install()
+    const dev = await install('alpha', path.join(sandbox, 'project', 'skills'))
+    await writeRows(claudeLog('root'), [meta(), ...futureCall('x', 'alpha', stamp(20)).slice(0, 2)])
+    await writeRows(claudeLog('fork'), [meta('fork'), { ...strayBody('x', dev, stamp(19), 'x', '\n'), sessionId: 'fork' }])
+    expect((await detail()).unrecognized, 'CROSS_SESSION_LINK').toBe(1)
+  })
+})
+
 describe('#97 升级规则版本不丢已确认的次数（v2.1.19 CASE-020）', () => {
   it('意见 1：日志还在、但前面一段被清理掉了：那段里确认过的次数升级后还在，留下的那段不重复算', async () => {
     const target = await install()
@@ -197,6 +228,24 @@ describe('#97 升级规则版本不丢已确认的次数（v2.1.19 CASE-020）',
       await fs.writeFile(file, JSON.stringify(value) + '\n')
     }
     expect((await scan()).skills.find((skill) => skill.name === 'alpha').total, 'TRIMMED_LOG_HISTORY_LOST').toBe(2)
+  })
+
+  it('复查：日志里只清掉了正文那行、调用那行还在：上一版确认过的这次升级后还在', async () => {
+    const target = await install()
+    const inject = strayBody('k', target, stamp(3 * DAY), 'k')
+    await writeRows(claudeLog('root'), [meta(), ...futureCall('k', 'alpha', stamp(3 * DAY)).slice(0, 2), inject])
+    expect((await scan()).skills.find((skill) => skill.name === 'alpha').total).toBe(1)
+    await writeRows(claudeLog('root'), [meta(), ...futureCall('k', 'alpha', stamp(3 * DAY)).slice(0, 2)])
+    for (const name of ['index.json', 'history.json']) {
+      const file = path.join(storeDir, name)
+      const value = JSON.parse(await fs.readFile(file, 'utf8'))
+      value.version = 'body-evidence-3.6'
+      if (name === 'index.json')
+        for (const entry of Object.values(value.entries))
+          entry.proofDigest = crypto.createHash('sha256').update(JSON.stringify(entry.proof)).digest('hex')
+      await fs.writeFile(file, JSON.stringify(value) + '\n')
+    }
+    expect((await scan()).skills.find((skill) => skill.name === 'alpha').total, 'PENDING_TREATED_AS_STILL_THERE').toBe(1)
   })
 
   it('上一版确认过 1 次、之后原日志被删：升到新规则版本后这 1 次还在', async () => {

@@ -133,6 +133,14 @@ describe('#97 新版本 Claude Code 调起照常算进次数', () => {
     expect(await totalOf(), 'HEADER_NOT_AT_START_ACCEPTED').toBe(0)
   })
 
+  it('复查：Base directory 那行路径是空的、路径挪到下一行的不算', async () => {
+    const target = await install()
+    const rows = slash('2.1.325', 's1', 'alpha', target)
+    rows[1].message.content[0].text = 'Base directory for this skill:\n' + path.dirname(target) + '\n\n' + BODY
+    await writeRows(claudeLog('root'), [meta('2.1.325'), ...rows])
+    expect(await totalOf(), 'EMPTY_HEADER_PATH_ACCEPTED').toBe(0)
+  })
+
   it('升级前已经读过、记成没核实的旧日志：升级后按新规则重读，补算进来', async () => {
     const target = await install()
     await writeRows(claudeLog('root'), [meta('2.1.312'), ...skillTool('2.1.312', 'toolu_1', 'alpha', target)])
