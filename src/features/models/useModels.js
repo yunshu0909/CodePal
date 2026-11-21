@@ -4,7 +4,7 @@
  * 负责：
  * - 进页面、窗口重新激活时读 models:list（配置 + Claude Code 检测 + 终端命令状态）
  * - Claude Code 版本在后台查（#99）：列表先显示；models:list 说还在查时再等 models:claudeStatus，回来原地补上，
- *   只认最新一次（重新检测之后，之前等的结果不再盖上来）
+ *   只认最新一次（重新检测之后，之前等的结果、晚回来的列表里的版本都不再盖上来）；终端状态没赶上列表时同样再等一次
  * - 后台审核 / 终端写回结果时（models:changed）原地更新那一行和顶上「在终端里用」的状态，不弹 Toast
  * - 存 Key、测一下、加 / 改 / 移除模型、重新检测、安装 / 更新命令、加入 PATH；成功失败的 Toast 在这里统一发
  * - 存 Key、添加、改名成功后自动测一次（AI 补，用户 2026-09-26 认可）
@@ -43,6 +43,8 @@ export default function useModels() {
   const mounted = useRef(true)
   // Claude Code 结果的编号：每次读列表、重新检测加一，回来的结果编号不是最新的就不用
   const claudeSeq = useRef(0)
+  // 终端命令状态的编号：每次读列表加一，晚回来的补状态不盖新的
+  const commandsSeq = useRef(0)
 
   useEffect(() => {
     mounted.current = true
@@ -58,18 +60,31 @@ export default function useModels() {
       : { ...d, claudeChecking: false }))
   }, [])
 
+  /** 终端判断没赶上列表：等它判断完原地补上；判断不了按旧样子（不再骨架） */
+  const waitCommands = useCallback(async (seq) => {
+    const res = await api().modelsCommandsStatus()
+    if (!mounted.current || seq !== commandsSeq.current) return
+    setData((d) => d && (res?.success
+      ? { ...d, commands: res.data, commandsChecking: false }
+      : { ...d, commandsChecking: false }))
+  }, [])
+
   const reload = useCallback(async () => {
     const seq = ++claudeSeq.current
+    const cmdSeq = ++commandsSeq.current
     const res = await api().modelsList()
     if (!mounted.current) return
     if (res?.success) {
-      setData(res.data)
+      const fresh = seq === claudeSeq.current
+      // 晚回来的列表照样换供应商和模型，但不盖掉之后「重新检测」拿到的版本结果
+      setData((d) => (fresh || !d ? res.data : { ...res.data, claudeCode: d.claudeCode, claudeChecking: d.claudeChecking }))
       setLoadFailed(false)
-      if (res.data?.claudeChecking && seq === claudeSeq.current) waitClaude(seq)
+      if (res.data?.claudeChecking && fresh) waitClaude(seq)
+      if (res.data?.commandsChecking && cmdSeq === commandsSeq.current) waitCommands(cmdSeq)
     } else {
       setLoadFailed(true)
     }
-  }, [waitClaude])
+  }, [waitClaude, waitCommands])
 
   /** 用主进程返回的一家数据替换本地那一家；写操作顺带返回的终端命令状态一起换 */
   const applyProvider = useCallback((providerId, provider, commands) => {

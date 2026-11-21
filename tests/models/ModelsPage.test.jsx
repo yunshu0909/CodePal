@@ -646,4 +646,35 @@ describe('#99 Claude Code 版本晚到', () => {
     await p.release()
     expect(screen.getByText('Claude Code 版本太旧')).toBeInTheDocument()
   })
+
+  it('晚回来的列表不盖掉「重新检测」拿到的新结果', async () => {
+    let releaseList
+    const { api } = await renderPage({ ...base(), claudeCode: { found: false } })
+    expect(screen.getByText('没找到 Claude Code')).toBeInTheDocument()
+    // 切回窗口重读列表，这次列表回来得慢
+    api.modelsList.mockImplementationOnce(() => new Promise((resolve) => { releaseList = () => resolve({ success: true, data: { ...base(), claudeCode: { found: false }, claudeChecking: false } }) }))
+    await act(async () => { window.dispatchEvent(new Event('focus')) })
+    fireEvent.click(btn('重新检测'))
+    await waitFor(() => expect(screen.queryByText('没找到 Claude Code')).toBeNull())
+    await act(async () => { releaseList() })
+    expect(screen.queryByText('没找到 Claude Code')).toBeNull()
+    expect(btn('测一下')).not.toBeDisabled()
+  })
+
+  it('终端判断没赶上列表：供应商和模型先出，那一行原地骨架，补上后照常', async () => {
+    let releaseCommands
+    const modelsCommandsStatus = vi.fn(() => new Promise((resolve) => { releaseCommands = () => resolve({ success: true, data: base().commands }) }))
+    const api = makeApi({ ...base(), commands: null, commandsChecking: true }, { modelsCommandsStatus })
+    window.electronAPI = api
+    render(<ModelsPage />)
+    await waitFor(() => expect(row()).not.toBeNull())
+    expect(screen.getByText('可用')).toBeInTheDocument()
+    expect(document.querySelector('.mj-strip .np-sk')).not.toBeNull()
+    expect(btn('测一下')).not.toBeDisabled()
+    await waitFor(() => expect(modelsCommandsStatus).toHaveBeenCalled())
+    await act(async () => { releaseCommands() })
+    await waitFor(() => expect(document.querySelector('.np-sk')).toBeNull())
+    expect(screen.getByText('在终端里用')).toBeInTheDocument()
+  })
 })
+

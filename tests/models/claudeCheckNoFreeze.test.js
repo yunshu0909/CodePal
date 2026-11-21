@@ -13,7 +13,7 @@
  * @module tests/models/claudeCheckNoFreeze.test
  */
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import fs from 'node:fs'
 import path from 'node:path'
 import { createRequire } from 'node:module'
@@ -21,6 +21,8 @@ import { makeSandbox, REPO } from './helpers'
 
 const require = createRequire(import.meta.url)
 const { registerModelsHandlers } = require('../../electron/modules/models/ipc.js')
+const claudeCli = require('../../electron/modules/models/claudeCli.js')
+const { createClaudeCheck } = require('../../electron/modules/models/claudeCheck.js')
 
 const SLOW_MS = 1500
 
@@ -41,7 +43,7 @@ function writeFake(version, { sleepMs = SLOW_MS } = {}) {
   fs.renameSync(tmp, fakeBin)
 }
 
-function register() {
+function register(extra = {}) {
   handlers = {}
   api = registerModelsHandlers({
     ipcMain: { handle: (ch, fn) => { handlers[ch] = fn } },
@@ -49,7 +51,14 @@ function register() {
     cliPath: path.join(REPO, 'electron/modules/models/cli.cjs'),
     appExecPath: process.execPath,
     loginPath: () => `/usr/bin:${sb.bin}`,
+    ...extra,
   })
+}
+
+/** 主进程同步卡住 ms 毫秒（模拟同步等登录 shell） */
+function blockFor(ms) {
+  const end = Date.now() + ms
+  while (Date.now() < end) { /* 卡住 */ }
 }
 
 const call = (ch, arg) => handlers[ch]({}, arg)
@@ -66,7 +75,10 @@ async function watchLag(fn) {
   const t0 = Date.now()
   try {
     const value = await fn()
-    return { value, ms: Date.now() - t0, maxLag }
+    const ms = Date.now() - t0
+    // 让采样至少在操作之后再跑一次：同步卡住的那段要算进去
+    await new Promise((resolve) => setTimeout(resolve, 60))
+    return { value, ms, maxLag }
   } finally {
     clearInterval(timer)
   }
@@ -91,23 +103,35 @@ afterEach(() => {
 
 describe('#99 进模型接入不等 Claude Code 版本', () => {
   it('第一次进页：列表 0.3 秒内回来，版本那一处先空着，主进程不卡', async () => {
-    const r = await watchLag(async () => {
-      const list = await call('models:list')
-      // 等后台那次查完之前，主进程也不能被卡住
-      await new Promise((resolve) => setTimeout(resolve, 300))
-      return list
-    })
+    const r = await watchLag(() => call('models:list'))
     expect(r.value.success).toBe(true)
     expect(r.value.data.providers.deepseek).toBeTruthy()
     expect(r.value.data.claudeCode).toBeNull()
     expect(r.value.data.claudeChecking).toBe(true)
-    expect(r.ms).toBeLessThan(SLOW_MS)
+    expect(r.ms).toBeLessThan(300)
     expect(r.maxLag).toBeLessThan(200)
+    // 后台那次查的整个过程中主进程也不卡
+    const during = await watchLag(() => call('models:claudeStatus'))
+    expect(during.maxLag).toBeLessThan(200)
   }, 10000)
 
-  it('models:claudeStatus 等到后台结果，4 秒内补上', async () => {
-    await call('models:list')
-    const r = await watchLag(() => call('models:claudeStatus'))
+  it('登录 shell 慢（终端判断 0.65 秒）：列表照样 0.3 秒内回来，终端那一行再补', async () => {
+    api.stop()
+    register({ loginPath: undefined, loginEnv: () => new Promise((resolve) => setTimeout(() => resolve({ status: 'ok', path: `/usr/bin:${sb.bin}`, codepal: null }), 650)) })
+    const r = await watchLag(() => call('models:list'))
+    expect(r.ms).toBeLessThan(300)
+    expect(r.value.data.providers.deepseek).toBeTruthy()
+    expect(r.value.data.commands).toBeNull()
+    expect(r.value.data.commandsChecking).toBe(true)
+    const commands = await call('models:commandsStatus')
+    expect(commands).toMatchObject({ success: true, data: { onPath: true } })
+  }, 10000)
+
+  it('models:claudeStatus 等到后台结果：从进页起 4 秒内补上', async () => {
+    const r = await watchLag(async () => {
+      await call('models:list')
+      return call('models:claudeStatus')
+    })
     expect(r.value).toMatchObject({ success: true, data: { found: true, version: '2.1.300', tooOld: false, required: '2.1.251' } })
     expect(r.ms).toBeLessThan(4000)
     expect(r.maxLag).toBeLessThan(200)
@@ -124,7 +148,7 @@ describe('#99 进模型接入不等 Claude Code 版本', () => {
     register()
     const r = await watchLag(() => call('models:list'))
     expect(r.value.data.claudeCode).toMatchObject({ found: true, version: '2.1.300', tooOld: false })
-    expect(r.ms).toBeLessThan(SLOW_MS)
+    expect(r.ms).toBeLessThan(300)
     // 本次运行还没核过：后台再核一次，结果不变
     const status = await call('models:claudeStatus')
     expect(status.data).toMatchObject({ found: true, version: '2.1.300' })
@@ -203,4 +227,65 @@ describe('#99 进模型接入不等 Claude Code 版本', () => {
     expect((await call('models:list')).data.claudeCode).toMatchObject({ version: '2.1.320' })
     expect(JSON.parse(fs.readFileSync(recordFile(), 'utf8')).version).toBe('2.1.320')
   }, 15000)
+
+  it('重新检测作废正在跑的那次：等着的人马上拿到新结果，不用等旧的那次跑完', async () => {
+    await call('models:list')
+    const waiting = call('models:claudeStatus')
+    writeFake('2.1.330', { sleepMs: 100 })
+    const t0 = Date.now()
+    const rechecked = await call('models:recheckClaude')
+    const waited = await waiting
+    expect(Date.now() - t0).toBeLessThan(SLOW_MS)
+    expect(rechecked.data).toMatchObject({ version: '2.1.330' })
+    expect(waited.data).toMatchObject({ version: '2.1.330' })
+  }, 10000)
+
+  it('重新检测时审核配置刷新不在主进程里同步问 shell（用这次查到的结果）', async () => {
+    // 模拟只有登录 shell 才找得到的 claude：常见位置找不到，后台问 shell 找到替身
+    const quick = vi.spyOn(claudeCli, 'locateClaudeQuick').mockReturnValue(null)
+    const viaShell = vi.spyOn(claudeCli, 'locateClaudeAsync').mockResolvedValue(fakeBin)
+    const hubLocate = vi.fn(() => { blockFor(350); return fakeBin })
+    try {
+      api.stop()
+      writeFake('2.1.300', { sleepMs: 100 })
+      register({ hubOptions: { locateClaude: hubLocate, locateCodex: () => null } })
+      // 注册时的启动对账、刚建目录引起的状态目录通知都还没查过版本，照旧自己找；等它们过去再看重新检测这一下
+      await new Promise((resolve) => setTimeout(resolve, 500))
+      hubLocate.mockClear()
+      const r = await watchLag(() => call('models:recheckClaude'))
+      expect(r.value.data).toMatchObject({ found: true, version: '2.1.300' })
+      expect(hubLocate).not.toHaveBeenCalled()
+      expect(r.maxLag).toBeLessThan(200)
+    } finally {
+      quick.mockRestore()
+      viaShell.mockRestore()
+    }
+  }, 10000)
+})
+
+describe('#99 只有登录 shell 找得到的 claude', () => {
+  it('shell 里换了路径（旧文件还在）或刚装好：进页时后台再问一次 shell，结果跟着变', async () => {
+    const quick = vi.spyOn(claudeCli, 'locateClaudeQuick').mockReturnValue(null)
+    const viaShell = vi.spyOn(claudeCli, 'locateClaudeAsync').mockResolvedValue(null)
+    const check = createClaudeCheck({ reverifyMs: 0 })
+    try {
+      expect(check.peek().info).toBeNull()
+      expect(await check.status()).toMatchObject({ found: false })
+      // 刚装好（只在 shell 的 PATH 上）
+      writeFake('2.1.300', { sleepMs: 0 })
+      viaShell.mockResolvedValue(fakeBin)
+      expect(check.peek()).toMatchObject({ info: { found: false }, checking: true })
+      expect(await check.status()).toMatchObject({ found: true, version: '2.1.300' })
+      // shell 的 PATH 换到另一份新版本，旧文件还在
+      const other = path.join(sb.root, 'claude-new')
+      fs.writeFileSync(other, "#!/bin/sh\nprintf '2.1.340 (Claude Code)\\n'\n", { mode: 0o755 })
+      viaShell.mockResolvedValue(other)
+      expect(check.peek()).toMatchObject({ info: { version: '2.1.300' }, checking: true })
+      expect(await check.status()).toMatchObject({ found: true, version: '2.1.340' })
+    } finally {
+      check.stop()
+      quick.mockRestore()
+      viaShell.mockRestore()
+    }
+  }, 10000)
 })

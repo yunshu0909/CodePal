@@ -109,15 +109,16 @@ function parseShellAnswer(stdout) {
 /**
  * 找 claude，后台版：常见位置照旧查文件；都没有时在子进程里问登录 shell，主进程不停下等
  * @param {object} [env=process.env]
+ * @param {{signal?: AbortSignal}} [options] - 作废时停掉 shell 子进程
  * @returns {Promise<string|null>}
  */
-function locateClaudeAsync(env = process.env) {
+function locateClaudeAsync(env = process.env, { signal } = {}) {
   if (env.CODEPAL_CLAUDE_BIN) return Promise.resolve(isExecutable(env.CODEPAL_CLAUDE_BIN) ? env.CODEPAL_CLAUDE_BIN : null)
   const quick = locateClaudeQuick(env)
   if (quick) return Promise.resolve(quick)
   return new Promise((resolve) => {
     try {
-      execFile(accountShell(env), ['-ilc', SHELL_QUERY], { env, encoding: 'utf8', timeout: 5000 }, (err, stdout) => {
+      execFile(accountShell(env), ['-ilc', SHELL_QUERY], { env, encoding: 'utf8', timeout: 5000, signal }, (err, stdout) => {
         resolve(err ? null : parseShellAnswer(stdout))
       })
     } catch {
@@ -162,12 +163,13 @@ function judgeVersion(output) {
  * 检查 Claude Code 版本，后台版：子进程跑 `claude --version`，主进程照常响应
  * @param {string} claudePath
  * @param {object} [env=process.env]
+ * @param {{signal?: AbortSignal}} [options] - 作废时停掉子进程
  * @returns {Promise<{ok: boolean, current: string|null, required: string}>}
  */
-function checkClaudeVersionAsync(claudePath, env = process.env) {
+function checkClaudeVersionAsync(claudePath, env = process.env, { signal } = {}) {
   return new Promise((resolve) => {
     try {
-      execFile(claudePath, ['--version'], { encoding: 'utf8', timeout: 20000, env }, (err, stdout) => {
+      execFile(claudePath, ['--version'], { encoding: 'utf8', timeout: 20000, env, signal }, (err, stdout) => {
         resolve(judgeVersion(err ? '' : stdout))
       })
     } catch {

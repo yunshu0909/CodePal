@@ -138,13 +138,15 @@ export function claudeBlock(claudeCode) {
 /**
  * 顶上「在终端里用」那一行（后-11、A-002）：一次只显示一句，按这个顺序取第一种——
  * 未安装 > 差一步 > 要更新 > 名字被占 > 没有测过能用的模型 > 已装好。
- * 一个模型都没加（没有任何一家填了 Key 且有模型）时返回 null，这一行不出现。
+ * 一个模型都没加（没有任何一家填了 Key 且有模型）时返回 null，这一行不出现；终端判断还没回来时返回 undefined（原地骨架）。
  * 旧数据缺新字段时按「没问题」算：没有 entry 不算缺总入口，没有 pathStatus 不算找不到，没有 readyCount 不算列表空。
  * @param {object} data - models:list 的 data
  * @returns {{kind: 'not-installed'|'no-path'|'update'|'taken'|'empty'|'ready', text: string, status: string,
- *   tone: ''|'off'|'warn', action: 'install'|'update'|'path'|null}|null}
+ *   tone: ''|'off'|'warn', action: 'install'|'update'|'path'|null}|null|undefined}
  */
 export function terminalStrip(data) {
+  // 终端判断还没回来（#99）：那一行原地骨架，也不参与挑主按钮
+  if (data?.commandsChecking && !data.commands) return undefined
   const hasModel = Object.values(data?.providers || {}).some((p) => p.keySet && p.models.length > 0)
   if (!hasModel) return null
   const c = data.commands || {}

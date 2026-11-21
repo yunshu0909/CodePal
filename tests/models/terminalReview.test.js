@@ -34,7 +34,14 @@ let handlers
 let api
 let send
 let savedZdotdir
-const call = (ch, arg) => handlers[ch]({}, arg)
+const callRaw = (ch, arg) => handlers[ch]({}, arg)
+// #99：登录 shell 慢时 models:list 先不带终端状态（commandsChecking），和页面一样再要一次 models:commandsStatus
+const call = async (ch, arg) => {
+  const r = await callRaw(ch, arg)
+  if (ch !== 'models:list' || !r?.data?.commandsChecking) return r
+  const later = await callRaw('models:commandsStatus')
+  return { ...r, data: { ...r.data, commands: later.data, commandsChecking: false } }
+}
 
 /** 注册接口；shellOptions 不带 zdotdir 时按登录 shell 实际读到的来 */
 function register({ loginEnv, shellOptions = {} } = {}) {

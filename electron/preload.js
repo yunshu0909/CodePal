@@ -333,6 +333,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
    */
   modelsClaudeStatus: () => ipcRenderer.invoke('models:claudeStatus'),
 
+  /**
+   * 等终端命令状态判断完（models:list 带回 commandsChecking 时用，#99）
+   * @returns {Promise<{success: boolean, data: Object|null}>}
+   */
+  modelsCommandsStatus: () => ipcRenderer.invoke('models:commandsStatus'),
+
   /** Read available review models without credentials; changes accept model IDs only. */
   /** @returns {Promise<object>} 无凭证来源列表的统一响应；主进程同步公开清单，不接受路径参数。 */
   modelsHubList: () => ipcRenderer.invoke('models:hubList'),

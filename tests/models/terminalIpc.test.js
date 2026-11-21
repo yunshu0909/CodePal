@@ -30,7 +30,14 @@ const LINE = 'export PATH="$HOME/.local/bin:$PATH"'
 let sb
 let handlers
 let api
-const call = (ch, arg) => handlers[ch]({}, arg)
+const callRaw = (ch, arg) => handlers[ch]({}, arg)
+// #99：登录 shell 慢时 models:list 先不带终端状态（commandsChecking），和页面一样再要一次 models:commandsStatus
+const call = async (ch, arg) => {
+  const r = await callRaw(ch, arg)
+  if (ch !== 'models:list' || !r?.data?.commandsChecking) return r
+  const later = await callRaw('models:commandsStatus')
+  return { ...r, data: { ...r.data, commands: later.data, commandsChecking: false } }
+}
 const zprofile = () => path.join(sb.home, '.zprofile')
 
 /** 注册接口；loginEnv 不传时用真实 zsh 读临时 HOME 的启动文件 */

@@ -2,7 +2,7 @@
  * 第三方模型接入 · 主进程接口（models:*）
  *
  * 负责：
- * - 通道：models:list / claudeStatus / setKey / test / addModel / updateModel / removeModel / recheckClaude / installCommands
+ * - 通道：models:list / claudeStatus / commandsStatus / setKey / test / addModel / updateModel / removeModel / recheckClaude / installCommands
  *   models:hubList / hubSetEnabled / hubSetEffort / hubSetOrder（模型汇总的模型页签）
  *   models:rulesGet / rulesSet / rulesReset / configRepublish（审核规则页签与给 dev 的审核配置）
  * - 统一返回 { success, data, error: { code, message } }；渲染层只传 ID，永远拿不到 Key 原文
@@ -13,6 +13,7 @@
  *   要写的 shell 文件与总入口状态，进入页面时给旧版装过命令的补上总入口（后-17）；models:addToPath 确认后替用户加一行
  * - Claude Code 版本（#99）：models:list 不等它，带回能用的上次结果（或 null）和「后台在查」；
  *   models:claudeStatus 等后台这次查完；models:recheckClaude 重查。都不让主进程停下等命令
+ * - 终端判断最多等 150 毫秒，没赶上就先给列表，models:commandsStatus 再补（#99）
  *
  * @module electron/modules/models/ipc
  */
@@ -28,6 +29,7 @@ const commands = require('./commands')
 const shellProfile = require('./shellProfile')
 const { PRESETS, modelCapabilities, modelEffort } = require('./presets')
 const { createClaudeCheck } = require('./claudeCheck')
+const { locateClaude } = require('./claudeCli')
 
 const WRITE_DENIED = '配置目录没有写入权限，检查权限后重试'
 const INSTALL_DENIED = '安装失败：~/.local/bin 没有写入权限，检查权限后重试'
@@ -37,6 +39,9 @@ const BUSINESS_CODES = new Set(['invalid_input', 'duplicate', 'not_found', 'read
 const UNSUPPORTED_SHELL = '这个 shell 不能自动加入 PATH，请手动把 ~/.local/bin 加进它的 PATH'
 // 「测一下」的外层兜底：命令行自己 60 秒超时，这里再多给 15 秒收尾
 const TEST_GUARD_MS = 75000
+// 进页面最多等终端判断这么久；登录 shell 慢时先给列表，那一行原地骨架、判断完再补（#99）
+const LIST_TERMINAL_BUDGET_MS = 150
+const TERMINAL_PENDING = Symbol('terminal-pending')
 
 /** 打包后 cli.cjs 在 app.asar.unpacked 里，命令行要能直接读到文件 */
 function defaultCliPath() {
@@ -91,8 +96,16 @@ function providerView(cfg, statuses, providerId) {
  * @returns {{stop: () => void}}
  */
 function registerModelsHandlers({ ipcMain, getMainWindow, cliPath = defaultCliPath(), appExecPath = process.execPath, loginPath, loginEnv, shellOptions = {}, hubOptions = {} }) {
+  // Claude Code 版本：后台查，进页面只看上次结果（#99）
+  const claudeCheck = createClaudeCheck()
+  // 审核配置刷新要知道 claude 在不在：本次查过就用查到的，不在主进程里同步等登录 shell；还不知道才照旧自己找
+  const hubLocateClaude = hubOptions.locateClaude || locateClaude
+  const hubLocate = (e) => {
+    const known = claudeCheck.knownBin(e)
+    return known === undefined ? hubLocateClaude(e) : known
+  }
   // 模型汇总两页签与给 dev 的审核配置：唯一写方是 reviewCenter
-  const center = createReviewCenter(hubOptions)
+  const center = createReviewCenter({ ...hubOptions, locateClaude: hubLocate })
   // 模型接入里的事件（测一下、增删改、存 Key、装命令、状态文件变化）之后重新生成审核配置；失败由页面下一次读取报告
   const refreshHubQuietly = () => center.refreshQuietly()
   const hubError = (error) => {
@@ -125,9 +138,6 @@ function registerModelsHandlers({ ipcMain, getMainWindow, cliPath = defaultCliPa
   } catch {
     // 对账失败不阻止接入管理启动；页面读取时再报告
   }
-  // Claude Code 版本：后台查，进页面只看上次结果（#99）
-  const claudeCheck = createClaudeCheck()
-
   // ── 终端找不找得到 codepal（后-12）──
   // 用哪个 shell 每次现取：CodePal 开着时改了登录 shell 也跟得上（后-13）
   const currentShell = () => shellOptions.shell || shellProfile.loginShell()
@@ -235,7 +245,12 @@ function registerModelsHandlers({ ipcMain, getMainWindow, cliPath = defaultCliPa
       for (const id of Object.keys(PRESETS)) providers[id] = providerView(cfg, statuses, id)
       // claudeCode 为 null = 还没有能用的结果，页面等 models:claudeStatus；claudeChecking = 后台在查（或在核上次的结果）
       const claude = claudeCheck.peek()
-      return ok({ claudeCode: claude.info, claudeChecking: claude.checking, commands: await terminalView(), providers })
+      // 终端判断慢（登录 shell 启动文件重）时不拖住列表：commands 为 null、commandsChecking 为真，页面再要 models:commandsStatus
+      const terminal = terminalView()
+      terminal.catch(() => {})
+      const terminalNow = await Promise.race([terminal, new Promise((resolve) => setTimeout(resolve, LIST_TERMINAL_BUDGET_MS, TERMINAL_PENDING))])
+      const commandsChecking = terminalNow === TERMINAL_PENDING
+      return ok({ claudeCode: claude.info, claudeChecking: claude.checking, commands: commandsChecking ? null : terminalNow, commandsChecking, providers })
     } catch (err) {
       return bad(err)
     }
@@ -245,6 +260,15 @@ function registerModelsHandlers({ ipcMain, getMainWindow, cliPath = defaultCliPa
   ipcMain.handle('models:claudeStatus', async () => {
     try {
       return ok(await claudeCheck.status())
+    } catch (err) {
+      return bad(err)
+    }
+  })
+
+  // 进页面时终端判断没赶上：等它判断完（正在跑的那次直接沿用）
+  ipcMain.handle('models:commandsStatus', async () => {
+    try {
+      return ok(await terminalView())
     } catch (err) {
       return bad(err)
     }
@@ -316,10 +340,12 @@ function registerModelsHandlers({ ipcMain, getMainWindow, cliPath = defaultCliPa
     }
   })
 
+  // 先查完再刷新审核配置：刷新用这次查到的结果，不在主进程里同步问 shell
   ipcMain.handle('models:recheckClaude', async () => {
-    refreshHubQuietly()
     try {
-      return ok(await claudeCheck.recheck())
+      const info = await claudeCheck.recheck()
+      refreshHubQuietly()
+      return ok(info)
     } catch (err) {
       return bad(err)
     }
