@@ -56,8 +56,14 @@ function futureCall(id, name, at = stamp(), { sessionId = 'root', failed = false
   ]
 }
 // 看到正文（旧写法），但配不上任何一次调用
-const strayBody = (id, target, at = stamp(), source = 'toolu_nowhere') => ({ type: 'user', uuid: 'stray-' + id, timestamp: at, sessionId: 'root',
-  isMeta: true, sourceToolUseID: source, message: { content: [{ type: 'text', text: 'Base directory for this skill: ' + path.dirname(target) + '\n\n' + BODY }] } })
+const strayBody = (id, target, at = stamp(), source = 'toolu_nowhere', body = BODY) => ({ type: 'user', uuid: 'stray-' + id, timestamp: at, sessionId: 'root',
+  isMeta: true, sourceToolUseID: source, message: { content: [{ type: 'text', text: 'Base directory for this skill: ' + path.dirname(target) + '\n\n' + body }] } })
+// 真的斜杠命令那一行（本机核实的结构：整条消息只有两个 command 标签）
+const slashRow = (id, name, at = stamp()) => ({ type: 'user', uuid: 'slash-' + id, timestamp: at, sessionId: 'root',
+  message: { role: 'user', content: '<command-message>' + name + '</command-message>\n<command-name>/' + name + '</command-name>' } })
+const futureSlashBody = (id, name, at = stamp()) => ({ type: 'user', uuid: 'body-' + id, parentUuid: 'slash-' + id, timestamp: at, sessionId: 'root', isMeta: true,
+  message: { content: [{ type: 'text', text: '<skill-body name="' + name + '">' + BODY + '</skill-body>' }] } })
+const userSays = (id, text, at = stamp()) => ({ type: 'user', uuid: 'say-' + id, timestamp: at, sessionId: 'root', message: { role: 'user', content: text } })
 const read = (id, target, at = stamp()) => [
   { type: 'assistant', uuid: 'call-' + id, timestamp: at, sessionId: 'root',
     message: { content: [{ type: 'tool_use', id, name: 'Read', input: { file_path: target } }] } },
@@ -132,7 +138,66 @@ describe('#97 认不出的调用：只提示，不算数', () => {
   })
 })
 
+describe('#97 审核意见 1～5 补的边角', () => {
+  it('意见 2：聊天里提到 $alpha、粘贴斜杠命令的示例，不算调用；真的斜杠命令认不出才提示', async () => {
+    await install()
+    await writeRows(claudeLog('root'), [meta(), userSays('ask', '$alpha 是什么意思？', stamp(90)),
+      userSays('paste', '文档里这样写：<command-name>/alpha</command-name> 就能调起', stamp(60))])
+    expect((await detail()).unrecognized, 'TEXT_MENTION_COUNTED_AS_CALL').toBe(0)
+    await writeRows(claudeLog('slash'), [meta('slash'), { ...slashRow('s', 'alpha', stamp(10)), sessionId: 'slash' },
+      { ...futureSlashBody('s', 'alpha', stamp(10)), sessionId: 'slash' }])
+    expect((await detail()).unrecognized).toBe(1)
+  })
+
+  it('意见 3：正文和调用靠调用编号连着——正文指向开发仓库的不提示，报错的调用连着的正文不提示，编号不同的各算各的', async () => {
+    await install()
+    const dev = await install('alpha', path.join(sandbox, 'project', 'skills'))
+    const target = path.join(homeDir, 'Documents', 'SkillManager', 'alpha', 'SKILL.md')
+    await writeRows(claudeLog('dev'), [meta('dev'), ...futureCall('d', 'alpha', stamp(60), { sessionId: 'dev' }).slice(0, 2),
+      { ...strayBody('d', dev, stamp(60), 'd', '\n'), sessionId: 'dev' }])
+    await writeRows(claudeLog('bad'), [meta('bad'), ...futureCall('bad', 'alpha', stamp(50), { sessionId: 'bad', failed: true }),
+      { ...strayBody('bad', target, stamp(50), 'bad'), sessionId: 'bad' }])
+    expect((await detail()).unrecognized, 'LINKED_CANDIDATES_NOT_FILTERED').toBe(0)
+    await writeRows(claudeLog('root'), [meta(), ...futureCall('a', 'alpha', stamp(20)).slice(0, 2), strayBody('b', target, stamp(17), 'toolu_b')])
+    expect((await detail()).unrecognized, 'DIFFERENT_CALLS_MERGED').toBe(2)
+  })
+
+  it('意见 5：旧式子代理（没有 agentId）读到了，不压掉主会话的提示；先确认读过、后来又一次认不出的调用照样提示', async () => {
+    const target = await install()
+    await writeRows(claudeLog('root'), [meta(), ...read('first', target, stamp(40)), ...futureCall('later', 'alpha', stamp(20))])
+    await writeRows(path.join(env.CLAUDE_CONFIG_DIR, 'projects', '-demo', 'root', 'subagents', 'legacy.jsonl'),
+      [meta('root', { isSidechain: true }), ...read('side', target, stamp(15)).map((row) => ({ ...row, isSidechain: true }))])
+    expect((await detail()).unrecognized, 'HINT_SUPPRESSED').toBe(1)
+  })
+
+  it('意见 5：调用认不出、随后 30 分钟内主会话又读到了正文：这次算读到了，不提示', async () => {
+    const target = await install()
+    await writeRows(claudeLog('root'), [meta(), ...futureCall('a', 'alpha', stamp(20)).slice(0, 2), strayBody('a', target, stamp(20), 'a', '\n'),
+      ...read('after', target, stamp(15))])
+    const listed = await detail()
+    expect(listed.records).toHaveLength(1)
+    expect(listed.unrecognized).toBe(0)
+  })
+})
+
 describe('#97 升级规则版本不丢已确认的次数（v2.1.19 CASE-020）', () => {
+  it('意见 1：日志还在、但前面一段被清理掉了：那段里确认过的次数升级后还在，留下的那段不重复算', async () => {
+    const target = await install()
+    await writeRows(claudeLog('root'), [meta(), ...read('early', target, stamp(3 * DAY)), ...read('late', target, stamp(10))])
+    expect((await scan()).skills.find((skill) => skill.name === 'alpha').total).toBe(2)
+    await writeRows(claudeLog('root'), [meta(), ...read('late', target, stamp(10))])
+    for (const name of ['index.json', 'history.json']) {
+      const file = path.join(storeDir, name)
+      const value = JSON.parse(await fs.readFile(file, 'utf8'))
+      value.version = 'body-evidence-3.6'
+      if (name === 'index.json')
+        for (const entry of Object.values(value.entries))
+          entry.proofDigest = crypto.createHash('sha256').update(JSON.stringify(entry.proof)).digest('hex')
+      await fs.writeFile(file, JSON.stringify(value) + '\n')
+    }
+    expect((await scan()).skills.find((skill) => skill.name === 'alpha').total, 'TRIMMED_LOG_HISTORY_LOST').toBe(2)
+  })
+
   it('上一版确认过 1 次、之后原日志被删：升到新规则版本后这 1 次还在', async () => {
     const target = await install()
     await writeRows(claudeLog('gone'), [meta('gone'), ...read('kept', target, stamp(3 * DAY))])

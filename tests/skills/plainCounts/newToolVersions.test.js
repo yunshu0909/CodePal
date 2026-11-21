@@ -51,13 +51,13 @@ function skillTool(version, id, name, target, at = stamp()) {
   ]
 }
 // 斜杠命令调起：用户行（字符串正文，两个 command 标签）+ 没有 sourceToolUseID、parentUuid 指回的 isMeta 注入行
-function slash(version, id, name, target, { at = stamp(), parent = 'slash-' + id, isMeta = true } = {}) {
+function slash(version, id, name, target, { at = stamp(), parent = 'slash-' + id, isMeta = true, body = BODY, before = '' } = {}) {
   return [
     { type: 'user', uuid: 'slash-' + id, timestamp: at, sessionId: 'root', version, promptId: 'p-' + id,
       message: { role: 'user', content: '<command-message>' + name + '</command-message>\n<command-name>/' + name + '</command-name>' } },
     { type: 'user', uuid: 'inject-' + id, parentUuid: parent, timestamp: at, sessionId: 'root', version, promptId: 'p-' + id,
       ...(isMeta ? { isMeta: true } : {}),
-      message: { role: 'user', content: [{ type: 'text', text: 'Base directory for this skill: ' + path.dirname(target) + '\n\n' + BODY }] } },
+      message: { role: 'user', content: [{ type: 'text', text: before + 'Base directory for this skill: ' + path.dirname(target) + '\n\n' + body }] } },
   ]
 }
 const read = (id, target, at = stamp()) => [
@@ -118,6 +118,15 @@ describe('#97 新版本 Claude Code 调起照常算进次数', () => {
     await writeRows(claudeLog('old'), [meta('2.0.77', 'old'), ...skillTool('2.0.77', 'toolu_old', 'alpha', target)])
     expect(await totalOf()).toBe(0)
     expect(await totalOf('beta')).toBe(0)
+  })
+
+  it('审核意见 4：正文开头写着「找不到就问用户」这类话照算；Base directory 不在开头的不算', async () => {
+    const target = await install()
+    await writeRows(claudeLog('root'), [meta('2.1.325'), ...slash('2.1.325', 's1', 'alpha', target,
+      { body: 'If the record is not found, ask the user.\n' + BODY })])
+    expect(await totalOf(), 'BODY_WORDING_REJECTED').toBe(1)
+    await writeRows(claudeLog('root'), [meta('2.1.325'), ...slash('2.1.325', 's1', 'alpha', target, { before: 'Some unrelated preface.\n' })])
+    expect(await totalOf(), 'HEADER_NOT_AT_START_ACCEPTED').toBe(0)
   })
 
   it('升级前已经读过、记成没核实的旧日志：升级后按新规则重读，补算进来', async () => {
