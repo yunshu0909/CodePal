@@ -16,6 +16,9 @@ import os from 'node:os'
 import path from 'node:path'
 import { createRequire } from 'node:module'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { createRequire as createLastViewRequire } from 'node:module'
+
+const { whenLastViewIdle } = createLastViewRequire(import.meta.url)('../../electron/modules/skills/lastViewStore')
 
 const require = createRequire(import.meta.url)
 const service = require('../../electron/services/skillControlService')
@@ -46,6 +49,8 @@ beforeEach(async () => {
 })
 
 afterEach(async () => {
+  // #101 读快照后会在后台存一份「上次的」：等它写完再删临时目录
+  await whenLastViewIdle()
   await fs.rm(sandbox, { recursive: true, force: true })
 })
 

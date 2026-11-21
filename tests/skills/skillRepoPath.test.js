@@ -14,6 +14,9 @@ import { readFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { createRequire as createLastViewRequire } from 'node:module'
+
+const { whenLastViewIdle } = createLastViewRequire(import.meta.url)('../../electron/modules/skills/lastViewStore')
 import { createRequire } from 'node:module'
 
 const require = createRequire(import.meta.url)
@@ -34,6 +37,8 @@ beforeEach(async () => {
 })
 
 afterEach(async () => {
+  // #101 读快照后会在后台存一份「上次的」：等它写完再删临时目录
+  await whenLastViewIdle()
   await fs.rm(homeDir, { recursive: true, force: true })
 })
 
