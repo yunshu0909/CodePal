@@ -4,7 +4,8 @@ const readline = require('readline')
 const path = require('path')
 const crypto = require('crypto')
 const { hash } = require('./usageSources')
-const PARSER_VERSION = 'body-evidence-3.6'
+// 3.7（#97）：新版本 Claude 注入、斜杠命令注入能配上对了，升级后近 30 天日志按新规则重读一次
+const PARSER_VERSION = 'body-evidence-3.7'
 const BODY_PATH = /SKILL\.md(?:[\s'"<>)]|$)/i
 const failure = /(?:permission denied|no such file|unknown skill|not found|ENOENT|EACCES)/i
 const timestamp = (row) => row.timestamp || row.created_at || row.at || null
@@ -128,12 +129,13 @@ const executedReader = (command) =>
 const metadataCommand = (command) =>
   /^\s*(?:echo|printf)\s/.test(command || '') && !/[;|&\n]/.test(command)
 const compoundCommand = (command) => /[;|&<>\n]/.test(command || '')
+// #97：Claude 注入行由运行器写（isMeta），还要配上同会话的一次调起才算，结构本身就是证明；
+// 版本只留下限（2.1 之前的格式没核实过），不再写死上限，免得每次升级都漏算。
 function supportedInjection(meta) {
-  if (meta.tool === 'claude')
-    return (
-      /^2\.1\.\d+(?:[-.].*)?$/.test(meta.version || '') &&
-      Number((meta.version || '').split('.')[2]) <= 292
-    )
+  if (meta.tool === 'claude') {
+    const version = (meta.version || '').match(/^(\d+)\.(\d+)\.\d+(?:[-.].*)?$/)
+    return Boolean(version) && (Number(version[1]) > 2 || (version[1] === '2' && Number(version[2]) >= 1))
+  }
   const version = (meta.version || '').match(/^0\.(\d+)\.(\d+)(?:[-.].*)?$/)
   return (
     version &&
@@ -445,10 +447,16 @@ async function parseTranscript(file, deps) {
       const match = injected.match(/Base directory for this skill:\s*([^\n]+)\n([\s\S]+)/)
       if (!match) return
       const target = path.join(match[1].trim(), 'SKILL.md')
-      const request = requests.get(row.sourceToolUseID)
+      // Skill 工具调起带 sourceToolUseID；斜杠命令调起没有，注入行的 parentUuid 指回斜杠那一行（recordUser 按「行 uuid:名字」开的请求）
+      const requestId = row.sourceToolUseID
+        ? row.sourceToolUseID
+        : row.parentUuid
+          ? row.parentUuid + ':' + skillName(target)
+          : null
+      const request = requestId ? requests.get(requestId) : undefined
       const proof = bodyProof(match[2])
       if (proof && request?.name === skillName(target) && supportedInjection(meta)) {
-        add(target, at, row.sourceToolUseID, 'injection', proof, line, {
+        add(target, at, requestId, 'injection', proof, line, {
           requestLine: request.line,
         })
         settleName(request.name, at)
