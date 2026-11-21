@@ -311,6 +311,18 @@ describe('Claude Code 设置', () => {
     expect(popup()).toHaveTextContent('自动编辑')
   })
 
+  it('上次状态栏就没读出来：切回先显示「无法读取额度状态」那一行，不出骨架', async () => {
+    const a = api()
+    a.getClaudeUsageStatusState = vi.fn(async () => ({ success: false, error: '读不到' }))
+    ;(await visit(<PermissionModePage />)).unmount()
+    a.getClaudeUsageStatusState = vi.fn(() => new Promise(() => {}))
+    const view = revisit(<PermissionModePage />)
+    expect(popup()).toHaveTextContent('全自动')
+    expect(screen.getByText('无法读取额度状态')).toBeInTheDocument()
+    view.stop()
+    expect(view.seen).toEqual([])
+  })
+
   it('切回后重读失败：上次的模式留着，提示这次没更新', async () => {
     const a = api()
     ;(await visit(<PermissionModePage />)).unmount()
@@ -505,7 +517,7 @@ describe('文档查阅', () => {
     a.docReadFile = vi.fn(() => content.promise)
     const view = revisit(<DocBrowserPage />)
     expect(rootRow('Alpha')).toHaveAttribute('aria-expanded', 'true')
-    expect(screen.getByText('readme.md').closest('.np-tr')).toHaveClass('on')
+    expect(screen.getByText('readme.md', { selector: '.np-tr .nm' }).closest('.np-tr')).toHaveClass('on')
     expect(detail()).toHaveTextContent('正文内容')
     await act(async () => {
       folders.resolve({ success: true, data: FOLDERS })

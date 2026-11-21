@@ -5,6 +5,7 @@
  * - 默认权限模式：读取、弹出菜单选择即写入、托管覆盖提示
  * - 状态栏：接入状态与接入 / 接管、显示状态栏开关（开写 always、关写 off，阈值原样带回）
  * - 终端预览：固定示例数据示意终端底部效果
+ * - 切回时先显示上次读到的模式和接入状态（本次运行内存里，#100）；重读失败留着上次的，顶上提示没更新
  *
  * 合并了原「启动模式」与「状态栏设置」两页；模块 ID 仍为 permission。
  * 设计事实源：specs/redesign-CodePal视觉重做/Claude设置-定稿/。
@@ -17,6 +18,8 @@ import PageShell from '../components/PageShell'
 import Button from '../components/Button/Button'
 import { toast } from '../components/Toast'
 import Toggle from '../components/Toggle'
+import StaleNotice from '../components/StaleNotice'
+import { pageMemory, useRemember } from '../store/pageMemory'
 import ClaudeStatusLineTakeoverModal from './usage/components/ClaudeStatusLineTakeoverModal'
 import useClaudeUsageStatus from './usage/useClaudeUsageStatus'
 import PermissionModeSelect from './claudeSettings/PermissionModeSelect'
@@ -36,21 +39,25 @@ import './claudeSettings/claudeSettings.css'
  * @returns {object}
  */
 function usePermissionMode(notify) {
-  // 读取结果：mode 为 null 表示未配置；error 为读取失败
-  const [perm, setPerm] = useState({ loading: true, error: false, mode: null })
+  const memory = pageMemory('permission-mode')
+  // 读取结果：mode 为 null 表示未配置；error 为读取失败；stale 为这次重读失败、显示的是上次读到的
+  const [perm, setPerm] = useState(() => (memory.value ? { loading: false, error: memory.value.error, mode: memory.value.mode } : { loading: true, error: false, mode: null }))
+  useRemember(memory, perm.loading ? null : perm)
   // 写入进行中：禁用弹出按钮，防重复写
   const [switching, setSwitching] = useState(false)
   // 托管覆盖提示：写入后得知，本次打开页面期间保留
   const [managedNotice, setManagedNotice] = useState(null)
 
   // 首次读取显示骨架；点「重试」重读时保持当前行内状态，不回到骨架
+  // 读失败：已经显示着一个模式（切回时上次的）就留着、标没更新；没有才进「无法读取当前配置」
   const load = useCallback(async () => {
+    const failed = (prev) => (!prev.loading && !prev.error ? { ...prev, stale: true } : { loading: false, error: true, mode: null })
     try {
       const result = await window.electronAPI.getPermissionModeConfig()
       if (result?.success) setPerm({ loading: false, error: false, mode: result.isConfigured ? result.mode : null })
-      else setPerm({ loading: false, error: true, mode: null })
+      else setPerm(failed)
     } catch {
-      setPerm({ loading: false, error: true, mode: null })
+      setPerm(failed)
     }
   }, [])
 
@@ -94,7 +101,7 @@ export default function PermissionModePage() {
 
   const { perm, switching, managedNotice, reload: reloadPerm, select } = usePermissionMode(notify)
   const {
-    statusState, loading: statusLoading, installing, saving, error: statusError,
+    statusState, loading: statusLoading, installing, saving, error: statusError, stale: statusStale,
     loadStatus, ensureInstalled, saveConfig,
   } = useClaudeUsageStatus()
 
@@ -151,6 +158,7 @@ export default function PermissionModePage() {
           </div>
         ) : (
           <>
+            {(perm.stale || statusStale) && <StaleNotice onRetry={() => { reloadPerm(); loadStatus() }} />}
             <div className="cc-card np-card np-card--form">
               <div className="cc-row np-row">
                 <div className="lf"><div className="lb">默认权限模式</div>{modeDesc}</div>

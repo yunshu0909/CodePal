@@ -1,9 +1,15 @@
-/** Subscribe before loading so a late IPC response cannot overwrite a newer sample. */
+/**
+ * Subscribe before loading so a late IPC response cannot overwrite a newer sample.
+ * 切回时先显示上次读到的状态（本次运行内存里，#100）；重读失败沿用页面已有的「状态待核实」样子。
+ */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { toast } from '../../components/Toast'
+import { pageMemory, useRemember } from '../../store/pageMemory'
 
 export default function useClaudeEnvironment() {
-  const [state, setState] = useState(null)
+  const memory = pageMemory('claude-environment')
+  const [state, setState] = useState(() => memory.value ?? null)
+  useRemember(memory, state)
   const [error, setError] = useState(null)
   const [saving, setSaving] = useState(false)
   const [probing, setProbing] = useState(false)

@@ -3,7 +3,7 @@
  *
  * 负责：
  * - 新样式页面壳（PageShell native）：被挡住卡（没找到 Claude Code）→「在终端里用」一行 → 每家一张供应商卡
- * - 首次读取出骨架；配置整体读不出时整块「读取失败」
+ * - 首次读取出骨架；配置整体读不出时整块「读取失败」；切回时先显示上次的，重读失败留着上次的并提示（#100）
  * - Claude Code 版本晚到（#99）：供应商和模型先出，提醒卡等查完再按结果出
  * - 一屏只留一个主按钮（填写 Key > 重新检测 > 安装命令；弹层打开时让给弹层）
  * - 同一时间只开一个弹层
@@ -16,6 +16,7 @@
 import { useState } from 'react'
 import PageShell from '../../components/PageShell'
 import StateView from '../../components/StateView/StateView'
+import StaleNotice from '../../components/StaleNotice'
 import BlockCard from './BlockCard'
 import TerminalStrip from './TerminalStrip'
 import ProviderCard from './ProviderCard'
@@ -47,6 +48,7 @@ export default function ModelsPage() {
           <StateView error="模型配置文件无法解析，修好或删除它后重试" onRetry={models.reload} />
         ) : (
           <div className="mj-stack">
+            {models.stale && <StaleNotice onRetry={models.reload} />}
             {data && (
               <BlockCard
                 claude={claude}

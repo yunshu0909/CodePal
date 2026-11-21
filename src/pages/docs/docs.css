@@ -5,7 +5,7 @@
  * - 左栏宽度跟着拖动走（宽度由页面按拖动结果写在 .np-split 上）
  * - 拖动条盖在两栏之间的 0.5px 竖线上：看不见，只换光标
  * - 相邻文件夹根行的间距、树里一句话（扫描中 / 没有 .md）的缩进、搜索无结果那一行
- * - 正文加载骨架的尺寸
+ * - 正文加载骨架的尺寸；切回后重读失败那一行的留白
  *
  * 颜色、字号、线、圆角都来自 styles/native.css 的通用类，这里只写本页结构和尺寸。
  * 设计事实源：specs/docs-browser-redesign/文档查阅-定稿/
@@ -67,3 +67,12 @@
 .db-page .db-sk-40 { width: 40%; }
 .db-page .db-sk-75 { width: 75%; }
 .db-page .db-sk-100 { width: 100%; }
+
+/* 切回后重读失败的一行（问题池第 100 条）：左栏和树行同一套左右留白；正文上方和正文隔开 */
+.db-page .db-stale {
+  padding: 4px 8px 8px;
+}
+
+.db-page .db-stale.db-stale--doc {
+  padding: 0 0 16px;
+}

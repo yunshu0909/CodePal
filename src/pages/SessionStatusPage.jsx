@@ -6,6 +6,7 @@
  * - 检测到的工具；某一边钩子没装上时写原因 + 重试
  * - 会话列表：状态文件一变就实时更新；等你确认 → 进行中 → 完成了
  * - 告诉主进程本页在前台（在前台时不弹系统通知）
+ * - 切回时先显示上次读到的（本次运行内存里，#100），后台照常重读；重读失败留着上次的并提示
  *
  * 设计事实源：specs/状态提醒重做/（状态清单草案 + _review/04 交互流程）
  *
@@ -16,7 +17,9 @@ import { useCallback, useEffect, useState } from 'react'
 import PageShell from '../components/PageShell'
 import Button from '../components/Button/Button'
 import Toggle from '../components/Toggle'
+import StaleNotice from '../components/StaleNotice'
 import { toast } from '../components/Toast'
+import { pageMemory, useRemember } from '../store/pageMemory'
 import { STATE_TAG, describeSession, describeTools, formatSessionTime } from './sessionStatus/sessionStatusView'
 import './sessionStatus/sessionStatus.css'
 
@@ -24,8 +27,10 @@ import './sessionStatus/sessionStatus.css'
  * @returns {JSX.Element}
  */
 export default function SessionStatusPage() {
-  // 主进程快照：enabled / tools / failures / sessions / total / error
-  const [data, setData] = useState(null)
+  const memory = pageMemory('session-status')
+  // 主进程快照：enabled / tools / failures / sessions / total / error；切回时先用上次的
+  const [data, setData] = useState(() => memory.value ?? null)
+  useRemember(memory, data)
   const [loadError, setLoadError] = useState(null)
   // 开关正在装 / 删钩子
   const [saving, setSaving] = useState(false)
@@ -99,6 +104,7 @@ export default function SessionStatusPage() {
         )}
         {data && (
           <>
+            {loadError && <StaleNotice onRetry={load} />}
             <div className="np-card np-card--form">
               <div className="np-row">
                 <div className="lf">

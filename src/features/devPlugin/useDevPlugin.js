@@ -7,12 +7,14 @@
  * - 保存 10 秒还没结果：先提示没确认，这一行保持保存中，等结果回来后重读再按实际值显示
  * - 代次：页面卸载后结果一律作废；一行开始新的保存后，之前开始的读取不覆盖这一行
  * - 再进入页面时主进程说某一边还在保存：那一行显示保存中，每秒查一次，做完按读到的值显示
+ * - 切回时先显示上次读到的版本号和两行（本次运行内存里，#100），后台照常读；这次读失败留着上次的、标 stale（页面提示没更新）
  *
  * @module features/devPlugin/useDevPlugin
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { toast } from '../../components/Toast'
+import { pageMemory, useRemember } from '../../store/pageMemory'
 
 const READ_TIMEOUT_MS = 10000
 const SAVE_TIMEOUT_MS = 10000
@@ -32,11 +34,15 @@ function toRow(side, saving) {
 }
 
 /**
- * @returns {{status: 'loading'|'error'|'ready', error: string|null, versionText: string, rows: Record<string, object>|null,
- *   retry: () => void, setEnabled: (tool: string, enabled: boolean) => void}}
+ * @returns {{status: 'loading'|'error'|'ready', error: string|null, stale: boolean, versionText: string, rows: Record<string, object>|null,
+ *   retry: () => void, reload: () => void, setEnabled: (tool: string, enabled: boolean) => void}}
  */
 export default function useDevPlugin() {
-  const [view, setView] = useState({ status: 'loading', error: null, versionText: '', rows: null })
+  const memory = pageMemory('dev-plugin')
+  const [view, setView] = useState(() => (memory.value
+    ? { status: 'ready', error: null, stale: false, versionText: memory.value.versionText, rows: memory.value.rows }
+    : { status: 'loading', error: null, stale: false, versionText: '', rows: null }))
+  useRemember(memory, view.rows ? view : null)
   const alive = useRef(true)
   // 每行的操作代次：每点一次开关 +1；读取开始时记下，回来时代次变了就不覆盖这一行
   const ops = useRef({ claude: 0, codex: 0 })
@@ -142,7 +148,8 @@ export default function useDevPlugin() {
     setView((prev) => (prev.status === 'ready' ? prev : { ...prev, status: 'loading', error: null }))
     const result = await readOnce()
     if (!alive.current || token !== loadToken.current) return
-    if (!result.ok) return showError(result.message)
+    // 屏上已经有内容（切回时上次的、或这次早先读到的）：留着，只标这次没更新
+    if (!result.ok) return setView((prev) => (prev.status === 'ready' && prev.rows ? { ...prev, stale: true } : { ...prev, status: 'error', error: result.message }))
     const { data } = result
     const versionText = newerVersion(result)
     setView((prev) => {
@@ -151,7 +158,7 @@ export default function useDevPlugin() {
         const moved = ops.current[tool] !== startOps[tool]
         rows[tool] = moved && prev.rows ? prev.rows[tool] : toRow(data[tool], data.saving && data.saving[tool])
       }
-      return { status: 'ready', error: null, versionText: versionText === undefined ? prev.versionText : versionText, rows }
+      return { status: 'ready', error: null, stale: false, versionText: versionText === undefined ? prev.versionText : versionText, rows }
     })
     // 这一行用的是本次读取的结果时，是否在保存以主进程说的为准（重试后不会被上一次的保存中卡住）
     for (const tool of TOOLS) {
@@ -213,5 +220,5 @@ export default function useDevPlugin() {
     toast.error(message)
   }, [view.rows, later, cancel, setRow, rereadRow])
 
-  return { ...view, retry, setEnabled }
+  return { ...view, retry, reload: load, setEnabled }
 }

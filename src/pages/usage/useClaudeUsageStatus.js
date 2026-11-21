@@ -5,11 +5,13 @@
  * - 拉取 Claude Code 会员额度状态接入结果
  * - 管理显示模式与阈值表单
  * - 提供安装/重试/保存配置等交互方法
+ * - 切回 Claude Code 设置页时先显示上次读到的接入状态（本次运行内存里，#100）；重读失败留着上次的、标 stale
  *
  * @module pages/usage/useClaudeUsageStatus
  */
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { pageMemory, useRemember } from '../../store/pageMemory'
 
 const DEFAULT_FORM_CONFIG = Object.freeze({
   displayMode: 'always',
@@ -22,16 +24,23 @@ const DEFAULT_FORM_CONFIG = Object.freeze({
  * @returns {object}
  */
 export default function useClaudeUsageStatus() {
+  // 切回时先用上次读到的（读失败的那次也算：回来先显示「无法读取」那一行，不再出骨架）
+  const memory = pageMemory('claude-usage-status')
   // 当前 Claude 会员额度状态：包含接入态、快照和配置
-  const [statusState, setStatusState] = useState(null)
-  // 页面初次加载状态：用于控制卡片骨架和按钮禁用
-  const [loading, setLoading] = useState(true)
+  const [statusState, setStatusState] = useState(() => memory.value?.statusState ?? null)
+  const shown = useRef(statusState)
+  shown.current = statusState
+  // 页面初次加载状态：用于控制卡片骨架和按钮禁用（有上次的就不算初次）
+  const [loading, setLoading] = useState(() => !memory.value)
+  // 这次重读失败、屏上留着的是上次读到的
+  const [stale, setStale] = useState(false)
   // 安装/修复进行中：避免重复点击“重试接入”
   const [installing, setInstalling] = useState(false)
   // 保存配置进行中：避免表单重复提交
   const [saving, setSaving] = useState(false)
   // 页面内错误信息：展示最近一次操作失败原因
-  const [error, setError] = useState(null)
+  const [error, setError] = useState(() => memory.value?.error ?? null)
+  useRemember(memory, useMemo(() => (loading ? null : { statusState, error }), [loading, statusState, error]))
   // 表单配置：用户在卡片里编辑的显示模式与阈值
   const [formConfig, setFormConfig] = useState(DEFAULT_FORM_CONFIG)
 
@@ -40,6 +49,12 @@ export default function useClaudeUsageStatus() {
    * @returns {Promise<void>}
    */
   const loadStatus = useCallback(async () => {
+    // 读失败：屏上已有接入状态就留着、标没更新；没有才清掉进 read_error 态
+    const failRead = (message) => {
+      if (shown.current) setStale(true)
+      else setStatusState(null)
+      setError(message)
+    }
     if (!window.electronAPI?.getClaudeUsageStatusState) {
       setStatusState(null)
       setError('当前环境不支持 Claude 会员额度状态功能')
@@ -53,6 +68,7 @@ export default function useClaudeUsageStatus() {
       // (v1.3.4: 原代码 success=false 时只 setError 不 setStatusState,导致 Card 拿到旧的 statusState 和新的 error,渲染态错乱)
       if (result?.success) {
         setStatusState(result)
+        setStale(false)
         if (result.config) {
           setFormConfig({
             displayMode: result.config.displayMode || DEFAULT_FORM_CONFIG.displayMode,
@@ -68,14 +84,12 @@ export default function useClaudeUsageStatus() {
           window.electronAPI.ensureClaudeUsageStatusInstalled({ force: false, intent: 'silent' }).catch(() => {})
         }
       } else {
-        // IPC 返回但 success=false:清掉 statusState,让 Card 进 read_error 态
-        setStatusState(null)
-        setError(result?.error || '读取 Claude 会员额度状态失败')
+        // IPC 返回但 success=false:清掉 statusState,让 Card 进 read_error 态（屏上有上次的就留着）
+        failRead(result?.error || '读取 Claude 会员额度状态失败')
       }
     } catch (err) {
-      // IPC 抛异常(主进程崩溃 / handler 未注册):同样进 read_error 态
-      setStatusState(null)
-      setError(err.message || '读取 Claude 会员额度状态失败')
+      // IPC 抛异常(主进程崩溃 / handler 未注册):同样进 read_error 态（屏上有上次的就留着）
+      failRead(err.message || '读取 Claude 会员额度状态失败')
     } finally {
       setLoading(false)
     }
@@ -177,6 +191,7 @@ export default function useClaudeUsageStatus() {
     installing,
     saving,
     error,
+    stale,
     formConfig,
     loadStatus,
     ensureInstalled,

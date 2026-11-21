@@ -3,9 +3,12 @@
  * - Version and request guards prevent stale responses after saves/navigation.
  * - Read cached snapshots on entry and shared revisions; an unset card never requests a cycle.
  * - Ended-cycle price edits go through the same per-plan write queue; model prices are global, so both cards re-query.
+ * - 切回时先显示上次读到的两张卡（本次运行内存里，#100），后台照常重读；同一周期的旧用量在重读、统计还在算时先留着；
+ *   重读失败、卡上已有内容：数字留着，Toast 说明显示的是上次读到的结果。
  * @module pages/plan/usePlanData
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { pageMemory, useRemember } from '../../store/pageMemory';
 const IDS = ['claude', 'codex'],
   NAMES = {
     claude: 'Claude Code',
@@ -29,9 +32,18 @@ const empty = planId => ({
   error: null,
   acting: false
 });
+const STALE_SUFFIX = '，显示的是上次读到的结果';
+/** 上次的卡只带读到的数据回来；进行中 / 读取中这类一次性状态不带 */
+const recall = card => ({
+  ...card,
+  loading: false,
+  acting: false
+});
 /** @param {Function} notify Existing Toast callback. @returns {object} Ordered cards with trusted IPC callbacks. */
 export default function usePlanData(notify) {
-  const [cards, setCards] = useState(() => IDS.map(empty));
+  const memory = pageMemory('plan');
+  const [cards, setCards] = useState(() => memory.value ? memory.value.map(recall) : IDS.map(empty));
+  useRemember(memory, cards);
   const state = useRef(cards),
     alive = useRef(false),
     seq = useRef({
@@ -89,7 +101,8 @@ export default function usePlanData(notify) {
         return;
       }
       if (!result?.success || result.data.version !== version || result.data.cycleId !== cycleId) throw new Error('query');
-      if(result.data.pending){patch(id,()=>({loading:true,error:null,usage:null}));return}
+      // 统计还在算：这一周期已经有数字（切回时上次的）就先留着，算完由统计变化事件重读；没有才出骨架
+      if(result.data.pending){patch(id,c=>c.usage?{loading:false,error:null}:{loading:true,error:null,usage:null});return}
       patch(id, () => ({
         loading: false,
         error: null,
@@ -97,13 +110,17 @@ export default function usePlanData(notify) {
       }));
     } catch {
       if (ticket !== seq.current[id] || !alive.current) return;
-      patch(id, () => ({
+      // 这一周期已经有数字：留着，提示显示的是上次的；没有才照原来出失败
+      const kept = Boolean(current(id).usage);
+      patch(id, () => kept ? {
+        loading: false
+      } : {
         loading: false,
         error: 'PLAN_QUERY_FAILED',
         usage: null
-      }));
+      });
       toast.current?.({
-        message: `${NAMES[id]} 用量读取失败`,
+        message: `${NAMES[id]} 用量读取失败${kept ? STALE_SUFFIX : ''}`,
         type: 'error'
       });
     }
@@ -138,12 +155,16 @@ export default function usePlanData(notify) {
       }
     } catch {
       if (!alive.current || ticket !== reads.current[id]) return;
-      patch(id, () => ({
+      // 卡上已经有读到的订阅（切回时上次的）：留着，提示显示的是上次的；没有才照原来出失败
+      const kept = current(id).plan.version > 0 || Boolean(current(id).usage);
+      patch(id, () => kept ? {
+        loading: false
+      } : {
         error: 'PLAN_READ_FAILED',
         loading: false
-      }));
+      });
       toast.current?.({
-        message: `${NAMES[id]} 订阅读取失败`,
+        message: `${NAMES[id]} 订阅读取失败${kept ? STALE_SUFFIX : ''}`,
         type: 'error'
       });
     }

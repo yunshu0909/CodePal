@@ -13,9 +13,12 @@
 import '@testing-library/jest-dom/vitest'
 import { afterEach } from 'vitest'
 import { resetToastForTests } from '../src/components/Toast'
+import { resetPageMemoryForTests } from '../src/store/pageMemory'
 
 // Toast 宿主挂在 body 下、跨用例常驻：每个用例后清掉，避免上一条提示留到下一个用例
 afterEach(() => resetToastForTests())
+// 页面的「上次读到的」（#100）跨用例清掉：上一个用例读到的不当成下一个用例的「切回」
+afterEach(() => resetPageMemoryForTests())
 
 /**
  * 创建内存版 Storage 实现

@@ -8,6 +8,8 @@
  * - 后台审核 / 终端写回结果时（models:changed）原地更新那一行和顶上「在终端里用」的状态，不弹 Toast
  * - 存 Key、测一下、加 / 改 / 移除模型、重新检测、安装 / 更新命令、加入 PATH；成功失败的 Toast 在这里统一发
  * - 存 Key、添加、改名成功后自动测一次（AI 补，用户 2026-09-26 认可）
+ * - 切回时先显示上次读到的列表（本次运行内存里，#100）；终端判断没赶上时先留着上次的终端状态；
+ *   重读失败、屏上已有列表：留着、标 stale（页面提示没更新），不整块报错
  *
  * @module features/models/useModels
  */
@@ -16,6 +18,7 @@ import { createElement, useCallback, useEffect, useRef, useState } from 'react'
 import { toast } from '../../components/Toast'
 import { confirmDialog } from '../../components/Modal/confirmDialog'
 import { PathConfirmBody } from './TerminalStrip'
+import { pageMemory, useRemember } from '../../store/pageMemory'
 
 const api = () => window.electronAPI
 
@@ -27,10 +30,16 @@ const errMessage = (res) => res?.error?.message || '出错了'
  * @returns {object}
  */
 export default function useModels() {
-  // null = 首次读取中（卡头照常、模型行出骨架）
-  const [data, setData] = useState(null)
+  const memory = pageMemory('models')
+  // null = 首次读取中（卡头照常、模型行出骨架）；切回时先用上次读到的
+  const [data, setData] = useState(() => memory.value ?? null)
+  useRemember(memory, data)
   // 配置整体读不出时整块显示「读取失败」
   const [loadFailed, setLoadFailed] = useState(false)
+  // 重读失败、屏上留着的是之前读到的列表
+  const [stale, setStale] = useState(false)
+  const shown = useRef(data)
+  shown.current = data
   // 正在测的模型：`${providerId}__${modelId}`
   const [testing, setTesting] = useState(() => new Set())
   // 正在移除的模型，同一个键
@@ -64,9 +73,10 @@ export default function useModels() {
   const waitCommands = useCallback(async (seq) => {
     const res = await api().modelsCommandsStatus()
     if (!mounted.current || seq !== commandsSeq.current) return
+    // 判断不了：先前垫着的上次终端状态不再当真，照原来「判断不了」的样子
     setData((d) => d && (res?.success
-      ? { ...d, commands: res.data, commandsChecking: false }
-      : { ...d, commandsChecking: false }))
+      ? { ...d, commands: res.data, commandsChecking: false, commandsCarried: false }
+      : { ...d, commands: d.commandsCarried ? null : d.commands, commandsChecking: false, commandsCarried: false }))
   }, [])
 
   const reload = useCallback(async () => {
@@ -76,11 +86,18 @@ export default function useModels() {
     if (!mounted.current) return
     if (res?.success) {
       const fresh = seq === claudeSeq.current
-      // 晚回来的列表照样换供应商和模型，但不盖掉之后「重新检测」拿到的版本结果
-      setData((d) => (fresh || !d ? res.data : { ...res.data, claudeCode: d.claudeCode, claudeChecking: d.claudeChecking }))
+      // 晚回来的列表照样换供应商和模型，但不盖掉之后「重新检测」拿到的版本结果；
+      // 终端判断没赶上、手上有之前的终端状态：先垫着它（不出骨架），判断完再换
+      setData((d) => {
+        const next = fresh || !d ? res.data : { ...res.data, claudeCode: d.claudeCode, claudeChecking: d.claudeChecking }
+        return next.commandsChecking && !next.commands && d?.commands ? { ...next, commands: d.commands, commandsCarried: true } : next
+      })
       setLoadFailed(false)
+      setStale(false)
       if (res.data?.claudeChecking && fresh) waitClaude(seq)
       if (res.data?.commandsChecking && cmdSeq === commandsSeq.current) waitCommands(cmdSeq)
+    } else if (shown.current) {
+      setStale(true)
     } else {
       setLoadFailed(true)
     }
@@ -319,6 +336,7 @@ export default function useModels() {
   return {
     data,
     loadFailed,
+    stale,
     testing,
     removing,
     installing,

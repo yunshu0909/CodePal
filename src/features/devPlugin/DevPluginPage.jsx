@@ -11,6 +11,7 @@ import React from 'react'
 import PageShell from '../../components/PageShell'
 import StateView from '../../components/StateView/StateView'
 import Toggle from '../../components/Toggle'
+import StaleNotice from '../../components/StaleNotice'
 import useDevPlugin, { TOOL_NAMES } from './useDevPlugin'
 import './devPlugin.css'
 
@@ -70,7 +71,7 @@ function Skeleton() {
 }
 
 export default function DevPluginPage() {
-  const { status, error, versionText, rows, retry, setEnabled } = useDevPlugin()
+  const { status, error, stale, versionText, rows, retry, reload, setEnabled } = useDevPlugin()
 
   return (
     <PageShell title="插件管理" native>
@@ -78,6 +79,7 @@ export default function DevPluginPage() {
         <StateView error={status === 'error' ? error : null} onRetry={retry}>
           {status !== 'ready' ? <Skeleton /> : (
             <>
+              {stale && <StaleNotice onRetry={reload} />}
               <div className="np-card">
                 <div className="pm-hero">
                   <Icon className="pm-ic" color="var(--ic-teal)" path={PLUGIN_ICON} />
