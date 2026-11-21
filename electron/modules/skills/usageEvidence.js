@@ -130,7 +130,7 @@ const metadataCommand = (command) =>
   /^\s*(?:echo|printf)\s/.test(command || '') && !/[;|&\n]/.test(command)
 const compoundCommand = (command) => /[;|&<>\n]/.test(command || '')
 const SLASH_ROW =
-  /^\s*<command-message>[^<]*<\/command-message>\s*<command-name>\/[\w-]+<\/command-name>\s*(?:<command-args>[\s\S]*<\/command-args>\s*)?$/
+  /^\s*<command-message>[^<]*<\/command-message>\s*<command-name>\/([\w-]+)<\/command-name>\s*(?:<command-args>[\s\S]*<\/command-args>\s*)?$/
 // #97：Claude 注入行由运行器写（isMeta），还要配上同会话的一次调起才算，结构本身就是证明；
 // 版本只留下限（2.1 之前的格式没核实过），不再写死上限，免得每次升级都漏算。
 function supportedInjection(meta) {
@@ -210,19 +210,34 @@ async function parseTranscript(file, deps) {
       epoch: epochOf(name),
       ...extra,
     }
-    candidate.eventId = hash(
+    candidate.eventId = eventIdOf(candidate)
+    candidates.push(candidate)
+  }
+  const eventIdOf = (candidate) =>
+    hash(
       [
         file.tool,
         file.relativePath,
         candidate.callId,
-        at,
-        target,
-        kind,
-        bodyHash,
+        candidate.at,
+        candidate.target,
+        candidate.kind,
+        candidate.bodyHash,
         candidate.epoch,
       ].join('\0')
     )
-    candidates.push(candidate)
+  // 注入行按它指向的调用记下；那次调用随后报错时，把它改成「调用失败」（复查：正文先到、错误后到）
+  const injectedFor = new Map()
+  const failInjection = (requestId) => {
+    const candidate = injectedFor.get(requestId)
+    if (!candidate) return
+    injectedFor.delete(requestId)
+    candidate.kind = 'resolution'
+    candidate.bodyHash = null
+    candidate.reason = 'REQUEST_FAILED'
+    delete candidate.link
+    delete candidate.requestLine
+    candidate.eventId = eventIdOf(candidate)
   }
   // via：这次调用是怎么来的。tool=Skill 工具、slash=斜杠命令那一行、dollar=Codex 用户消息里的 $名字、
   // text=Claude 聊天文字里提到的（不是调用方式，只用来分段，不进「认不出」提示，#97）
@@ -291,10 +306,14 @@ async function parseTranscript(file, deps) {
       userSignals.set(match[1], text)
       openExplicit(match[1], id + ':' + match[1], at, fromCodex ? 'dollar' : 'text')
     }
-    // 真的斜杠命令那一行整条只有 command 标签（本机 2.1.312 核实）；夹在别的话里的是粘贴的示例
-    const slashOnly = SLASH_ROW.test(text)
-    for (const match of text.matchAll(/<command-name>\/([\w-]+)<\/command-name>/g))
-      openExplicit(match[1], id + ':' + match[1], at, slashOnly ? 'slash' : 'text')
+    // 真的斜杠命令那一行整条只有 command 标签（本机 2.1.312 核实），调起的是第一个名字；
+    // 夹在别的话里、或粘贴在参数里的是示例
+    const slashName = text.match(SLASH_ROW)?.[1]
+    let first = true
+    for (const match of text.matchAll(/<command-name>\/([\w-]+)<\/command-name>/g)) {
+      openExplicit(match[1], id + ':' + match[1], at, first && match[1] === slashName ? 'slash' : 'text')
+      first = false
+    }
     if (/(?:作为|as\s+(?:a\s+)?)(?:研究样本|测试材料|research sample|test fixture)/i.test(text)) {
       for (const match of text.matchAll(/(?:^|\s)(\/[^\n]*?\/SKILL\.md)(?=\s|$)/g))
         excludedTargets.add(match[1])
@@ -347,6 +366,7 @@ async function parseTranscript(file, deps) {
         }
       }
       if (block.type === 'tool_result') {
+        if (block.is_error) failInjection(block.tool_use_id)
         if (requests.has(block.tool_use_id) && block.is_error) {
           const request = requests.get(block.tool_use_id)
           add(null, request.at, block.tool_use_id, 'resolution', null, request.line, {
@@ -453,7 +473,7 @@ async function parseTranscript(file, deps) {
     if (!injected) return
     if (meta.tool === 'claude') {
       // 运行器写的注入行以这句开头（#97 审核意见 4：不在开头的不认）
-      const match = injected.match(/^\s*Base directory for this skill:\s*([^\n]+)\n([\s\S]+)/)
+      const match = injected.match(/^\s*Base directory for this skill:[ \t]*([^\n]+)\n([\s\S]+)/)
       if (!match) return
       const target = path.join(match[1].trim(), 'SKILL.md')
       // Skill 工具调起带 sourceToolUseID；斜杠命令调起没有，注入行的 parentUuid 指回斜杠那一行（recordUser 按「行 uuid:名字」开的请求）
@@ -478,6 +498,7 @@ async function parseTranscript(file, deps) {
           // 它指向的那次调用（哈希），给「认不出」提示先按编号配对（审核意见 3）
           link: privateId(requestId),
         })
+      if (requestId && candidates.at(-1)?.target === target) injectedFor.set(requestId, candidates.at(-1))
     } else {
       for (const match of injected.matchAll(
         /<skill>\s*<name>([^<]+)<\/name>\s*<path>([^<]+)<\/path>([\s\S]*?)<\/skill>/g

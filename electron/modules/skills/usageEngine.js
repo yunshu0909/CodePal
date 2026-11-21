@@ -152,11 +152,14 @@ function countUnrecognized(registry, history, classes, agentFiles, events, inWin
       bodies.push({ ...candidate, assetId: resolved.excluded ? null : resolved.asset?.assetId || null })
     }
   }
-  const byLink = new Map(bodies.filter((body) => body.link).map((body) => [body.link, body]))
+  // 编号只在同一会话里配（复查：分叉出去的另一份日志里同编号的正文不算这边的）
+  const byLink = new Map(
+    bodies.filter((body) => body.link).map((body) => [body.contextId + '\0' + body.link, body])
+  )
   const counted = []
   const unlinkedRequests = []
   for (const request of requests) {
-    const body = byLink.get(request.callId)
+    const body = byLink.get(request.contextId + '\0' + request.callId)
     if (body) {
       body.paired = true
       if (body.assetId) counted.push({ ...request, assetId: body.assetId })
