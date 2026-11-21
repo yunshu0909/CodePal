@@ -14,6 +14,9 @@ import fs from 'node:fs/promises'
 import fsSync from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { createRequire } from 'node:module'
+
+const { whenLastViewIdle } = createRequire(import.meta.url)('../../../electron/modules/skills/lastViewStore')
 
 /**
  * 造一个假家目录
@@ -31,7 +34,11 @@ export async function makeHome(label, { createRepo = true } = {}) {
     homeDir,
     repoPath,
     dataDir: path.join(homeDir, 'Library', 'Application Support', 'CodePal', 'skills'),
-    cleanup: () => fs.rm(sandbox, { recursive: true, force: true }),
+    // #101 读快照后会在后台存一份「上次的」：等它写完再删临时目录
+    cleanup: async () => {
+      await whenLastViewIdle()
+      await fs.rm(sandbox, { recursive: true, force: true })
+    },
   }
 }
 

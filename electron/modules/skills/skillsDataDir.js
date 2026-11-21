@@ -5,6 +5,7 @@
  * - 备份、忽略记录、收进记录都放在 CodePal 自己的数据目录 ~/Library/Application Support/CodePal/skills/，
  *   不在任何 Skill 扫描范围里（定稿状态清单 C10）
  * - 只给路径，不建目录：读快照不写任何东西，第一次真正写入时才由写入方建
+ *   （例外：#101 的 last-view/ 是 CodePal 自己的显示缓存，读完快照会存一份，见 lastViewStore）
  * - 原子写 JSON：先写临时文件再改名，写到一半断电不会留下半截文件
  *
  * @module electron/modules/skills/skillsDataDir

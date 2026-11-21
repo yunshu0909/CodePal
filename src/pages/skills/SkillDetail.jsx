@@ -103,7 +103,8 @@ export function ToolRow({ tool, skill, snapshot, pending, frozen = false, onTogg
  * @param {object|null} props.snapshot
  * @param {object|undefined} props.usage - { total, claude, codex }
  * @param {boolean} props.usageFailed
- * @param {'loading'|'error'|'ready'} [props.usageStatus='ready'] - 数字读取中时清除旧数字与记录。
+ * @param {'loading'|'refreshing'|'error'|'ready'} [props.usageStatus='ready'] - 数字读取中时清除旧数字与记录；
+ *   refreshing（#101）时次数照旧显示、旁边标「更新中」，记录等新批次。
  * @param {() => void} props.onRetryUsage
  * @param {{status: string, records: Array, runs?: Array, unrecognized?: number}} props.records - runs 是子代理按派出合成的行；
  *   unrecognized 是认不出的调用次数（#97，只在明细里提示，不进次数）
@@ -132,6 +133,7 @@ export default function SkillDetail({ skill, snapshot, usage, usageFailed, usage
   const countText = loading ? <span className="np-sk np-sk--pulse" style={{ width: 48, height: 12 }} />
     : usageUnavailable ? <>近 30 天 <span className="num">—</span> 次</>
       : total > 0 || unrecognized > 0 ? <>近 30 天 <span className="num">{total}</span> 次</> : <span>近 30 天没用</span>
+  const updating = usageStatus === 'refreshing' && !usageUnavailable
   const duplicateTool = TOOLS.find((tool) => skill.tools?.[tool.id]?.duplicate)
   const shown = !loading && records?.status !== 'loading'
   // 主会话记录和子代理合成行按时间混排，新的在上；子代理行只换中间那栏的字
@@ -152,7 +154,7 @@ export default function SkillDetail({ skill, snapshot, usage, usageFailed, usage
       <div className="np-pane-hd">
         <h2 className="ttl">{skill.displayName || skill.name}</h2>
         <div className="meta">
-          <span>{sourceLabel(skill)}{readOnly ? '' : <> · {countText}</>}</span>
+          <span>{sourceLabel(skill)}{readOnly ? '' : <> · {countText}{updating && <span className="sk-updating-inline"> · 更新中</span>}</>}</span>
         </div>
       </div>
       <div className="np-pane-body">

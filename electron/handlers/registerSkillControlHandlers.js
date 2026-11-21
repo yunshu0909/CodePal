@@ -6,6 +6,8 @@
  * 真正写入之前调用（被拒绝的操作不补关）；补关失败自己恢复备份，不挡这次写操作。
  * 写操作失败时也尽量带回一份新快照，让页面按实际状态显示。
  * 资产库路径一律由主进程按配置解析（skillRepoPath），页面传来的路径不用（#61 延后项，v2.1.11 起）。
+ * #101：每次读到完整快照（读快照、写操作带回的快照）在后台存一份「上次的」，重开应用后页面先显示它；
+ * 存不进去不影响这次返回（lastViewStore 自己吞掉失败）。
  *
  * Skills 要处理（v2.1.11）：
  * - 同一个名字的写操作排队，一次只做一个（定稿状态清单 C14）
@@ -21,6 +23,7 @@ const { resolveSkillRepoPath } = require('../services/skillRepoPath')
 const journal = require('../modules/skills/operationJournal')
 const { readIgnores } = require('../modules/skills/ignoreStore')
 const { slotPaths, isLibraryLink } = require('../modules/skills/slotGuard')
+const lastView = require('../modules/skills/lastViewStore')
 const fs = require('fs/promises')
 
 // 页面能传的字段；其余（包括资产库路径、项目列表）一律不收
@@ -57,11 +60,16 @@ function registerSkillControlHandlers({ ipcMain, homeDir }, deps = {}) {
   const discoveryCache = {}
   const locks = new Map()
 
-  const readSnapshot = async (extra = {}, overrides = {}) => getSnapshot({
-    repoPath: await resolveRepoPath({ homeDir }, deps),
-    homeDir,
-    ...extra,
-  }, { ...deps, discoveryCache, ...overrides })
+  const saveLastSnapshot = deps.saveLastSnapshotFn || lastView.saveLastSnapshot
+  const readLastView = deps.readLastViewFn || lastView.readLastView
+
+  const readSnapshot = async (extra = {}, overrides = {}) => {
+    const repoPath = await resolveRepoPath({ homeDir }, deps)
+    const snapshot = await getSnapshot({ repoPath, homeDir, ...extra }, { ...deps, discoveryCache, ...overrides })
+    // 不等写完：缓存只给下次开应用用，不能拖慢这次
+    if (snapshot) saveLastSnapshot(homeDir, { repoPath, snapshot }).catch(() => {})
+    return snapshot
+  }
 
   /** 这个命令动的是哪个名字（同名排队用） */
   async function nameOf(command) {
@@ -149,6 +157,15 @@ function registerSkillControlHandlers({ ipcMain, homeDir }, deps = {}) {
       return { success: true, data: await readSnapshot(), error: null }
     } catch (error) {
       return { success: false, data: null, error: errorCode(error, 'SKILL_CONTROL_SCAN_FAILED') }
+    }
+  })
+
+  // #101 上次关应用前读到的快照和次数；只读（坏了的缓存文件会被删掉），读不出就当没有
+  ipcMain.handle('skill-control:last-view', async () => {
+    try {
+      return { success: true, data: await readLastView(homeDir), error: null }
+    } catch (error) {
+      return { success: false, data: null, error: errorCode(error, 'SKILL_LAST_VIEW_FAILED') }
     }
   })
 

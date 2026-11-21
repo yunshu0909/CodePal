@@ -18,6 +18,7 @@ import { createRequire } from 'node:module'
 
 const require = createRequire(import.meta.url)
 const { registerSkillControlHandlers } = require('../../electron/handlers/registerSkillControlHandlers')
+const { whenLastViewIdle } = require('../../electron/modules/skills/lastViewStore')
 
 let homeDir
 let repoPath
@@ -90,6 +91,7 @@ beforeEach(async () => {
 })
 
 afterEach(async () => {
+  await whenLastViewIdle()
   await fs.rm(homeDir, { recursive: true, force: true })
 })
 

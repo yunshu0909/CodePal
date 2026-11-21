@@ -80,6 +80,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getSkillRepoPath: () => ipcRenderer.invoke('skill-control:get-repo-path'),
   getSkillControlSnapshot: (params) => ipcRenderer.invoke('skill-control:get-snapshot', params),
   executeSkillCommand: (params) => ipcRenderer.invoke('skill-control:execute', params),
+  // #101 上次关应用前读到的快照和次数（CodePal 自己的缓存，只读）
+  getSkillsLastView: () => ipcRenderer.invoke('skill-control:last-view'),
 
   // V0.7 供应商切换 API 已断接线隔离（见 _disabled/api-config/），token 不再过渲染层
 

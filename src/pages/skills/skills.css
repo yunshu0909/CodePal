@@ -90,3 +90,10 @@
 .sk-dlg .sk-warn { margin: 8px 0 0; font-size: 12px; line-height: 18px; color: var(--orange-fg); }
 .sk-dlg .sk-ul { margin: 10px 0 0; padding-left: 18px; font-size: 12.5px; line-height: 20px; color: var(--fg-2); }
 .sk-dlg .sk-err { margin: 10px 0 0; font-size: 12px; line-height: 18px; color: var(--red-fg); }
+
+/* 问题池 101：次数后台重读时的「更新中」：标在页签那一行右侧，不占行高、不挤页签 */
+.sk-page .sk-tabs-row { position: relative; }
+.sk-page .sk-tabs-row .sk-updating { position: absolute; right: 8px; top: 0; bottom: 1px; display: flex; align-items: center; font-size: 11px; color: var(--fg-3); pointer-events: none; }
+.sk-page .sk-tabs-row--bare { padding: 0 8px 6px; }
+.sk-page .sk-tabs-row--bare .sk-updating { position: static; }
+.sk-page .sk-updating-inline { color: var(--fg-3); }

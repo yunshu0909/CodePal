@@ -135,8 +135,35 @@ export function createSkillControlCache() {
     return operation
   }
 
+  /**
+   * #101 放进上次关应用前的快照：这一格还没有任何快照、也没有进行中的操作才放；之后实时结果一到整份换掉。
+   * @param {object} target
+   * @param {object} snapshot
+   * @returns {boolean} 放进去了没有
+   */
+  function seed(target, snapshot) {
+    if (!snapshot || target.state.snapshot || target.state.pendingKeys.size) return false
+    publish(target, { snapshot, status: 'ready', error: null })
+    return true
+  }
+
+  let lastView = null
+  /**
+   * 本次运行只向主进程要一次「上次的」（之后都有本次运行的快照了）。
+   * @param {Function} loader
+   * @returns {Promise<object|null>}
+   */
+  function loadLastView(loader) {
+    if (!lastView) {
+      lastView = Promise.resolve()
+        .then(loader)
+        .then((result) => (result?.success ? result.data || null : null), () => null)
+    }
+    return lastView
+  }
+
   return {
-    entry, refresh, execute,
+    entry, refresh, execute, seed, loadLastView,
     subscribe(target, listener) {
       target.listeners.add(listener)
       return () => target.listeners.delete(listener)

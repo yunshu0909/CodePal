@@ -3,11 +3,13 @@
  * - 从本次运行共享缓存订阅，回访第一帧显示最近结果，再核对实际状态
  * - 所有读取和命令由同一协调器处理，卸载仅退订，不丢失进行中的操作
  * - 命令只传名字、工具、动作和各种 ID；资产库路径由主进程解析（v2.1.11）
+ * - #101 本次运行第一次进页：同时向主进程要上次关应用前的快照和次数，先显示，实时读完原地换
  * @module hooks/useSkillControl
  */
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { skillRepoPath } from '../store/skillRepoPath'
 import { getSkillControlCache } from '../store/services/skillControlCache'
+import { seedSkillUsageCache } from './useSkillUsage'
 
 /**
  * @param {number} [refreshSignal=0] 既有外部重读信号
@@ -55,11 +57,25 @@ export default function useSkillControl(refreshSignal = 0) {
     }
   }, [cache, load, resolveActiveContext])
 
+  // 上次的快照只放进它自己那个资产库的格子；当前资产库不是它就用不上，照旧等实时的
+  const seedLastView = useCallback(async () => {
+    if (!api?.getSkillsLastView) return
+    const view = await cache.loadLastView(() => api.getSkillsLastView())
+    const saved = view?.snapshot
+    if (!saved?.data || typeof saved.repoPath !== 'string') return
+    const entry = cache.entry(saved.repoPath)
+    if (entry.state.snapshot || entry.state.pendingKeys.size) return
+    // 先垫次数再放快照：页面拿到快照的同一帧就能用上旧数字，不闪骨架
+    if (view.usage) seedSkillUsageCache(api, view.usage)
+    cache.seed(entry, saved.data)
+  }, [api, cache])
+
   useEffect(() => {
     mounted.current = true
+    seedLastView()
     refresh({ acceptWriteSnapshot: true })
     return () => { mounted.current = false }
-  }, [refresh, refreshSignal])
+  }, [refresh, refreshSignal, seedLastView])
 
   const execute = useCallback(async ({ skillName, toolId, action, source, pendingKey, ...options }) => {
     try {
