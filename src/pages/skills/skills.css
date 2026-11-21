@@ -91,10 +91,10 @@
 .sk-dlg .sk-ul { margin: 10px 0 0; padding-left: 18px; font-size: 12.5px; line-height: 20px; color: var(--fg-2); }
 .sk-dlg .sk-err { margin: 10px 0 0; font-size: 12px; line-height: 18px; color: var(--red-fg); }
 
-/* 问题池 101：次数后台重读时的「更新中」：和页签同一行、各占各的位置（页签放不下时页签自己收窄），不占行高 */
-.sk-page .sk-tabs-row { display: flex; align-items: stretch; min-width: 0; box-shadow: inset 0 -.5px 0 var(--hair); }
-.sk-page .sk-tabs-row .tabbar { flex: 1; min-width: 0; overflow: hidden; }
-.sk-page .sk-tabs-row .sk-updating { flex: none; display: flex; align-items: center; padding: 0 8px 2px; font-size: 11px; color: var(--fg-3); }
+/* 问题池 101：次数后台重读时的「更新中」：跟在页签后面同一行；左栏太窄放不下时自己换到下一行，页签不被裁掉 */
+.sk-page .sk-tabs-row { display: flex; flex-wrap: wrap; align-items: stretch; min-width: 0; box-shadow: inset 0 -.5px 0 var(--hair); }
+.sk-page .sk-tabs-row .tabbar { flex: 1 0 auto; }
+.sk-page .sk-tabs-row .sk-updating { flex: none; display: flex; align-items: center; margin-left: auto; padding: 0 8px 2px; font-size: 11px; color: var(--fg-3); }
 .sk-page .sk-tabs-row--bare { box-shadow: none; }
-.sk-page .sk-tabs-row--bare .sk-updating { padding: 0 8px 6px; }
+.sk-page .sk-tabs-row--bare .sk-updating { margin-left: 0; padding: 0 8px 6px; }
 .sk-page .sk-updating-inline { color: var(--fg-3); }

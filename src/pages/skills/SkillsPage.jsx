@@ -155,9 +155,11 @@ export default function SkillsPage({ refreshSignal = 0 }) {
   )
   const identity = useMemo(() => usageIdentityOf(skills), [skills])
   const refreshGeneration = `${usageToken}:${refreshSignal}`
-  // 上次关应用前的快照还没核对：只显示同一身份的旧次数，核对完再读（核对失败就照它读，免得一直挂着「更新中」）
-  const usageVerified = !stale || refreshState === 'error'
-  const { status: usageStatus, usageMap, batchId } = useSkillUsage(usageNames, 30, refreshGeneration, identity, { verified: usageVerified })
+  // 上次关应用前的快照还没核对：只显示同一身份的旧次数，核对完再读；核对失败就停在上次读到的（页面另有「读取失败」）
+  const { status: usageStatus, usageMap, batchId } = useSkillUsage(usageNames, 30, refreshGeneration, identity, {
+    verified: !stale,
+    verifyFailed: stale && refreshState === 'error',
+  })
   const usageFailed = usageStatus === 'error'
   const groupFallback = needsUsageFallback(skills, usageMap, usageStatus)
   const groups = useMemo(() => buildGroups(skills, { usageMap, usageFailed: groupFallback, query: query.trim(), inbox }), [skills, usageMap, groupFallback, query, inbox])
@@ -206,19 +208,22 @@ export default function SkillsPage({ refreshSignal = 0 }) {
     if (next) setChosenTab(next)
   }, [selectedId, searching, ready, groupFallback])
 
-  // 次数更新完（#101 旧数字原地换新）选中的那条换了组（在用 ↔ 没用）：只在它不在当前页签里时跟过去，
-  // 其余时候不动用户自己点的页签
+  // 次数更新完（#101 旧数字原地换新）选中的那条真的换了组（在用 ↔ 没用），又不在当前页签里：页签跟过去。
+  // 组没变（只是后台又读了一遍）不动用户自己点的页签
+  const selectedGroupRef = useRef(null)
   useEffect(() => {
-    if (searching || !ready || !tab) return
     const groupId = groupOfSelected(baseGroups, selectedId)
-    if (!groupId) return
+    const previous = selectedGroupRef.current
+    selectedGroupRef.current = { selectedId, groupId }
+    if (searching || !ready || !tab || !groupId) return
+    if (!previous || previous.selectedId !== selectedId || !previous.groupId || previous.groupId === groupId) return
     const tabIds = visibleTabsOf(baseGroups, groupFallback)
     if (!tabIds.length || groupIdsOfTab(tab, tabIds).includes(groupId)) return
     const next = tabOfGroup(groupId, tabIds)
     if (next && next !== tab) setChosenTab(next)
-    // 只看分组变化；选中项、搜索变化由上面那个处理
+    // 只看分组和选中项；搜索、读到与否变化由上面那个处理
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [baseGroups])
+  }, [baseGroups, selectedId])
 
   // ⌘F / Ctrl+F 聚焦搜索框
   useEffect(() => {

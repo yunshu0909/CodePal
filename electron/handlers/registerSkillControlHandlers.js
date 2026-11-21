@@ -63,15 +63,21 @@ function registerSkillControlHandlers({ ipcMain, homeDir }, deps = {}) {
   const saveLastSnapshot = deps.saveLastSnapshotFn || lastView.saveLastSnapshot
   const readLastView = deps.readLastViewFn || lastView.readLastView
 
-  // 每发起一个写操作加一：它之前开始的读取读到的是操作前的样子，读完也不能存成「上次的」
+  // 每发起一个写操作加一：它之前开始的读取读到的是操作前的样子，读完既不能存成「上次的」，
+  // 也不能盖掉写操作后重读的结果（单个操作后的重读要沿用它）
   let writeGeneration = 0
 
   const readSnapshot = async (extra = {}, overrides = {}) => {
     const stamp = writeGeneration
     const repoPath = await resolveRepoPath({ homeDir }, deps)
-    const snapshot = await getSnapshot({ repoPath, homeDir, ...extra }, { ...deps, discoveryCache, ...overrides })
-    // 不等写完：缓存只给下次开应用用，不能拖慢这次
-    if (snapshot && stamp === writeGeneration) saveLastSnapshot(homeDir, { repoPath, snapshot }).catch(() => {})
+    // 先读到一份草稿里：读的过程中发起过写操作，这次读到的是操作前的样子，不能拿来当「上次读到的」
+    const scratch = { ...discoveryCache }
+    const snapshot = await getSnapshot({ repoPath, homeDir, ...extra }, { ...deps, discoveryCache: scratch, ...overrides })
+    if (stamp === writeGeneration) {
+      Object.assign(discoveryCache, scratch)
+      // 不等写完：缓存只给下次开应用用，不能拖慢这次
+      if (snapshot) saveLastSnapshot(homeDir, { repoPath, snapshot }).catch(() => {})
+    }
     return snapshot
   }
 

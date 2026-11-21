@@ -5,18 +5,20 @@
  */
 import { useEffect, useRef, useState } from 'react'
 const STALE_MS = 5 * 60 * 1000
-// { api, key, token, at, data }；at 为 0 表示从磁盘来的旧数字，只能先显示、必须重读
+// { api, key, token, at, version, data }；at 为 0 表示从磁盘来的旧数字，只能先显示、必须重读
 let usageCache = null
 let usageVersion = 0
-// 进行中的那一次读取：同一身份、同一刷新代次切走再切回时接着等它，不重复排队
-let inflight = null
+let resetGeneration = 0
+// 进行中的读取（按 api + 身份 + 刷新代次）：切走再切回、身份变了又变回来时接着等它，不重复排队
+const inflight = new Map()
 // 垫进磁盘旧数字时通知已挂着的页面
 const listeners = new Set()
 /** @returns {void} 清除渲染缓存并使旧响应失效；不写主进程统计存储。 */
 export function resetSkillUsageCache() {
   usageCache = null
-  inflight = null
+  inflight.clear()
   usageVersion += 1
+  resetGeneration += 1
 }
 /**
  * @param {string[]} names - 已去重排序的名字
@@ -36,7 +38,7 @@ export function usageCacheKey(names, windowDays, assetIdentity) {
 export function seedSkillUsageCache(api, entry) {
   if (!entry || typeof entry.cacheKey !== 'string' || !Array.isArray(entry.data?.skills)) return false
   if (usageCache?.api === api) return false
-  usageCache = { api, key: entry.cacheKey, token: null, at: 0, data: { ...entry.data, batchId: null } }
+  usageCache = { api, key: entry.cacheKey, token: null, at: 0, version: 0, data: { ...entry.data, batchId: null } }
   listeners.forEach((listener) => listener())
   return true
 }
@@ -49,31 +51,43 @@ function lookup(api, key, token) {
   const reuse = usageCache.at > 0 && usageCache.token === token && Date.now() - usageCache.at < STALE_MS
   return { data: usageCache.data, reuse }
 }
+const runs = new WeakMap()
+const offlineRun = {}
+/** 每个运行（api）一张进行中读取表 */
+function inflightOf(api) {
+  const run = api || offlineRun
+  if (!runs.has(run)) runs.set(run, new Map())
+  return runs.get(run)
+}
 /**
- * 发起（或接上进行中的）一次读取；成功且仍是最新发起的那次才写进缓存，页面卸载了也写。
- * 带上身份键：主进程据此存一份「上次的次数」。
+ * 发起（或接上进行中的）一次读取；成功时只在没有更晚发起的结果已经入缓存时才写缓存，页面卸载了也写。
+ * persist：带上身份键，让主进程存一份「上次的次数」（身份没核对过就不带，免得存错身份）。
  * @returns {{promise: Promise<object>}}
  */
-function startQuery(api, query, key, token, windowDays, names) {
-  if (inflight && inflight.api === api && inflight.key === key && inflight.token === token) return inflight
+function startQuery(api, query, { key, token, windowDays, names, persist }) {
+  const table = inflightOf(api)
+  const slot = `${token}\u0000${key}`
+  if (table.has(slot)) return table.get(slot)
   const version = ++usageVersion
-  const request = { api, key, token }
+  const generation = resetGeneration
+  const request = {}
   let pending
   try {
-    pending = Promise.resolve(query({ windowDays, skillNames: names, cacheKey: key }))
+    pending = Promise.resolve(query({ windowDays, skillNames: names, ...(persist ? { cacheKey: key } : {}) }))
   } catch (error) {
     pending = Promise.reject(error)
   }
   request.promise = pending
     .then((result) => {
-      if (result?.success && result.data && version === usageVersion)
-        usageCache = { key, api, token, at: Date.now(), data: result.data }
+      const newer = usageCache?.api === api && (usageCache.version || 0) > version
+      if (result?.success && result.data && generation === resetGeneration && !newer)
+        usageCache = { key, api, token, at: Date.now(), version, data: result.data }
       return result
     })
     .finally(() => {
-      if (inflight === request) inflight = null
+      if (table.get(slot) === request) table.delete(slot)
     })
-  inflight = request
+  table.set(slot, request)
   return request
 }
 function viewOf(data, status) {
@@ -97,8 +111,9 @@ function initialView(cached) {
  * @param {number} windowDays - 加载过程的事件窗口，默认近 30 天。
  * @param {string|number} refreshToken - 显式刷新代次。
  * @param {string} assetIdentity - 来源身份；启用开关不改变它。
- * @param {{verified?: boolean}} [options] - verified=false：名字和身份来自上次关应用前的快照、还没核对，
- *   只显示同一身份的旧数字，不去读（核对完再读，免得把别的资产的次数挂到旧条目上、存错身份）。
+ * @param {{verified?: boolean, verifyFailed?: boolean}} [options] - verified=false：名字和身份来自上次关应用前的快照、
+ *   还没核对，只显示同一身份的旧数字，不去读（核对完再读，免得把别的资产的次数挂到旧条目上、存错身份）；
+ *   verifyFailed：核对失败了，旧数字照「上次读到的」显示（不标更新中，页面另有「读取失败」），没有旧数字就算读取失败。
  * @returns {object} 主进程统计视图与 batchId；只缓存展示，不在渲染层计数。
  * status：loading（没有可显示的数字）/ refreshing（显示旧数字，后台在重读）/ ready / error。
  * 过期或显式刷新时旧数字留着（refreshing）；身份改变立即隐藏旧数字；迟到响应不能覆盖新批次。
@@ -108,7 +123,7 @@ export default function useSkillUsage(
   windowDays = 30,
   refreshToken = 0,
   assetIdentity = '',
-  { verified = true } = {}
+  { verified = true, verifyFailed = false } = {}
 ) {
   const api = typeof window !== 'undefined' ? window.electronAPI : null
   const names = Array.isArray(skillNames) ? [...new Set(skillNames)].sort() : []
@@ -141,9 +156,13 @@ export default function useSkillUsage(
       apply(current.data)
       return undefined
     }
+    if (!verified) {
+      if (verifyFailed) apply(current.data, current.data ? 'ready' : 'error')
+      else apply(current.data, current.data ? 'refreshing' : 'loading')
+      return undefined
+    }
     apply(current.data, current.data ? 'refreshing' : 'loading')
-    if (!verified) return undefined
-    startQuery(api, query, key, refreshToken, windowDays, names)
+    startQuery(api, query, { key, token: refreshToken, windowDays, names, persist: true })
       .promise.then((result) => {
         if (!active || requestId !== reqRef.current) return
         if (!result?.success || !result.data) apply(null, 'error')
@@ -157,7 +176,7 @@ export default function useSkillUsage(
     }
     // The stable key captures names and verified identity; API result objects do not trigger rereads.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [api, key, refreshToken, verified, seeded])
+  }, [api, key, refreshToken, verified, verifyFailed, seeded])
   return view.key === key && view.api === api && view.token === refreshToken
     ? view
     : { ...initialView(cached), key, api, token: refreshToken }

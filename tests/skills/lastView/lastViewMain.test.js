@@ -56,19 +56,19 @@ describe('#101 lastViewStore 存取', () => {
     expect((await fs.stat(path.join(dir, 'snapshot.json'))).mode & 0o077).toBe(0)
   })
 
-  it('TC-101-02 坏了的当场删掉、当作没有；另一份不受影响；删了下次存时重建', async () => {
+  it('TC-101-02 坏了的当作没有，下次存时整份换掉；另一份不受影响；删了下次存时重建', async () => {
     await store.saveLastSnapshot(env.homeDir, { repoPath: env.repoPath, snapshot: snap() })
     await store.saveLastUsage(env.homeDir, { cacheKey: 'key-1', windowDays: 30, data: usageData() })
     await fs.writeFile(path.join(dir, 'snapshot.json'), '{"format":1,"repoPath":"/x","snaps')
     let view = await store.readLastView(env.homeDir)
     expect(view.snapshot).toBeNull()
     expect(view.usage?.cacheKey).toBe('key-1')
-    await expect(fs.access(path.join(dir, 'snapshot.json'))).rejects.toThrow()
+    expect(await store.saveLastSnapshot(env.homeDir, { repoPath: env.repoPath, snapshot: snap(['again']) })).toBe(true)
+    expect((await store.readLastView(env.homeDir)).snapshot.data.skills[0].name).toBe('again')
     // 格式号不对、缺字段也算坏的
     await fs.writeFile(path.join(dir, 'usage.json'), JSON.stringify({ format: 99, cacheKey: 'k', data: { skills: [] } }))
     view = await store.readLastView(env.homeDir)
     expect(view.usage).toBeNull()
-    await expect(fs.access(path.join(dir, 'usage.json'))).rejects.toThrow()
     await fs.rm(dir, { recursive: true, force: true })
     expect(await store.saveLastSnapshot(env.homeDir, { repoPath: env.repoPath, snapshot: snap(['beta']) })).toBe(true)
     expect((await store.readLastView(env.homeDir)).snapshot.data.skills[0].name).toBe('beta')
@@ -89,6 +89,8 @@ describe('#101 lastViewStore 存取', () => {
   it('TC-101-04b 页面要用的字段坏了也算坏：Skill 没名字、次数不是数字', async () => {
     await fs.mkdir(dir, { recursive: true })
     await fs.writeFile(path.join(dir, 'snapshot.json'), JSON.stringify({ format: 1, repoPath: env.repoPath, snapshot: { skills: [null] } }))
+    expect((await store.readLastView(env.homeDir)).snapshot).toBeNull()
+    await fs.writeFile(path.join(dir, 'snapshot.json'), JSON.stringify({ format: 1, repoPath: env.repoPath, snapshot: { skills: [{ name: 'a', locations: {} }] } }))
     await fs.writeFile(path.join(dir, 'usage.json'), JSON.stringify({ format: 1, cacheKey: 'k', data: { skills: [{ name: 'alpha', total: 'x' }] } }))
     expect(await store.readLastView(env.homeDir)).toEqual({ snapshot: null, usage: null })
     expect(await store.saveLastSnapshot(env.homeDir, { repoPath: env.repoPath, snapshot: { skills: [{}] } })).toBe(false)
@@ -176,6 +178,31 @@ describe('#101 IPC：读完存一份，新通道拿回', () => {
     await store.whenLastViewIdle()
     const view = await store.readLastView(env.homeDir)
     expect(view.snapshot.data.skills[0].tools.codex.enabled).toBe(false)
+  })
+
+  it('TC-101-06c 操作前开始的那次读取也不盖掉主进程沿用的读取结果：下一个操作带回的快照仍是操作之后的样子', async () => {
+    const state = { alpha: true, beta: true }
+    const slow = []
+    // 替身照真服务的样子：整页读时把结果记进 discoveryCache，只重读一部分时其余沿用它
+    const getSnapshotFn = vi.fn(async (params, overrides) => {
+      const cache = overrides.discoveryCache
+      const fresh = { ...state }
+      if (!params.only && getSnapshotFn.mock.calls.length === 1) await new Promise((resolve) => slow.push(resolve))
+      const merged = params.only && cache.state ? { ...cache.state, ...Object.fromEntries(params.only.names.map((name) => [name, fresh[name]])) } : fresh
+      cache.state = merged
+      return { ...snap([]), skills: Object.entries(merged).map(([name, enabled]) => ({ name, managed: true, tools: { codex: { enabled } } })) }
+    })
+    const { handlers } = setupControl({
+      getSkillControlSnapshotFn: getSnapshotFn,
+      executeSkillCommandFn: vi.fn(async (command) => { state[command.skillName] = false; return { outcome: 'done' } }),
+    })
+    const early = handlers['skill-control:get-snapshot']({})
+    await vi.waitFor(() => expect(slow).toHaveLength(1))
+    await handlers['skill-control:execute']({}, { skillName: 'alpha', toolId: 'codex', action: 'disable' })
+    slow[0]()
+    await early
+    const second = await handlers['skill-control:execute']({}, { skillName: 'beta', toolId: 'codex', action: 'disable' })
+    expect(second.snapshot.skills.find((skill) => skill.name === 'alpha').tools.codex.enabled).toBe(false)
   })
 
   it('TC-101-07 读快照失败不存、不清掉上次的', async () => {

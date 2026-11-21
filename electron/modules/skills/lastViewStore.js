@@ -5,7 +5,8 @@
  * - 重开 CodePal 后 Skills 页先显示上次关应用前读到的快照和近 30 天次数，后台读完再原地换成最新的
  * - 只是 CodePal 自己的缓存：放在 CodePal 数据目录 skills/last-view/，删了下次读完自动重建；不写用户的 Skill 配置
  * - 两份文件各自原子写（临时文件 → 落盘 → 改名），同一文件的写排队、只写最新那份；写失败保留原文件
- * - 读到坏的（不是 JSON、格式号不对、缺字段）当场删掉、当作没有
+ * - 读到坏的（不是 JSON、格式号不对、页面要用的字段不对）当作没有；不删它（删和正在写的新文件会撞车），
+ *   下次读完存新的一份时原子替换掉
  * - 次数只存每个 Skill 的摘要数字和读取时间；调用明细（含会话路径、要绑当次批次）不存
  *
  * @module electron/modules/skills/lastViewStore
@@ -133,41 +134,31 @@ async function removeOrphans(directory) {
  * @returns {Promise<object|null>}
  */
 async function readOne(file, valid) {
-  let before
   let text
   try {
-    before = await fs.stat(file)
     text = await fs.readFile(file, 'utf8')
   } catch {
     return null
   }
-  let value = null
   try {
-    value = JSON.parse(text)
+    const value = JSON.parse(text)
+    return value && value.format === FORMAT && valid(value) ? value : null
   } catch {
-    value = null
+    return null
   }
-  if (value && value.format === FORMAT && valid(value)) return value
-  await dropIfUnchanged(file, before)
-  return null
-}
-
-/**
- * 只删读到的那一版坏文件：这期间有写在排队或文件已被换成新的，就不动（新写的那份是好的）。
- * @param {string} file
- * @param {import('fs').Stats} before - 读之前的文件信息
- */
-async function dropIfUnchanged(file, before) {
-  if (queues.has(file)) return
-  const now = await fs.stat(file).catch(() => null)
-  if (!now || now.ino !== before.ino || now.mtimeMs !== before.mtimeMs || now.size !== before.size) return
-  await fs.rm(file, { force: true }).catch(() => {})
 }
 
 const isObject = (value) => Boolean(value) && typeof value === 'object' && !Array.isArray(value)
 const named = (item) => isObject(item) && typeof item.name === 'string' && item.name.length > 0
-// 页面直接拿来用的字段逐个看：每个 Skill 要有名字；次数要是数字
-const validSnapshot = (snapshot) => isObject(snapshot) && Array.isArray(snapshot.skills) && snapshot.skills.every(named)
+const optional = (value, check) => value === undefined || value === null || check(value)
+// 页面直接拿来用的字段逐个看：每个 Skill 要有名字，列表类字段是数组、工具状态是对象；次数要是数字
+const validSkill = (skill) => named(skill) &&
+  ['origins', 'locations', 'plugins'].every((field) => optional(skill[field], Array.isArray)) &&
+  optional(skill.tools, isObject)
+const validSnapshot = (snapshot) => isObject(snapshot) && Array.isArray(snapshot.skills) && snapshot.skills.every(validSkill) &&
+  optional(snapshot.tools, isObject) && optional(snapshot.errors, Array.isArray) &&
+  optional(snapshot.operations, Array.isArray) && optional(snapshot.ignored, Array.isArray) &&
+  optional(snapshot.inbox, (inbox) => isObject(inbox) && optional(inbox.items, Array.isArray))
 const validUsage = (data) => isObject(data) && Array.isArray(data.skills) &&
   data.skills.every((skill) => named(skill) && Number.isFinite(skill.total))
 
