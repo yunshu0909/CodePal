@@ -590,3 +590,60 @@ describe('v2.1.16 · 接入页思考强度与终端命令指向', () => {
     expect(document.querySelector('.mj-strip')).not.toHaveTextContent('要更新')
   })
 })
+
+describe('#99 Claude Code 版本晚到', () => {
+  /** 列表先回来、版本还在后台查；返回放行函数 */
+  function pendingClaude(data = base(), claudeCode = { found: true, version: '2.1.283', tooOld: false, required: '2.1.251' }) {
+    let release
+    const gate = new Promise((resolve) => { release = resolve })
+    const modelsClaudeStatus = vi.fn(async () => { await gate; return { success: true, data: claudeCode } })
+    return { data: { ...data, claudeCode: null, claudeChecking: true }, overrides: { modelsClaudeStatus }, release: () => act(async () => { release() }) }
+  }
+
+  it('版本还没查完：供应商和模型照常显示，不出提醒卡，测一下先不可点；补上后可点', async () => {
+    const p = pendingClaude()
+    const { api } = await renderPage(p.data, p.overrides)
+    expect(screen.getByText('DeepSeek')).toBeInTheDocument()
+    expect(row()).not.toBeNull()
+    expect(screen.getByText('可用')).toBeInTheDocument()
+    expect(screen.queryByText('没找到 Claude Code')).toBeNull()
+    expect(queryBtn('重新检测')).toBeNull()
+    expect(btn('测一下')).toBeDisabled()
+    expect(btn('更换 Key')).not.toBeDisabled()
+    await waitFor(() => expect(api.modelsClaudeStatus).toHaveBeenCalled())
+    await p.release()
+    await waitFor(() => expect(btn('测一下')).not.toBeDisabled())
+    expect(queryBtn('重新检测')).toBeNull()
+  })
+
+  it('查完是版本太旧：这时才出提醒卡，测一下仍不可点', async () => {
+    const p = pendingClaude(base(), { found: true, version: '2.1.200', tooOld: true, required: '2.1.251' })
+    await renderPage(p.data, p.overrides)
+    expect(screen.queryByText('Claude Code 版本太旧')).toBeNull()
+    await p.release()
+    expect(await screen.findByText('Claude Code 版本太旧')).toBeInTheDocument()
+    expect(btn('测一下')).toBeDisabled()
+  })
+
+  it('有上次的合格结果、后台在核：测一下照常可点', async () => {
+    const p = pendingClaude()
+    const { api } = await renderPage({ ...p.data, claudeCode: { found: true, version: '2.1.283', tooOld: false, required: '2.1.251' } }, p.overrides)
+    expect(btn('测一下')).not.toBeDisabled()
+    await waitFor(() => expect(api.modelsClaudeStatus).toHaveBeenCalled())
+    await p.release()
+    expect(btn('测一下')).not.toBeDisabled()
+  })
+
+  it('核对回来的结果比重新检测的旧：不盖掉重新检测的结果', async () => {
+    const p = pendingClaude(base(), { found: true, version: '2.1.283', tooOld: false, required: '2.1.251' })
+    const { api } = await renderPage({ ...p.data, claudeCode: { found: false } }, {
+      ...p.overrides,
+      modelsRecheckClaude: vi.fn(async () => ({ success: true, data: { found: true, version: '2.1.200', tooOld: true, required: '2.1.251' } })),
+    })
+    await waitFor(() => expect(api.modelsClaudeStatus).toHaveBeenCalled())
+    fireEvent.click(btn('重新检测'))
+    expect(await screen.findByText('Claude Code 版本太旧')).toBeInTheDocument()
+    await p.release()
+    expect(screen.getByText('Claude Code 版本太旧')).toBeInTheDocument()
+  })
+})
