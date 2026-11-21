@@ -54,6 +54,8 @@ export default function useModels() {
   const claudeSeq = useRef(0)
   // 终端命令状态的编号：每次读列表加一，晚回来的补状态不盖新的
   const commandsSeq = useRef(0)
+  // 整个列表的编号：只有最新一次读失败才提示没更新 / 整块报错
+  const listSeq = useRef(0)
 
   useEffect(() => {
     mounted.current = true
@@ -82,7 +84,13 @@ export default function useModels() {
   const reload = useCallback(async () => {
     const seq = ++claudeSeq.current
     const cmdSeq = ++commandsSeq.current
-    const res = await api().modelsList()
+    const mine = ++listSeq.current
+    let res
+    try {
+      res = await api().modelsList()
+    } catch {
+      res = { success: false }
+    }
     if (!mounted.current) return
     if (res?.success) {
       const fresh = seq === claudeSeq.current
@@ -96,6 +104,8 @@ export default function useModels() {
       setStale(false)
       if (res.data?.claudeChecking && fresh) waitClaude(seq)
       if (res.data?.commandsChecking && cmdSeq === commandsSeq.current) waitCommands(cmdSeq)
+    } else if (mine !== listSeq.current) {
+      // 之后又读过一次：这次晚回来的失败不算数
     } else if (shown.current) {
       setStale(true)
     } else {

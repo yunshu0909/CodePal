@@ -5,7 +5,9 @@
  * - 默认权限模式：读取、弹出菜单选择即写入、托管覆盖提示
  * - 状态栏：接入状态与接入 / 接管、显示状态栏开关（开写 always、关写 off，阈值原样带回）
  * - 终端预览：固定示例数据示意终端底部效果
- * - 切回时先显示上次读到的模式和接入状态（本次运行内存里，#100）；重读失败留着上次的，顶上提示没更新
+ * - 切回时先显示上次读到的模式和接入状态（本次运行内存里，#100）；重读失败留着上次的，顶上提示没更新。
+ *   上次的只供查看：这次进页读到之前，选模式、拨「显示状态栏」不写入（写入会带上读到的值，不能用没核实过的）；
+ *   不改成禁用样式，免得切回那一下按钮闪灰
  *
  * 合并了原「启动模式」与「状态栏设置」两页；模块 ID 仍为 permission。
  * 设计事实源：specs/redesign-CodePal视觉重做/Claude设置-定稿/。
@@ -40,8 +42,9 @@ import './claudeSettings/claudeSettings.css'
  */
 function usePermissionMode(notify) {
   const memory = pageMemory('permission-mode')
-  // 读取结果：mode 为 null 表示未配置；error 为读取失败；stale 为这次重读失败、显示的是上次读到的
-  const [perm, setPerm] = useState(() => (memory.value ? { loading: false, error: memory.value.error, mode: memory.value.mode } : { loading: true, error: false, mode: null }))
+  // 读取结果：mode 为 null 表示未配置；error 为读取失败；stale 为这次重读失败、显示的是上次读到的；
+  // checked 为这次进页已经读到（或写入成功），之前显示的是上次的，不能拿来写
+  const [perm, setPerm] = useState(() => (memory.value ? { loading: false, error: memory.value.error, mode: memory.value.mode, checked: false } : { loading: true, error: false, mode: null, checked: false }))
   useRemember(memory, perm.loading ? null : perm)
   // 写入进行中：禁用弹出按钮，防重复写
   const [switching, setSwitching] = useState(false)
@@ -54,7 +57,7 @@ function usePermissionMode(notify) {
     const failed = (prev) => (!prev.loading && !prev.error ? { ...prev, stale: true } : { loading: false, error: true, mode: null })
     try {
       const result = await window.electronAPI.getPermissionModeConfig()
-      if (result?.success) setPerm({ loading: false, error: false, mode: result.isConfigured ? result.mode : null })
+      if (result?.success) setPerm({ loading: false, error: false, mode: result.isConfigured ? result.mode : null, checked: true })
       else setPerm(failed)
     } catch {
       setPerm(failed)
@@ -65,12 +68,12 @@ function usePermissionMode(notify) {
   useEffect(() => { load() }, [load])
 
   const select = useCallback(async (mode) => {
-    if (switching || mode === perm.mode) return
+    if (switching || !perm.checked || mode === perm.mode) return
     setSwitching(true)
     try {
       const result = await window.electronAPI.setPermissionMode(mode)
       if (result?.success) {
-        setPerm({ loading: false, error: false, mode })
+        setPerm({ loading: false, error: false, mode, checked: true })
         if (result.managedNotice) {
           // 写入成功但被托管配置覆盖：不能宣称「已切换」
           setManagedNotice(result.managedNotice)
@@ -86,7 +89,7 @@ function usePermissionMode(notify) {
     } finally {
       setSwitching(false)
     }
-  }, [notify, perm.mode, switching])
+  }, [notify, perm.mode, perm.checked, switching])
 
   return { perm, switching, managedNotice, reload: load, select }
 }
@@ -101,7 +104,7 @@ export default function PermissionModePage() {
 
   const { perm, switching, managedNotice, reload: reloadPerm, select } = usePermissionMode(notify)
   const {
-    statusState, loading: statusLoading, installing, saving, error: statusError, stale: statusStale,
+    statusState, loading: statusLoading, installing, saving, error: statusError, stale: statusStale, checked: statusChecked,
     loadStatus, ensureInstalled, saveConfig,
   } = useClaudeUsageStatus()
 
@@ -112,14 +115,14 @@ export default function PermissionModePage() {
   const view = integrationView(integration || 'read_error', { committed: statusState?.committed })
 
   const onToggle = useCallback(async (next) => {
-    if (saving) return
+    if (saving || !statusChecked) return
     const ok = await saveConfig({
       displayMode: next ? 'always' : 'off',
       fiveHourThreshold: config.fiveHourThreshold ?? 70,
       sevenDayThreshold: config.sevenDayThreshold ?? 70,
     })
     notify(ok ? '显示设置已保存' : '保存失败，请重试', ok ? 'success' : 'error')
-  }, [config.fiveHourThreshold, config.sevenDayThreshold, notify, saveConfig, saving])
+  }, [config.fiveHourThreshold, config.sevenDayThreshold, notify, saveConfig, saving, statusChecked])
 
   const onAction = useCallback(async (kind) => {
     if (kind === 'install') await ensureInstalled({ intent: 'explicit' })

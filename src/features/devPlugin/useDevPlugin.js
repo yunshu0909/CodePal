@@ -92,8 +92,9 @@ export default function useDevPlugin() {
       })
   }), [later, cancel])
 
+  // 屏上已经有内容（切回时上次的、或这次早先读到的）：留着，只标这次没更新（#56「失败保留旧内容并提示」）；没有才整块报错
   const showError = useCallback((message) => {
-    setView((prev) => ({ ...prev, status: 'error', error: message }))
+    setView((prev) => (prev.status === 'ready' && prev.rows ? { ...prev, stale: true } : { ...prev, status: 'error', error: message }))
   }, [])
 
   /** 这次读到的版本号能不能用：比已显示的那次更晚开始才用，返回要显示的版本号或 undefined */
@@ -148,8 +149,7 @@ export default function useDevPlugin() {
     setView((prev) => (prev.status === 'ready' ? prev : { ...prev, status: 'loading', error: null }))
     const result = await readOnce()
     if (!alive.current || token !== loadToken.current) return
-    // 屏上已经有内容（切回时上次的、或这次早先读到的）：留着，只标这次没更新
-    if (!result.ok) return setView((prev) => (prev.status === 'ready' && prev.rows ? { ...prev, stale: true } : { ...prev, status: 'error', error: result.message }))
+    if (!result.ok) return showError(result.message)
     const { data } = result
     const versionText = newerVersion(result)
     setView((prev) => {

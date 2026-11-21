@@ -7,7 +7,8 @@
  * - 右栏：栏头文件名 + 所在文件夹路径与大小，正文 MarkdownRenderer（np-read np-doc），开头元数据与 HTML 注释不显示
  * - 规则见 docs/design-operating-system.md 3.8「双栏」「目录树」「长文阅读」、3.12「状态呈现」
  * - 切回（#100）：先显示上次的文件夹、展开的目录树、搜索词、选中的文档和正文（本次运行内存里，照 #56 Skills 先例），
- *   后台静默重读文件夹列表、展开那个的文件、选中文档的正文，不出转圈和正文骨架；重读失败留着上次的，那一栏顶上提示没更新。
+ *   后台静默重读文件夹列表、读过的每个文件夹的文件（搜索范围跟着更新）、选中文档的正文，不出转圈和正文骨架；
+ *   重读失败留着上次的，那一栏顶上提示没更新。切走时正文还没读到的，回来照第一次那样读（读不到照旧报错）。
  *   滚动位置、添加中不保留
  *
  * 设计事实源：specs/docs-browser-redesign/文档查阅-定稿/
@@ -236,9 +237,11 @@ export default function DocBrowserPage() {
   const [searchQuery, setSearchQuery] = useState(() => last?.searchQuery ?? '')
   // 展开过的文件夹的文件缓存（搜索只搜这些）
   const [allFilesCache, setAllFilesCache] = useState(() => last?.allFilesCache ?? {})
-  // 切回后这次重读失败：左栏（文件夹 / 文件列表）、右栏（正文）各自留着上次的并提示
-  const [listStale, setListStale] = useState(false)
+  // 切回后这次重读失败：左栏（文件夹列表、文件列表分开记，一样成功不抹掉另一样的失败）、右栏（正文）各自留着上次的并提示
+  const [foldersStale, setFoldersStale] = useState(false)
+  const [filesStale, setFilesStale] = useState(false)
   const [contentStale, setContentStale] = useState(false)
+  const listStale = foldersStale || filesStale
   // 添加文件夹扫描期间，栏底按钮禁用
   const [adding, setAdding] = useState(false)
   // 竞态防护：快速连点时旧请求不覆盖新结果
@@ -256,29 +259,40 @@ export default function DocBrowserPage() {
       const result = await window.electronAPI.docListFolders()
       if (result.success) {
         setFolders(result.data)
-        if (quiet) setListStale(false)
-      } else if (quiet) setListStale(true)
+        if (quiet) {
+          setFoldersStale(false)
+          // 列表里已经没有的文件夹，不再留在搜索范围里
+          const paths = new Set(result.data.map(f => f.path))
+          setAllFilesCache(prev => Object.fromEntries(Object.entries(prev).filter(([p]) => paths.has(p))))
+        }
+      } else if (quiet) setFoldersStale(true)
     } catch (err) {
       console.error('Failed to load folders:', err)
-      if (quiet) setListStale(true)
+      if (quiet) setFoldersStale(true)
     } finally {
       setFoldersLoading(false)
     }
   }, [])
 
-  /** 切回时静默重读展开着的那个文件夹的文件（不出扫描中，失败标左栏没更新） */
-  const relistFolder = useCallback(async (folderPath) => {
-    const seq = ++loadFolderSeqRef.current
+  /**
+   * 切回时静默重读一个读过的文件夹的文件（不出扫描中，失败标左栏没更新）
+   * @param {string} folderPath - 文件夹路径
+   * @param {boolean} expanded - 是不是展开着的那个：是就同时换目录树，且之后点了别的 / 移除了就作废
+   */
+  const relistFolder = useCallback(async (folderPath, expanded) => {
+    const seq = expanded ? ++loadFolderSeqRef.current : null
+    const valid = () => !expanded || seq === loadFolderSeqRef.current
     try {
       const result = await window.electronAPI.docListFiles(folderPath)
-      if (seq !== loadFolderSeqRef.current) return
+      if (!valid()) return
       if (!result.success) throw new Error(result.error)
-      setFiles(result.data)
-      setAllFilesCache(prev => ({ ...prev, [folderPath]: result.data }))
+      if (expanded) setFiles(result.data)
+      // 等的时候被移除了（搜索范围里已经没有它）就不再放回去
+      setAllFilesCache(prev => (expanded || folderPath in prev ? { ...prev, [folderPath]: result.data } : prev))
     } catch {
-      if (seq === loadFolderSeqRef.current) setListStale(true)
+      if (valid()) setFilesStale(true)
     } finally {
-      if (seq === loadFolderSeqRef.current) setFilesLoading(false)
+      if (expanded && valid()) setFilesLoading(false)
     }
   }, [])
 
@@ -332,6 +346,8 @@ export default function DocBrowserPage() {
     }
 
     if (expandedFolder === folderPath) {
+      // 还在读它的文件的，回来也不再用
+      ++loadFolderSeqRef.current
       setExpandedFolder(null)
       setExpandedDirs(new Set())
       setFiles([])
@@ -445,19 +461,26 @@ export default function DocBrowserPage() {
     if (selectedFile) readFile(selectedFile, true)
   }, [selectedFile, readFile])
 
-  // 进页读文件夹列表；切回时（有上次的）三样都静默重读
+  /** 静默重读读过的每个文件夹的文件：展开着的那个换目录树，其余只更新搜索范围 */
+  const relistAll = useCallback((expanded, cached) => {
+    if (expanded) relistFolder(expanded, true)
+    Object.keys(cached).filter(p => p !== expanded).forEach(p => relistFolder(p, false))
+  }, [relistFolder])
+
+  // 进页读文件夹列表；切回时（有上次的）都静默重读。上次切走时正文还没读到的，照第一次那样读
   useEffect(() => {
     loadFolders({ quiet: Boolean(last) })
     if (!last) return
-    if (last.expandedFolder) relistFolder(last.expandedFolder)
-    if (last.selectedFile) readFile(last.selectedFile, false, true)
-  }, [last, loadFolders, relistFolder, readFile])
+    relistAll(last.expandedFolder, last.allFilesCache)
+    if (last.selectedFile) readFile(last.selectedFile, false, last.fileContent != null)
+  }, [last, loadFolders, relistAll, readFile])
 
-  // 左栏「重试」：按现在展开着的那个重读
+  // 左栏「重试」：按现在展开着的、读过的重读
   const retryList = useCallback(() => {
+    setFilesStale(false)
     loadFolders({ quiet: true })
-    if (expandedFolder) relistFolder(expandedFolder)
-  }, [loadFolders, relistFolder, expandedFolder])
+    relistAll(expandedFolder, allFilesCache)
+  }, [loadFolders, relistAll, expandedFolder, allFilesCache])
 
   // 记下这次看到的（文件夹列表第一次读完之后才记；还在扫描 / 读正文时不记那份半截的）
   useRemember(memory, useMemo(() => (foldersLoading ? null : {

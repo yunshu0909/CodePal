@@ -13,7 +13,7 @@
  * @module pages/SessionStatusPage
  */
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import PageShell from '../components/PageShell'
 import Button from '../components/Button/Button'
 import Toggle from '../components/Toggle'
@@ -31,6 +31,8 @@ export default function SessionStatusPage() {
   // 主进程快照：enabled / tools / failures / sessions / total / error；切回时先用上次的
   const [data, setData] = useState(() => memory.value ?? null)
   useRemember(memory, data)
+  const shown = useRef(data)
+  shown.current = data
   const [loadError, setLoadError] = useState(null)
   // 开关正在装 / 删钩子
   const [saving, setSaving] = useState(false)
@@ -41,7 +43,12 @@ export default function SessionStatusPage() {
   const load = useCallback(async () => {
     try {
       const result = await window.electronAPI.getSessionStatus()
-      if (result?.success) {
+      const prev = shown.current
+      if (result?.success && result.data?.error && prev?.enabled && !prev.error && prev.sessions?.length) {
+        // 开关和工具读到了、会话列表这次没读出来：列表先留着上次的，顶上提示没更新
+        setData({ ...result.data, sessions: prev.sessions, total: prev.total, error: null })
+        setLoadError(result.data.error)
+      } else if (result?.success) {
         setData(result.data)
         setLoadError(null)
       } else {

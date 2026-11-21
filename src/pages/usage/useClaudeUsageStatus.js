@@ -34,6 +34,8 @@ export default function useClaudeUsageStatus() {
   const [loading, setLoading] = useState(() => !memory.value)
   // 这次重读失败、屏上留着的是上次读到的
   const [stale, setStale] = useState(false)
+  // 这次进页已经读到（或写入成功）：之前显示的是上次的，配置值不能拿来写
+  const [checked, setChecked] = useState(false)
   // 安装/修复进行中：避免重复点击“重试接入”
   const [installing, setInstalling] = useState(false)
   // 保存配置进行中：避免表单重复提交
@@ -69,6 +71,7 @@ export default function useClaudeUsageStatus() {
       if (result?.success) {
         setStatusState(result)
         setStale(false)
+        setChecked(true)
         if (result.config) {
           setFormConfig({
             displayMode: result.config.displayMode || DEFAULT_FORM_CONFIG.displayMode,
@@ -114,6 +117,7 @@ export default function useClaudeUsageStatus() {
       if (result?.success) {
         setStatusState(result)
         setError(null)
+        setChecked(true)
         return true
       } else {
         // 失败时也尽量保留 result 里的 integrationState,否则 Card 无法区分 setup_failed 和其他错误
@@ -168,6 +172,7 @@ export default function useClaudeUsageStatus() {
       }
 
       setStatusState(result)
+      setChecked(true)
       if (result.config) {
         setFormConfig({
           displayMode: result.config.displayMode,
@@ -192,6 +197,7 @@ export default function useClaudeUsageStatus() {
     saving,
     error,
     stale,
+    checked,
     formConfig,
     loadStatus,
     ensureInstalled,

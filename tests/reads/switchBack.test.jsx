@@ -144,6 +144,16 @@ describe('会话状态', () => {
     expect(screen.getByText(STALE)).toBeInTheDocument()
   })
 
+  it('切回后会话列表这次没读出来（开关读到了）：列表留着上次的，提示没更新', async () => {
+    const a = api()
+    ;(await visit(<SessionStatusPage />)).unmount()
+    a.getSessionStatus = vi.fn(async () => ({ success: true, data: { ...DATA, sessions: [], total: 0, error: '读不到会话' } }))
+    revisit(<SessionStatusPage />)
+    await act(async () => {})
+    expect(screen.getByTestId('ss-list')).toHaveTextContent('skills')
+    expect(screen.getByText(STALE)).toBeInTheDocument()
+  })
+
   it('换一个运行（新的接口）：第一次进照旧出骨架，不串用上次的', async () => {
     api()
     ;(await visit(<SessionStatusPage />)).unmount()
@@ -249,6 +259,19 @@ describe('插件管理', () => {
     expect(toggleOf('Claude Code')).toHaveAttribute('aria-checked', 'true')
   })
 
+  it('切回时某行还在保存、之后每秒的查询失败：两行留着，提示没更新，不整块报错', async () => {
+    vi.useFakeTimers()
+    const a = api()
+    a.devPluginRead = vi.fn(async () => ({ success: true, data: state({ saving: { claude: false, codex: true } }) }))
+    render(<DevPluginPage />)
+    await act(async () => {})
+    a.devPluginRead = vi.fn(async () => ({ success: false, error: { message: '读不到插件的安装信息' } }))
+    await act(async () => { await vi.advanceTimersByTimeAsync(1100) })
+    expect(screen.getByText('0.12.22')).toBeInTheDocument()
+    expect(screen.getByText(STALE)).toBeInTheDocument()
+    expect(document.querySelector('.state-view--error')).toBeNull()
+  })
+
   it('切回后重读失败：两行留着，提示这次没更新，不整块报错', async () => {
     const a = api()
     ;(await visit(<DevPluginPage />)).unmount()
@@ -309,6 +332,28 @@ describe('Claude Code 设置', () => {
     a.getClaudeUsageStatusState = vi.fn(() => new Promise(() => {}))
     revisit(<PermissionModePage />)
     expect(popup()).toHaveTextContent('自动编辑')
+  })
+
+  it('切回后这次还没读到 / 读失败：拨「显示状态栏」、选模式都不写入（不拿上次的阈值和配置去写）', async () => {
+    const a = api()
+    ;(await visit(<PermissionModePage />)).unmount()
+    a.getPermissionModeConfig = vi.fn(() => new Promise(() => {}))
+    a.getClaudeUsageStatusState = vi.fn(() => new Promise(() => {}))
+    const view = revisit(<PermissionModePage />)
+    fireEvent.click(screen.getByRole('switch'))
+    fireEvent.click(popup())
+    fireEvent.click(within(await screen.findByRole('listbox')).getByRole('option', { name: /自动编辑/ }))
+    await act(async () => {})
+    expect(a.saveClaudeUsageStatusConfig).not.toHaveBeenCalled()
+    expect(a.setPermissionMode).not.toHaveBeenCalled()
+    view.unmount()
+    a.getPermissionModeConfig = vi.fn(async () => ({ success: false }))
+    a.getClaudeUsageStatusState = vi.fn(async () => ({ success: false, error: '读不到' }))
+    revisit(<PermissionModePage />)
+    await act(async () => {})
+    fireEvent.click(screen.getByRole('switch'))
+    await act(async () => {})
+    expect(a.saveClaudeUsageStatusConfig).not.toHaveBeenCalled()
   })
 
   it('上次状态栏就没读出来：切回先显示「无法读取额度状态」那一行，不出骨架', async () => {
@@ -395,6 +440,24 @@ describe('模型接入', () => {
     expect(row('deepseek-v4-pro')).toBeNull()
   })
 
+  it('切回读列表直接抛错：上次的模型留着并提示；较早那次的失败晚于较新的成功回来，不提示', async () => {
+    const a = api()
+    ;(await visit(<ModelsPage />)).unmount()
+    a.modelsList = vi.fn(async () => { throw new Error('ipc gone') })
+    const view = revisit(<ModelsPage />)
+    await act(async () => {})
+    expect(row('deepseek-flash')).not.toBeNull()
+    expect(screen.getByText(STALE)).toBeInTheDocument()
+    view.unmount()
+    const old = deferred()
+    a.modelsList = vi.fn(() => old.promise)
+    revisit(<ModelsPage />)
+    a.modelsList = vi.fn(async () => ({ success: true, data: list(MODEL) }))
+    await act(async () => { window.dispatchEvent(new Event('focus')) })
+    await act(async () => old.resolve({ success: false }))
+    expect(screen.queryByText(STALE)).toBeNull()
+  })
+
   it('切回后重读失败：上次的模型留着，提示这次没更新，不整块报错', async () => {
     const a = api()
     ;(await visit(<ModelsPage />)).unmount()
@@ -445,6 +508,36 @@ describe('订阅管理', () => {
     expect(within(claudeCard()).getByText('38×')).toBeInTheDocument()
     view.stop()
     expect(view.seen).toEqual([])
+  })
+
+  it('切回时后台读到新周期（续费日过了）：新数字出来之前整张卡照上次的，不出骨架；出来了整张换', async () => {
+    const a = api()
+    ;(await visit(<PlanManagementPage />)).unmount()
+    const next = { id: '2026-09-20', start: '2026-09-20', end: '2026-10-20', price: 20 }
+    const renewed = { ...plan, version: 2, autoRenew: true, cycles: [cycle, next] }
+    const later = deferred()
+    a.readPlan = vi.fn(async ({ planId }) => ({ success: true, data: { plan: planId === 'claude' ? renewed : { cycles: [], version: 0, stopped: false }, metadata: { type: 'Pro' }, today: '2026-09-21' } }))
+    a.queryPlan = vi.fn(({ cycleId }) => later.promise.then(() => ({ success: true, data: { version: 2, cycleId, total: 40, models: [] } })))
+    const view = revisit(<PlanManagementPage />)
+    await act(async () => {})
+    expect(within(claudeCard()).getByText('38×')).toBeInTheDocument()
+    await act(async () => later.resolve())
+    expect(within(claudeCard()).getByText('2.0×')).toBeInTheDocument()
+    expect(within(claudeCard()).getByText('09.20 – 10.20')).toBeInTheDocument()
+    view.stop()
+    expect(view.seen).toEqual([])
+  })
+
+  it('切回时读到新周期、但新数字没读到：整张卡留着上次的，Toast 说明', async () => {
+    const a = api()
+    ;(await visit(<PlanManagementPage />)).unmount()
+    const next = { id: '2026-09-20', start: '2026-09-20', end: '2026-10-20', price: 20 }
+    a.readPlan = vi.fn(async ({ planId }) => ({ success: true, data: { plan: planId === 'claude' ? { ...plan, version: 2, cycles: [cycle, next] } : { cycles: [], version: 0, stopped: false }, metadata: { type: 'Pro' }, today: '2026-09-21' } }))
+    a.queryPlan = vi.fn(async () => ({ success: false }))
+    revisit(<PlanManagementPage />)
+    await act(async () => {})
+    expect(within(claudeCard()).getByText('38×')).toBeInTheDocument()
+    expect(notifyToast).toHaveBeenCalledWith({ message: 'Claude Code 用量读取失败，显示的是上次读到的结果', type: 'error' })
   })
 
   it('改了订阅费再切回：显示改后的', async () => {
@@ -537,6 +630,50 @@ describe('文档查阅', () => {
     revisit(<DocBrowserPage />)
     expect(screen.getByPlaceholderText('搜索文件名...')).toHaveValue('guide')
     expect(screen.getByText('guide.md')).toBeInTheDocument()
+  })
+
+  it('读过两个文件夹：切回后没展开的那个也重读，搜索范围跟着更新（外面改了名的搜得到新名字）', async () => {
+    const a = api()
+    const first = await visit(<DocBrowserPage />)
+    fireEvent.click(screen.getByText('Beta'))
+    await screen.findByText('notes.md')
+    fireEvent.click(screen.getByText('Alpha'))
+    await screen.findByText('readme.md')
+    first.unmount()
+    a.docListFiles = vi.fn(async (p) => ({ success: true, data: p === BETA ? [file(BETA, 'renamed.md')] : FILES[p] }))
+    revisit(<DocBrowserPage />)
+    await act(async () => {})
+    fireEvent.change(screen.getByPlaceholderText('搜索文件名...'), { target: { value: 'renamed' } })
+    expect(screen.getByText('renamed.md')).toBeInTheDocument()
+    fireEvent.change(screen.getByPlaceholderText('搜索文件名...'), { target: { value: 'notes' } })
+    expect(screen.queryByText('notes.md')).toBeNull()
+  })
+
+  it('切回后文件列表读失败、文件夹列表读成功：左栏的提示不被抹掉', async () => {
+    const a = api()
+    ;(await openReadme()).unmount()
+    const folders = deferred()
+    a.docListFolders = vi.fn(() => folders.promise)
+    a.docListFiles = vi.fn(async () => ({ success: false, error: 'bad' }))
+    revisit(<DocBrowserPage />)
+    await act(async () => {})
+    await act(async () => folders.resolve({ success: true, data: FOLDERS }))
+    expect(within(document.querySelector('.np-pane--list')).getByText(STALE)).toBeInTheDocument()
+    expect(screen.getByText('readme.md', { selector: '.np-tr .nm' })).toBeInTheDocument()
+  })
+
+  it('点开一篇正文还没读到就切走：回来照第一次那样读，读不到照旧报「无法读取文件」，不冒充上次的', async () => {
+    const a = api()
+    const first = await visit(<DocBrowserPage />)
+    fireEvent.click(screen.getByText('Alpha'))
+    a.docReadFile = vi.fn(() => new Promise(() => {}))
+    fireEvent.click(await screen.findByText('readme.md'))
+    first.unmount()
+    a.docReadFile = vi.fn(async () => ({ success: false, error: 'gone' }))
+    revisit(<DocBrowserPage />)
+    await act(async () => {})
+    expect(within(detail()).getByText('无法读取文件')).toBeInTheDocument()
+    expect(within(detail()).queryByText(STALE)).toBeNull()
   })
 
   it('移除一个文件夹再切回：它不在了', async () => {
