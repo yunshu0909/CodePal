@@ -3,13 +3,14 @@
  * - Outside pointerdown/Escape cancel unsubmitted numeric edits before blur.
  * - Renewal saves independently, survives closing and rolls back on failure.
  * - Submitted saves survive closing; only touched fields turn invalid.
+ * - Enter/blur submits only the numeric fields that differ from the saved plan; the write queue fills the rest
+ *   from the ledger at write time. Untouched fields follow a newer plan read while open.
  * @module pages/plan/PlanSettingsPopover
  */
 import React, { useEffect, useRef, useState } from 'react';
 import { formatUSD } from '../planPresentation';
 const legal = d => Number.isFinite(d.price) && d.price > 0 && Number.isInteger(d.billingDay) && d.billingDay >= 1 && d.billingDay <= 31;
 const numeric = value => value.trim() === '' ? NaN : Number(value);
-const same = (a, b) => a.price === b.price && a.billingDay === b.billingDay && a.autoRenew === b.autoRenew;
 /** @param {object} props Last saved plan, safe hints and save callback. @returns {JSX.Element} Original anchored popover. */
 export default function PlanSettingsPopover({
   planId,
@@ -73,6 +74,19 @@ export default function PlanSettingsPopover({
       document.removeEventListener('keydown', esc, true);
     };
   }, [onClose]);
+  // 弹层开着时卡上换成新读到的订阅（切回后后台读到、别处改过）：没动过的格子跟着换成新的，
+  // 交的时候也只交和已存的不一样的那几格，旧值不会跟着存进去
+  useEffect(() => {
+    const price = numeric(String(plan.price ?? '')),
+      billingDay = numeric(String(plan.billingDay ?? ''));
+    const before = committed.current;
+    setDraft(old => ({
+      ...old,
+      ...(Number.isFinite(price) && numeric(old.price) === before.price ? { price: String(plan.price) } : {}),
+      ...(Number.isFinite(billingDay) && numeric(old.billingDay) === before.billingDay ? { billingDay: String(plan.billingDay) } : {})
+    }));
+    committed.current = {...committed.current, price, billingDay};
+  }, [plan.price, plan.billingDay]);
   useEffect(() => {
     if (renewalPromise.current) return;
     const autoRenew = plan.autoRenew ?? false;
@@ -109,15 +123,18 @@ export default function PlanSettingsPopover({
     if (!legal(parsed)) return;
     // Enter/number blur must use the result of an in-flight independent renewal save.
     if (renewalPromise.current) await renewalPromise.current;
-    const value = {...parsed, autoRenew:committed.current.autoRenew};
-    if (same(value, committed.current)) return;
+    // 只交改过的（没存过的算改过）；自动续费和没改的那一格由写入队列照写入那一刻的账本补齐
+    const value = {};
+    if (parsed.price !== committed.current.price) value.price = parsed.price;
+    if (parsed.billingDay !== committed.current.billingDay) value.billingDay = parsed.billingDay;
+    if (!Object.keys(value).length) return;
     const key = JSON.stringify(value);
     if (pending.current.has(key)) return;
     const id = `${planId}:${session.current}:${++sequence.current}`;
     pending.current.set(key, id);
     try {
       const result = await onSave(value, id);
-      if (result?.success !== false) committed.current = value;
+      if (result?.success !== false) committed.current = {...committed.current, ...value};
     } catch {} finally {
       pending.current.delete(key);
     }

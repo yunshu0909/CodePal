@@ -141,6 +141,21 @@ describe('订阅设置连着改两样', () => {
   })
 })
 
+describe('第一次设置', () => {
+  it('没设过订阅，照提示值回车：订阅费、账单日、自动续费三样齐全交上去，存上', async () => {
+    const a = ledgerApi({ plan: { cycles: [], version: 0, stopped: false } })
+    a.readPlan = vi.fn(async ({ planId }) => ({ success: true, data: { plan: structuredClone(a.state[planId]), metadata: { type: 'Pro', suggestedPrice: 20, suggestedBillingDay: 20 }, today: a.today } }))
+    render(<PlanManagementPage />)
+    await waitFor(() => expect(a.readPlan).toHaveBeenCalledTimes(2))
+    await act(async () => {})
+    openSettings()
+    fireEvent.keyDown(screen.getByLabelText('订阅费'), { key: 'Enter' })
+    await waitFor(() => expect(a.state.claude.price).toBe(20))
+    expect(a.savePlan.mock.calls[0][0]).toMatchObject({ expectedVersion: 0, price: 20, billingDay: 20, autoRenew: false })
+    expect(notifyToast).not.toHaveBeenCalledWith(FAILED)
+  })
+})
+
 describe('切回后改订阅设置', () => {
   it('切回马上打开设置、后台读到别处改过账单日：弹层里账单日换成新的，只改订阅费存进去的账单日是新的', async () => {
     const a = ledgerApi()

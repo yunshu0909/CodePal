@@ -6,6 +6,10 @@
  * - 切回时先显示上次读到的两张卡（本次运行内存里，#100），后台照常重读；同一周期的旧用量在重读、统计还在算时先留着；
  *   后台读到新周期 / 新账本版本时，新数字出来之前整张卡照上次的显示（不出骨架），出来了整张换；
  *   重读失败、卡上已有内容：数字留着，Toast 说明显示的是上次读到的结果。页里一动手（改设置、翻周期）就不再垫上次的。
+ * - 停在页里统计变了、后台读到新账本版本 / 新周期：同一套「垫着」，新数字出来之前照刚才那张卡显示。
+ * - 订阅设置的写入排在本卡的写入队列里，轮到时按那一刻的账本版本提交，没交的格子照那一刻的账本补齐；
+ *   续费 / 停 / 改已结束周期价格按用户看着的那一版提交，中间只隔着本页自己存的几笔时用最新版本。
+ *   写入失败不放掉垫着的卡，马上重读一次。
  * @module pages/plan/usePlanData
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -67,6 +71,8 @@ export default function usePlanData(notify) {
     });
   const refreshRef = useRef(null);
   const metadataReady = useRef({ claude: false, codex: false });
+  // 本页自己的写入存出来的账本版本：看着的那一版之后只多了这些，就不算账本在别处变过
+  const ownVersions = useRef({ claude: new Set(), codex: new Set() });
   const toast = useRef(notify);
   toast.current = notify;
   const patch = useCallback((id, fn) => {
@@ -159,7 +165,10 @@ export default function usePlanData(notify) {
       });
       if (!alive.current || ticket !== reads.current[id] || version !== current(id).plan.version) return;
       if (!result?.success) throw new Error('read');
+      const before = current(id);
       if (apply(id, result.data)) {
+        // 读到新版本 / 新周期、数字要重算：新数字出来之前照刚才那张读完整的卡显示，不出灰块
+        if (!held.current[id] && before.cycle && complete(before) && !before.error && current(id).cycle && !current(id).usage) held.current[id] = before;
         if (result.data.metadata) metadataReady.current[id] = true;
         void query(id);
       }
@@ -199,25 +208,39 @@ export default function usePlanData(notify) {
     const run = async () => {
       ++reads.current[id];
       ++seq.current[id];
-      release(id);
       if (kind === 'action') patch(id, () => ({
         acting: true
       }));
       try {
         const c = current(id);
+        const latest = c.plan.version;
+        // 订阅设置：轮到这一笔时按最新账本提交，没交的格子照它补齐（同一版本，主进程照旧按版本把关）
+        const numeric = kind === 'save' && ('price' in value || 'billingDay' in value);
+        const fields = numeric ? {
+          price: c.plan.price,
+          billingDay: c.plan.billingDay,
+          autoRenew: c.plan.autoRenew ?? false,
+          ...value
+        } : value;
+        const ownSince = seenVersion !== undefined && seenVersion < latest && Array.from({
+          length: latest - seenVersion
+        }, (_, i) => seenVersion + 1 + i).every(v => ownVersions.current[id].has(v));
+        const expectedVersion = kind === 'save' || seenVersion === undefined || ownSince ? latest : seenVersion;
         const payload = {
           planId: id,
           operationId,
-          expectedVersion: seenVersion ?? c.plan.version,
+          expectedVersion,
           ...(kind === 'action' ? {
             action: value,
             cycleId: c.plan.cycles.at(-1)?.id
-          } : value)
+          } : fields)
         };
         const method = kind === 'save' ? 'savePlan' : kind === 'cycle-price' ? 'setPlanCyclePrice' : 'actPlan';
         const result = await window.electronAPI[method](payload);
         if (!result?.success) throw new Error('write');
         const changed = result.data.changed !== false && !result.data.duplicate;
+        if (changed && Number.isInteger(result.data.plan?.version)) ownVersions.current[id].add(result.data.plan.version);
+        release(id);
         if (apply(id, result.data, kind === 'action')) void query(id);
         if (changed && kind !== 'action') toast.current?.({
           message: `${NAMES[id]} 订阅已更新`,
@@ -232,6 +255,8 @@ export default function usePlanData(notify) {
           message: `${NAMES[id]} 订阅更新失败`,
           type: 'error'
         });
+        // 被拒（账本在别处变过）或没写成：垫着的卡留着，马上重读一次，卡片不停在「—」
+        void refreshRef.current?.(id);
         return {
           success: false
         };
@@ -297,7 +322,7 @@ export default function usePlanData(notify) {
   // 切回时垫着的上次整张卡：这次还在读（或没读到）就照它显示
   const shown = cards.map(c => {
     const h = held.current[c.planId];
-    return h && (c.loading || c.error) ? {
+    return h && (c.error || !complete(c)) ? {
       ...c,
       plan: h.plan,
       cycle: h.cycle,
@@ -312,7 +337,7 @@ export default function usePlanData(notify) {
   return {
     cards: shown.map(c => ({
       ...c,
-      onSave: (draft, id) => mutate(c.planId, 'save', draft, id, c.plan.version),
+      onSave: (draft, id) => mutate(c.planId, 'save', draft, id),
       onAction: action => mutate(c.planId, 'action', action, globalThis.crypto.randomUUID(), c.plan.version),
       onSaveCyclePrice: (cycleId, price) => mutate(c.planId, 'cycle-price', {
         cycleId,
