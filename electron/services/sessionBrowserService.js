@@ -30,10 +30,8 @@ const META_LIMIT = 10_000
 // 文件身份一变就重读那一个，下一次完整列表没再见到的条目就清掉。满 META_LIMIT 后不再收新条目
 // （不挤掉旧的：按同样顺序扫描时，挤掉的正是下一条要用的，整份索引会轮流失效）。
 const metadataIndex = new Map()
-// 每次扫描开始加一；条目记下建立时的值，旧扫描清理时不动比它晚开始的扫描建的条目
+// 每次扫描开始加一；条目记下最近一次被建立或复用时的值，旧扫描清理时不动比它晚开始的扫描碰过的条目
 let scanGeneration = 0
-// 不带参数的列表（页面、启动预读）共用同一次在途扫描
-let sharedListing = null
 const SAFE_ID = /^[a-zA-Z0-9_-]+$/
 
 /**
@@ -245,9 +243,15 @@ async function indexedSessionMeta(source, projectId, file) {
   const key = metadataKey(source.realRoot, projectId, file)
   const prior = metadataIndex.get(key)
   if (prior?.identity === identity && (prior.pending || prior.ready)) {
+    prior.gen = scanGeneration
     return structuredClone(await (prior.pending || Promise.resolve(prior.value)))
   }
-  if (!prior && metadataIndex.size >= META_LIMIT) return readSessionMeta(projectId, file, stat)
+  if (!prior && metadataIndex.size >= META_LIMIT) {
+    // 放不下就只读不收；读完再确认文件还在，和收录的那条路一样，读途中删掉的不列出来
+    const value = await readSessionMeta(projectId, file, stat)
+    await fsp.stat(file)
+    return value
+  }
   const entry = { root: source.realRoot, sourceRoot: source.root, projectId, gen: scanGeneration, identity, pending: null, value: null, ready: false }
   metadataIndex.delete(key)
   metadataIndex.set(key, entry)
@@ -268,34 +272,19 @@ async function indexedSessionMeta(source, projectId, file) {
 }
 
 /**
- * 跨项目的最近对话
- * 不带参数的调用（页面、启动预读）在扫描途中再来，接上同一次扫描，各拿一份拷贝。
- * @param {{projectsDir?: string, signal?: AbortSignal}} [options]
- * @returns {Promise<{projectsDirExists: boolean, sessions: Array<object>}>} 按修改时间倒序
- */
-async function listRecent(options = {}) {
-  if (Object.keys(options).length > 0) return scanRecent(options)
-  if (!sharedListing) {
-    const listing = scanRecent({}).finally(() => {
-      if (sharedListing === listing) sharedListing = null
-    })
-    sharedListing = listing
-  }
-  return structuredClone(await sharedListing)
-}
-
-/**
- * 清理这次扫描确认已经不在的条目。只清这次扫描开始前建的；子目录读不了的项目不清（可能只是一时读不到）。
+ * 清理这次扫描确认已经不在的条目。只清这次扫描开始后没被别的扫描碰过的；
+ * 子目录一时读不了（不是不存在）的项目不清。
  * @param {number} generation - 这次扫描开始时的编号
+ * @param {Map<string, string|null>} resolvedRoots - 这次的来源（配置的路径 → 真实路径；确认不存在为 null）
  * @param {Set<string>} seenRoots - 完整枚举过的来源（真实路径）
- * @param {Set<string>} missingRoots - 确认不存在的来源（配置的路径）
  * @param {Set<string>} seenKeys - 这次见到的条目
  * @param {Set<string>} unreadProjects - 子目录读不了的项目
  */
-function pruneIndex(generation, seenRoots, missingRoots, seenKeys, unreadProjects) {
+function pruneIndex(generation, resolvedRoots, seenRoots, seenKeys, unreadProjects) {
   for (const [key, entry] of metadataIndex) {
     if (entry.pending || entry.gen > generation) continue
-    if (missingRoots.has(entry.sourceRoot)) {
+    // 来源不在了，或来源的链接换了目标：旧位置的条目都清掉
+    if (resolvedRoots.has(entry.sourceRoot) && resolvedRoots.get(entry.sourceRoot) !== entry.root) {
       metadataIndex.delete(key)
       continue
     }
@@ -305,13 +294,19 @@ function pruneIndex(generation, seenRoots, missingRoots, seenKeys, unreadProject
   }
 }
 
-async function scanRecent(options) {
+/**
+ * 跨项目的最近对话。页面和启动预读同时来时各扫各的：没变的文件不重读（共用在途读取），
+ * 但目录各自枚举，保证进页看到的是进页这一刻的增删。
+ * @param {{projectsDir?: string, signal?: AbortSignal}} [options]
+ * @returns {Promise<{projectsDirExists: boolean, sessions: Array<object>}>} 按修改时间倒序
+ */
+async function listRecent(options = {}) {
   const { signal } = options
   if (signal?.aborted) throw cancelledError()
   const generation = ++scanGeneration
   const sessions = []
   const seenRoots = new Set()
-  const missingRoots = new Set()
+  const resolvedRoots = new Map()
   const seenKeys = new Set()
   const unreadProjects = new Set()
   for (const { root, source } of sourceRoots(options)) {
@@ -319,12 +314,13 @@ async function scanRecent(options) {
     let entries
     try {
       realRoot = await fsp.realpath(root)
+      resolvedRoots.set(root, realRoot)
       if (seenRoots.has(realRoot)) continue
       entries = await fsp.readdir(realRoot, { withFileTypes: true })
       seenRoots.add(realRoot)
     } catch (error) {
       if (error.code === 'ENOENT') {
-        missingRoots.add(root)
+        resolvedRoots.set(root, null)
         continue
       }
       if (error.code === 'EACCES' || error.code === 'EPERM') throw new Error(`没有权限读取 ${tildify(root)}`)
@@ -336,8 +332,9 @@ async function scanRecent(options) {
       let files
       try {
         files = await fsp.readdir(path.join(realRoot, entry.name))
-      } catch {
-        unreadProjects.add(JSON.stringify([realRoot, entry.name]))
+      } catch (error) {
+        // 不存在（扫描途中被删）就照常清掉它的条目；别的错可能只是一时读不到，先留着
+        if (error.code !== 'ENOENT' && error.code !== 'ENOTDIR') unreadProjects.add(JSON.stringify([realRoot, entry.name]))
         continue
       }
       for (const name of files) {
@@ -359,7 +356,7 @@ async function scanRecent(options) {
   }
   if (signal?.aborted) throw cancelledError()
   // Cleanup is request-driven; no watcher or timer.
-  pruneIndex(generation, seenRoots, missingRoots, seenKeys, unreadProjects)
+  pruneIndex(generation, resolvedRoots, seenRoots, seenKeys, unreadProjects)
   sessions.sort((a, b) => (a.modifiedAt < b.modifiedAt ? 1 : a.modifiedAt > b.modifiedAt ? -1 : 0))
   return { projectsDirExists: seenRoots.size > 0, sessions }
 }

@@ -7,7 +7,8 @@
  * @module tests/sessions/sessionIndexLimit.test
  */
 
-import { afterAll, beforeAll, expect, it } from 'vitest'
+import { afterAll, beforeAll, expect, it, vi } from 'vitest'
+import fsp from 'node:fs/promises'
 import fs from 'node:fs'
 import path from 'node:path'
 import { createRequire } from 'node:module'
@@ -40,3 +41,25 @@ it('10001 条没变的对话，第二次列表只重读放不下的那 1 条', a
   const oneFile = fs.statSync(path.join(p.dir, '-p0', 's0.jsonl')).size
   expect(reader.getReaderStats().bytesRead).toBeLessThanOrEqual(oneFile * 2)
 }, 60_000)
+
+it('索引满了，放不下的那条在读的途中被删，这一次不列出来', async () => {
+  const options = { projectsDir: p.dir }
+  const realStat = fsp.stat.bind(fsp)
+  const calls = new Map()
+  let removed = null
+  // 收录了的文件每次列表只核对一次属性；放不下的那条读前读后各一次，第二次之前把它删掉
+  const spy = vi.spyOn(fsp, 'stat').mockImplementation(async (file, ...rest) => {
+    const n = (calls.get(file) || 0) + 1
+    calls.set(file, n)
+    if (n === 2 && !removed) { removed = file; fs.unlinkSync(file) }
+    return realStat(file, ...rest)
+  })
+  try {
+    const { sessions } = await svc.listRecent(options)
+    expect(removed).not.toBeNull()
+    expect(sessions).toHaveLength(10_000)
+  } finally {
+    spy.mockRestore()
+  }
+}, 60_000)
+

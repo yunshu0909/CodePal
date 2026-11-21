@@ -26,13 +26,13 @@ async function wrap(fn) {
 }
 
 // 页面加载完再等一会儿，让默认页先拿到数据
-const PREWARM_DELAY_MS = 300
+const PREWARM_DELAY_MS = 100
 
 /**
  * 启动预读：第一个加载完的窗口出来后，后台读一次对话列表，把主进程内存索引填好。
  * 只在内存里，不写磁盘；同一次运行只读一次（窗口重载、关于窗口、关窗再开都不再读）。
  * 窗口没加载完就关了，不算用掉这次机会，下一个窗口加载完再读。
- * 页面在读完前进来会接上同一次在途扫描；页面已经先要过列表，就不再预读。出错只记日志，进页时照常再读。
+ * 页面在读完前进来，没变的文件接上在途读取、不重读；页面已经先要过列表，就不再预读。出错只记日志，进页时照常再读。
  * @param {import('electron').App} app - 用它的 browser-window-created 找窗口
  * @param {object} service - 对话服务
  * @returns {{ markListed: Function }} 页面要过列表时调用
