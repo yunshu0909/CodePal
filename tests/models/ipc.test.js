@@ -49,8 +49,8 @@ afterEach(() => {
 })
 
 describe('models:* 接口', () => {
-  it('注册了十六个通道（v2.1.17 加顺序、审核规则与审核配置重试）', () => {
-    expect(Object.keys(handlers).sort()).toEqual(['models:addModel', 'models:addToPath', 'models:configRepublish', 'models:hubList', 'models:hubSetEffort', 'models:hubSetEnabled', 'models:hubSetOrder', 'models:installCommands', 'models:list', 'models:recheckClaude', 'models:removeModel', 'models:rulesGet', 'models:rulesReset', 'models:rulesSet', 'models:setKey', 'models:test', 'models:updateModel'])
+  it('注册了十八个通道（v2.1.17 加顺序、审核规则与审核配置重试；#99 加版本检查结果）', () => {
+    expect(Object.keys(handlers).sort()).toEqual(['models:addModel', 'models:addToPath', 'models:claudeStatus', 'models:configRepublish', 'models:hubList', 'models:hubSetEffort', 'models:hubSetEnabled', 'models:hubSetOrder', 'models:installCommands', 'models:list', 'models:recheckClaude', 'models:removeModel', 'models:rulesGet', 'models:rulesReset', 'models:rulesSet', 'models:setKey', 'models:test', 'models:updateModel'])
   })
 
   it('TC-A04 Key 不以 sk- 开头返回 invalid_input 且不写文件', async () => {
@@ -72,7 +72,10 @@ describe('models:* 接口', () => {
     expect(JSON.stringify(r)).not.toContain(KEY)
     expect(r.data.providers.deepseek.keySet).toBe(true)
     expect(r.data.providers.deepseek.models[0]).toMatchObject({ id: 'deepseek-flash', lastResult: null })
-    expect(r.data.claudeCode).toMatchObject({ found: true, version: '2.1.283', tooOld: false, required: '2.1.251' })
+    // #99：版本在后台查，列表不等它
+    expect(r.data.claudeCode).toBeNull()
+    expect(r.data.claudeChecking).toBe(true)
+    expect((await call('models:claudeStatus')).data).toMatchObject({ found: true, version: '2.1.283', tooOld: false, required: '2.1.251' })
     expect(r.data.commands).toMatchObject({ installed: false, missing: ['deepseek-flash'], onPath: true })
   })
 

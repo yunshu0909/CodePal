@@ -315,6 +315,7 @@ function readStatuses() {
 module.exports = {
   resolveModelsHome,
   ensureDir,
+  writePrivate,
   readConfig,
   writeConfig,
   validateKey,

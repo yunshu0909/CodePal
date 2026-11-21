@@ -327,6 +327,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
    */
   modelsList: () => ipcRenderer.invoke('models:list'),
 
+  /**
+   * 等后台这次 Claude Code 版本检查查完（models:list 带回 claudeChecking 时用，#99）
+   * @returns {Promise<{success: boolean, data: {found: boolean, version: string|null, tooOld: boolean, required: string}|null}>}
+   */
+  modelsClaudeStatus: () => ipcRenderer.invoke('models:claudeStatus'),
+
   /** Read available review models without credentials; changes accept model IDs only. */
   /** @returns {Promise<object>} 无凭证来源列表的统一响应；主进程同步公开清单，不接受路径参数。 */
   modelsHubList: () => ipcRenderer.invoke('models:hubList'),

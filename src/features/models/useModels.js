@@ -3,6 +3,8 @@
  *
  * 负责：
  * - 进页面、窗口重新激活时读 models:list（配置 + Claude Code 检测 + 终端命令状态）
+ * - Claude Code 版本在后台查（#99）：列表先显示；models:list 说还在查时再等 models:claudeStatus，回来原地补上，
+ *   只认最新一次（重新检测之后，之前等的结果不再盖上来）
  * - 后台审核 / 终端写回结果时（models:changed）原地更新那一行和顶上「在终端里用」的状态，不弹 Toast
  * - 存 Key、测一下、加 / 改 / 移除模型、重新检测、安装 / 更新命令、加入 PATH；成功失败的 Toast 在这里统一发
  * - 存 Key、添加、改名成功后自动测一次（AI 补，用户 2026-09-26 认可）
@@ -39,22 +41,35 @@ export default function useModels() {
   const [confirmingPath, setConfirmingPath] = useState(false)
   const [rechecking, setRechecking] = useState(false)
   const mounted = useRef(true)
+  // Claude Code 结果的编号：每次读列表、重新检测加一，回来的结果编号不是最新的就不用
+  const claudeSeq = useRef(0)
 
   useEffect(() => {
     mounted.current = true
     return () => { mounted.current = false }
   }, [])
 
+  /** 等后台这次版本检查查完，原地补上；查不出时不再挡「测一下」，由测试自己报原因 */
+  const waitClaude = useCallback(async (seq) => {
+    const res = await api().modelsClaudeStatus()
+    if (!mounted.current || seq !== claudeSeq.current) return
+    setData((d) => d && (res?.success
+      ? { ...d, claudeCode: res.data, claudeChecking: false }
+      : { ...d, claudeChecking: false }))
+  }, [])
+
   const reload = useCallback(async () => {
+    const seq = ++claudeSeq.current
     const res = await api().modelsList()
     if (!mounted.current) return
     if (res?.success) {
       setData(res.data)
       setLoadFailed(false)
+      if (res.data?.claudeChecking && seq === claudeSeq.current) waitClaude(seq)
     } else {
       setLoadFailed(true)
     }
-  }, [])
+  }, [waitClaude])
 
   /** 用主进程返回的一家数据替换本地那一家；写操作顺带返回的终端命令状态一起换 */
   const applyProvider = useCallback((providerId, provider, commands) => {
@@ -197,10 +212,11 @@ export default function useModels() {
   }, [applyProvider])
 
   const recheckClaude = useCallback(async () => {
+    const seq = ++claudeSeq.current
     setRechecking(true)
     try {
       const res = await api().modelsRecheckClaude()
-      if (mounted.current && res?.success) setData((d) => d && ({ ...d, claudeCode: res.data }))
+      if (mounted.current && res?.success && seq === claudeSeq.current) setData((d) => d && ({ ...d, claudeCode: res.data, claudeChecking: false }))
     } finally {
       if (mounted.current) setRechecking(false)
     }

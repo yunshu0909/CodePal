@@ -4,6 +4,7 @@
  * 负责：
  * - 新样式页面壳（PageShell native）：被挡住卡（没找到 Claude Code）→「在终端里用」一行 → 每家一张供应商卡
  * - 首次读取出骨架；配置整体读不出时整块「读取失败」
+ * - Claude Code 版本晚到（#99）：供应商和模型先出，提醒卡等查完再按结果出
  * - 一屏只留一个主按钮（填写 Key > 重新检测 > 安装命令；弹层打开时让给弹层）
  * - 同一时间只开一个弹层
  *
@@ -32,6 +33,8 @@ export default function ModelsPage() {
   // 弹层或加入 PATH 的确认框开着时，主按钮让给它们
   const primary = data ? primaryAction(data, Boolean(popover) || models.confirmingPath) : null
   const claude = data ? claudeBlock(data.claudeCode) : null
+  // 版本还在后台查、又没有能用的上次结果：提醒卡先不出，「测一下」等查完再开放（#99，原设计 US-04 前置条件）
+  const claudePending = Boolean(data?.claudeChecking) && !data?.claudeCode
   // undefined = 首次读取中（原地骨架）；null = 一个模型都没加（不出现）
   const strip = data ? terminalStrip(data) : undefined
   // 首次没填 Key 时主按钮只给第一张卡
@@ -65,7 +68,7 @@ export default function ModelsPage() {
                 preset={preset}
                 provider={data ? (data.providers?.[preset.id] || { keySet: false, keyReadable: false, models: [] }) : null}
                 primaryKey={primary === 'key' && firstUnkeyed === preset.id}
-                blocked={Boolean(claude)}
+                blocked={Boolean(claude) || claudePending}
                 testing={models.testing}
                 removing={models.removing}
                 commands={data?.commands || null}

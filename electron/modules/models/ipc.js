@@ -2,7 +2,7 @@
  * 第三方模型接入 · 主进程接口（models:*）
  *
  * 负责：
- * - 通道：models:list / setKey / test / addModel / updateModel / removeModel / recheckClaude / installCommands
+ * - 通道：models:list / claudeStatus / setKey / test / addModel / updateModel / removeModel / recheckClaude / installCommands
  *   models:hubList / hubSetEnabled / hubSetEffort / hubSetOrder（模型汇总的模型页签）
  *   models:rulesGet / rulesSet / rulesReset / configRepublish（审核规则页签与给 dev 的审核配置）
  * - 统一返回 { success, data, error: { code, message } }；渲染层只传 ID，永远拿不到 Key 原文
@@ -11,6 +11,8 @@
  * - 装过命令后，加模型 / 改名 / 移除 / 存 Key 时同步终端命令
  * - 在终端里用（v2.1.22）：models:list 带回终端找不找得到 codepal（用登录 shell 判断，同一时间只跑一次、1 秒内合并）、
  *   要写的 shell 文件与总入口状态，进入页面时给旧版装过命令的补上总入口（后-17）；models:addToPath 确认后替用户加一行
+ * - Claude Code 版本（#99）：models:list 不等它，带回能用的上次结果（或 null）和「后台在查」；
+ *   models:claudeStatus 等后台这次查完；models:recheckClaude 重查。都不让主进程停下等命令
  *
  * @module electron/modules/models/ipc
  */
@@ -25,7 +27,7 @@ const { createReviewCenter } = require('./reviewCenter')
 const commands = require('./commands')
 const shellProfile = require('./shellProfile')
 const { PRESETS, modelCapabilities, modelEffort } = require('./presets')
-const { locateClaude, checkClaudeVersion, MIN_CLAUDE_VERSION } = require('./claudeCli')
+const { createClaudeCheck } = require('./claudeCheck')
 
 const WRITE_DENIED = '配置目录没有写入权限，检查权限后重试'
 const INSTALL_DENIED = '安装失败：~/.local/bin 没有写入权限，检查权限后重试'
@@ -123,18 +125,8 @@ function registerModelsHandlers({ ipcMain, getMainWindow, cliPath = defaultCliPa
   } catch {
     // 对账失败不阻止接入管理启动；页面读取时再报告
   }
-  let claudeCache = null
-  const claudeInfo = () => {
-    if (!claudeCache) {
-      const bin = locateClaude()
-      if (!bin) claudeCache = { found: false, version: null, tooOld: false, required: MIN_CLAUDE_VERSION }
-      else {
-        const v = checkClaudeVersion(bin)
-        claudeCache = { found: true, version: v.current, tooOld: !v.ok, required: v.required }
-      }
-    }
-    return claudeCache
-  }
+  // Claude Code 版本：后台查，进页面只看上次结果（#99）
+  const claudeCheck = createClaudeCheck()
 
   // ── 终端找不找得到 codepal（后-12）──
   // 用哪个 shell 每次现取：CodePal 开着时改了登录 shell 也跟得上（后-13）
@@ -241,7 +233,18 @@ function registerModelsHandlers({ ipcMain, getMainWindow, cliPath = defaultCliPa
       const statuses = store.readStatuses()
       const providers = {}
       for (const id of Object.keys(PRESETS)) providers[id] = providerView(cfg, statuses, id)
-      return ok({ claudeCode: claudeInfo(), commands: await terminalView(), providers })
+      // claudeCode 为 null = 还没有能用的结果，页面等 models:claudeStatus；claudeChecking = 后台在查（或在核上次的结果）
+      const claude = claudeCheck.peek()
+      return ok({ claudeCode: claude.info, claudeChecking: claude.checking, commands: await terminalView(), providers })
+    } catch (err) {
+      return bad(err)
+    }
+  })
+
+  // 等后台这次版本检查结束（没有在查就直接给本次结果）
+  ipcMain.handle('models:claudeStatus', async () => {
+    try {
+      return ok(await claudeCheck.status())
     } catch (err) {
       return bad(err)
     }
@@ -313,10 +316,13 @@ function registerModelsHandlers({ ipcMain, getMainWindow, cliPath = defaultCliPa
     }
   })
 
-  ipcMain.handle('models:recheckClaude', () => {
-    claudeCache = null
+  ipcMain.handle('models:recheckClaude', async () => {
     refreshHubQuietly()
-    return ok(claudeInfo())
+    try {
+      return ok(await claudeCheck.recheck())
+    } catch (err) {
+      return bad(err)
+    }
   })
 
   // 安装 / 更新成功后重新判断终端（名字可能被别处的 codepal 挡住）

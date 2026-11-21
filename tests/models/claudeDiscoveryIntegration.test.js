@@ -24,6 +24,12 @@ it('TC-004 installation and removal refresh both consumers and the CLI uses the 
         if (args && (args[0] === '-lc' || args[0] === '-ilc')) return { status: 1, stdout: '' };
         return originalSpawn(file, args, opts);
       };
+      // 模型接入页在后台问 shell（#99）：同样隔离成「shell 里也没有」
+      const originalExecFile = cp.execFile;
+      cp.execFile = function(file, args, opts, cb) {
+        if (args && (args[0] === '-lc' || args[0] === '-ilc')) { process.nextTick(() => cb(Object.assign(new Error('isolated'), { code: 1 }), '', '')); return {}; }
+        return originalExecFile.call(this, file, args, opts, cb);
+      };
     `)
     const script = `
       const fs = require('fs');
@@ -38,18 +44,19 @@ it('TC-004 installation and removal refresh both consumers and the CLI uses the 
         hubOptions: { homeDir: process.env.HOME, locateCodex: () => null }
       });
       (async () => {
-        const before = (await handlers['models:list']()).data.claudeCode;
+        await handlers['models:list']();
+        const before = (await handlers['models:claudeStatus']()).data;
         const subBefore = discoverSubscriptions({ locateCodex: () => null })[0].blocked;
         const bin = path.join(process.env.HOME, '.local/bin/claude');
         fs.mkdirSync(path.dirname(bin), { recursive: true });
         fs.writeFileSync(bin, '#!/bin/sh\\nprintf "2.1.310 (Claude Code)\\\\n"\\n', { mode: 0o755 });
-        const after = handlers['models:recheckClaude']().data;
+        const after = (await handlers['models:recheckClaude']()).data;
         const subAfter = discoverSubscriptions({ locateCodex: () => null })[0].blocked;
         const cli = require('child_process').spawnSync(process.execPath,
           ['--require', process.env.TEST_PRELOAD, ${JSON.stringify(CLI)}, 'launch', 'deepseek', '@first', '--', '--version'],
           { env: process.env, encoding: 'utf8', timeout: 10000 });
         fs.unlinkSync(bin);
-        const removed = handlers['models:recheckClaude']().data;
+        const removed = (await handlers['models:recheckClaude']()).data;
         const subRemoved = discoverSubscriptions({ locateCodex: () => null })[0].blocked;
         lifecycle.stop();
         console.log(JSON.stringify({ before, subBefore, after, subAfter, removed, subRemoved, cliStatus: cli.status, cliOut: cli.stdout }));
