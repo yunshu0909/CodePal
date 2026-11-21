@@ -118,61 +118,84 @@ function collectLoadEvents(registry, history, classes, inWindow, state) {
   return events
 }
 
-const UNRECOGNIZED = new Set(['REQUEST_ONLY', 'INJECTION_NOT_VERIFIED'])
+const CALL_WAYS = new Set(['tool', 'slash', 'dollar'])
 const PAIR_GAP_MS = 30 * 60 * 1000
 /**
  * #97：认不出的调用——「调用了、没找到正文」和「看到正文、配不上调用」——只数来提示，不进次数。
- * 只数用户自己的主会话（子代理、程序自动跑的不数，和主数字口径一致）；报错的调用本来就不是待核；
- * 有路径的只认资产库那一份（不按名字退到同名资产）；同一会话里前后 30 分钟内已经确认读过的不数。
- * 两头是同一次的：同会话同资产，正文前 30 分钟内还没配上的那次调用和它配成一对，只数一次。
+ * - 只数真的调用方式（Skill 工具、斜杠命令那一行、Codex 的 $名字）；Claude 聊天里提到名字不算调用。
+ * - 只数用户自己主会话里的（子代理、程序自动跑的不数，和主数字口径一致）；报错的调用不数。
+ * - 正文和调用先按调用编号配对：配上的算一次，正文指向资产库以外（开发仓库等）的连调用一起不数；
+ *   没有编号的正文才按同会话同资产、前 30 分钟内没配上的调用配对。
+ * - 之后 30 分钟内主会话确认读到了这个技能的，这次算读到了，不提示。
  * @returns {Map<string, number>} 资产 → 窗口内认不出的调用次数。
  */
 function countUnrecognized(registry, history, classes, agentFiles, events, inWindow) {
-  const candidates = []
-  for (const candidate of history.pending) {
-    if (!UNRECOGNIZED.has(candidate.reason) || !inWindow(candidate.at)) continue
-    if (classes.get(candidate.contextId) !== 'user' || agentFiles.has(candidate.fileKey)) continue
-    let asset = null
-    if (candidate.target) {
-      const resolved = registry.resolve(candidate.target, candidate.at)
-      if (resolved.excluded) continue
-      asset = resolved.asset
-    } else if (candidate.name && !candidate.name.includes(':')) asset = registry.preferred.get(candidate.name)
-    if (asset) candidates.push({ ...candidate, assetId: asset.assetId })
+  const mine = (item) =>
+    inWindow(item.at) && classes.get(item.contextId) === 'user' && !agentFiles.has(item.fileKey)
+  const pending = removeProvenReplay(
+    history.pending.filter(
+      (candidate) =>
+        mine(candidate) &&
+        ((candidate.reason === 'REQUEST_ONLY' && CALL_WAYS.has(candidate.via)) ||
+          candidate.reason === 'INJECTION_NOT_VERIFIED')
+    ),
+    history.files
+  )
+  const requests = []
+  const bodies = []
+  for (const candidate of pending) {
+    if (candidate.reason === 'REQUEST_ONLY') {
+      const asset = candidate.name?.includes(':') ? null : registry.preferred.get(candidate.name)
+      requests.push({ ...candidate, assetId: asset?.assetId || null })
+    } else {
+      const resolved = candidate.target ? registry.resolve(candidate.target, candidate.at) : {}
+      bodies.push({ ...candidate, assetId: resolved.excluded ? null : resolved.asset?.assetId || null })
+    }
   }
+  const byLink = new Map(bodies.filter((body) => body.link).map((body) => [body.link, body]))
+  const counted = []
+  const unlinkedRequests = []
+  for (const request of requests) {
+    const body = byLink.get(request.callId)
+    if (body) {
+      body.paired = true
+      if (body.assetId) counted.push({ ...request, assetId: body.assetId })
+    } else if (request.assetId) unlinkedRequests.push(request)
+  }
+  counted.push(...unlinkedRequests)
+  const open = [...unlinkedRequests].sort((a, b) => Date.parse(a.at) - Date.parse(b.at))
+  for (const body of bodies.sort((a, b) => Date.parse(a.at) - Date.parse(b.at))) {
+    if (body.paired || !body.assetId) continue
+    if (!body.link) {
+      const at = Date.parse(body.at)
+      const pair = open.findIndex(
+        (request) =>
+          request.contextId === body.contextId &&
+          request.assetId === body.assetId &&
+          Date.parse(request.at) <= at &&
+          at - Date.parse(request.at) <= PAIR_GAP_MS
+      )
+      if (pair >= 0) {
+        open.splice(pair, 1)
+        continue
+      }
+    }
+    counted.push(body)
+  }
+  // 主会话自己的确认读取（旧式子代理和主会话共用上下文键，按文件排除）
   const confirmed = new Map()
   for (const event of events) {
+    if (agentFiles.has(event.fileKey)) continue
     const key = event.contextId + '\0' + event.assetId
     if (!confirmed.has(key)) confirmed.set(key, [])
     confirmed.get(key).push(Date.parse(event.at))
   }
-  const groups = new Map()
-  for (const candidate of removeProvenReplay(candidates, history.files)) {
-    const key = candidate.contextId + '\0' + candidate.assetId
-    const at = Date.parse(candidate.at)
-    if ((confirmed.get(key) || []).some((time) => Math.abs(time - at) <= PAIR_GAP_MS)) continue
-    if (!groups.has(key)) groups.set(key, [])
-    groups.get(key).push(candidate)
-  }
   const counts = new Map()
-  for (const group of groups.values()) {
-    const open = []
-    let count = 0
-    for (const candidate of group.sort(
-      (a, b) => Date.parse(a.at) - Date.parse(b.at) || (a.reason === 'REQUEST_ONLY' ? -1 : 1)
-    )) {
-      const at = Date.parse(candidate.at)
-      if (candidate.reason === 'REQUEST_ONLY') {
-        open.push(at)
-        count += 1
-        continue
-      }
-      const pair = open.findIndex((time) => time <= at && at - time <= PAIR_GAP_MS)
-      if (pair >= 0) open.splice(pair, 1)
-      else count += 1
-    }
-    const assetId = group[0].assetId
-    counts.set(assetId, (counts.get(assetId) || 0) + count)
+  for (const item of counted) {
+    const at = Date.parse(item.at)
+    const times = confirmed.get(item.contextId + '\0' + item.assetId) || []
+    if (times.some((time) => time >= at && time - at <= PAIR_GAP_MS)) continue
+    counts.set(item.assetId, (counts.get(item.assetId) || 0) + 1)
   }
   return counts
 }

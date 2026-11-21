@@ -77,12 +77,28 @@ async function reconcileHistory(registry, indexed, ledgerPath) {
   history.unknownPriorHistory = readFailed || Boolean(prior?.unknownPriorHistory)
   if (prior && !compatible) {
     history.ruleGaps = Object.keys(prior.files || {})
-    // 规则版本变了：现存日志按新规则重读；原日志已经删掉的，上一版确认过的加载照旧保留（v2.1.19 CASE-020，#97）。
-    // 只搬同一结构（schemaVersion 3）的确认事件和它们的会话元数据（分类、子代理要用）；待核的不搬。
+    // 规则版本变了：现存日志按新规则重读；源记录已经不在的（整份删了，或日志被清理掉一段），
+    // 上一版确认过的加载照旧保留（v2.1.19 CASE-020，#97）。按事件判：同一日志里新规则还能看到同一次调用
+    // （调用编号相同，或时间和目标都相同）的，以新规则的结果为准，不重复搬。
+    // 只搬同一结构（schemaVersion 3）的确认事件和会话元数据（分类、子代理要用）；待核的不搬。
     if (prior.schemaVersion === 3) {
       const present = new Set(indexed.files.map((file) => file.tool + ':' + file.relativePath))
-      for (const [id, event] of Object.entries(prior.events || {}))
-        if (event?.fileKey && !present.has(event.fileKey)) history.events[id] = event
+      const seen = new Set()
+      for (const file of indexed.files) {
+        const key = file.tool + ':' + file.relativePath
+        for (const candidate of file.proof.candidates) {
+          if (candidate.callId) seen.add(key + '\0id\0' + candidate.callId)
+          seen.add(key + '\0at\0' + candidate.at + '\0' + candidate.target)
+        }
+      }
+      for (const [id, event] of Object.entries(prior.events || {})) {
+        if (!event?.fileKey) continue
+        const stillThere =
+          present.has(event.fileKey) &&
+          ((event.callId && seen.has(event.fileKey + '\0id\0' + event.callId)) ||
+            seen.has(event.fileKey + '\0at\0' + event.at + '\0' + event.target))
+        if (!stillThere) history.events[id] = event
+      }
       for (const [key, meta] of Object.entries(prior.files || {}))
         if (!present.has(key)) history.files[key] = meta
     }

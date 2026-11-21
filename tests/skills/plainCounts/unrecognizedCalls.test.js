@@ -93,9 +93,10 @@ describe('#97 认不出的调用：只提示，不算数', () => {
     expect(listed.unrecognized, 'UNRECOGNIZED_NOT_REPORTED').toBe(2)
   })
 
-  it('两头去重：调用配不上正文、正文配不上调用，是同一次，只数 1；只有正文没有调用也数 1', async () => {
+  it('两头去重：调用和指回它的正文都核实不了，是同一次，只数 1；只有正文没有调用也数 1', async () => {
     const target = await install()
-    await writeRows(claudeLog('root'), [meta(), ...futureCall('a', 'alpha', stamp(90)).slice(0, 2), strayBody('a', target, stamp(90)),
+    // 同一次：正文指回这次调用的编号，但正文是空的、核实不了
+    await writeRows(claudeLog('root'), [meta(), ...futureCall('a', 'alpha', stamp(90)).slice(0, 2), strayBody('a', target, stamp(90), 'a', '\n'),
       strayBody('lone', target, stamp(10))])
     expect((await detail()).unrecognized, 'UNRECOGNIZED_NOT_DEDUPED').toBe(2)
   })
@@ -129,7 +130,7 @@ describe('#97 认不出的调用：只提示，不算数', () => {
 
   it('认得了就消失：日志换成认得的写法重读后，提示没了、次数照算', async () => {
     const target = await install()
-    await writeRows(claudeLog('root'), [meta(), ...futureCall('a', 'alpha', stamp(10)).slice(0, 2), strayBody('a', target, stamp(10), 'toolu_other')])
+    await writeRows(claudeLog('root'), [meta(), ...futureCall('a', 'alpha', stamp(10)).slice(0, 2), strayBody('a', target, stamp(10), 'a', '\n')])
     expect((await detail()).unrecognized).toBe(1)
     await writeRows(claudeLog('root'), [meta(), ...futureCall('a', 'alpha', stamp(10)).slice(0, 2), strayBody('a', target, stamp(10), 'a')])
     const listed = await detail()

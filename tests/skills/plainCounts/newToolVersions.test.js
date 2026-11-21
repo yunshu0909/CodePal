@@ -120,11 +120,15 @@ describe('#97 新版本 Claude Code 调起照常算进次数', () => {
     expect(await totalOf('beta')).toBe(0)
   })
 
-  it('审核意见 4：正文开头写着「找不到就问用户」这类话照算；Base directory 不在开头的不算', async () => {
+  it('审核意见 4：正文开头写着「找不到就问用户」这类话照算', async () => {
     const target = await install()
     await writeRows(claudeLog('root'), [meta('2.1.325'), ...slash('2.1.325', 's1', 'alpha', target,
       { body: 'If the record is not found, ask the user.\n' + BODY })])
     expect(await totalOf(), 'BODY_WORDING_REJECTED').toBe(1)
+  })
+
+  it('审核意见 4：Base directory 不在开头的不算', async () => {
+    const target = await install()
     await writeRows(claudeLog('root'), [meta('2.1.325'), ...slash('2.1.325', 's1', 'alpha', target, { before: 'Some unrelated preface.\n' })])
     expect(await totalOf(), 'HEADER_NOT_AT_START_ACCEPTED').toBe(0)
   })

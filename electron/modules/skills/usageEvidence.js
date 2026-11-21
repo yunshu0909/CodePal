@@ -129,6 +129,8 @@ const executedReader = (command) =>
 const metadataCommand = (command) =>
   /^\s*(?:echo|printf)\s/.test(command || '') && !/[;|&\n]/.test(command)
 const compoundCommand = (command) => /[;|&<>\n]/.test(command || '')
+const SLASH_ROW =
+  /^\s*<command-message>[^<]*<\/command-message>\s*<command-name>\/[\w-]+<\/command-name>\s*(?:<command-args>[\s\S]*<\/command-args>\s*)?$/
 // #97：Claude 注入行由运行器写（isMeta），还要配上同会话的一次调起才算，结构本身就是证明；
 // 版本只留下限（2.1 之前的格式没核实过），不再写死上限，免得每次升级都漏算。
 function supportedInjection(meta) {
@@ -222,10 +224,13 @@ async function parseTranscript(file, deps) {
     )
     candidates.push(candidate)
   }
-  const openExplicit = (name, id, at) => {
+  // via：这次调用是怎么来的。tool=Skill 工具、slash=斜杠命令那一行、dollar=Codex 用户消息里的 $名字、
+  // text=Claude 聊天文字里提到的（不是调用方式，只用来分段，不进「认不出」提示，#97）
+  const openExplicit = (name, id, at, via) => {
     explicit.set(name, (explicit.get(name) || 0) + 1)
-    requests.set(id, { name, at, line, epoch: epochOf(name) })
+    requests.set(id, { name, at, line, epoch: epochOf(name), via })
   }
+  const failedRequests = new Set()
   const settleName = (name, at) => {
     for (const [id, request] of requests) {
       if (request.name === name && Date.parse(request.at) <= Date.parse(at)) requests.delete(id)
@@ -280,14 +285,16 @@ async function parseTranscript(file, deps) {
       } else add(target, call.at, id, 'pending', null, call.line, { reason: 'BODY_NOT_VERIFIED' })
     }
   }
-  const recordUser = (text, at, id) => {
+  const recordUser = (text, at, id, fromCodex) => {
     lastUser = text
     for (const match of text.matchAll(/(?:^|\s)\$([\w-]+)\b/g)) {
       userSignals.set(match[1], text)
-      openExplicit(match[1], id + ':' + match[1], at)
+      openExplicit(match[1], id + ':' + match[1], at, fromCodex ? 'dollar' : 'text')
     }
+    // 真的斜杠命令那一行整条只有 command 标签（本机 2.1.312 核实）；夹在别的话里的是粘贴的示例
+    const slashOnly = SLASH_ROW.test(text)
     for (const match of text.matchAll(/<command-name>\/([\w-]+)<\/command-name>/g))
-      openExplicit(match[1], id + ':' + match[1], at)
+      openExplicit(match[1], id + ':' + match[1], at, slashOnly ? 'slash' : 'text')
     if (/(?:作为|as\s+(?:a\s+)?)(?:研究样本|测试材料|research sample|test fixture)/i.test(text)) {
       for (const match of text.matchAll(/(?:^|\s)(\/[^\n]*?\/SKILL\.md)(?=\s|$)/g))
         excludedTargets.add(match[1])
@@ -321,7 +328,7 @@ async function parseTranscript(file, deps) {
     for (const block of contentBlocks(row)) {
       if (block.type === 'tool_use') {
         if (block.name === 'Skill' && !String(block.input?.skill || '').includes(':'))
-          openExplicit(String(block.input?.skill || ''), block.id, at)
+          openExplicit(String(block.input?.skill || ''), block.id, at, 'tool')
         if (block.name === 'Read' && /\/SKILL\.md$/i.test(block.input?.file_path || '')) {
           calls.set(block.id, { targets: [block.input.file_path], at, line, nativeRead: true })
         }
@@ -347,6 +354,7 @@ async function parseTranscript(file, deps) {
             reason: 'REQUEST_FAILED',
           })
           requests.delete(block.tool_use_id)
+          failedRequests.add(block.tool_use_id)
         }
         acceptOutput(block.tool_use_id, block.content, block.is_error === true, null, at)
       }
@@ -444,7 +452,8 @@ async function parseTranscript(file, deps) {
           : ''
     if (!injected) return
     if (meta.tool === 'claude') {
-      const match = injected.match(/Base directory for this skill:\s*([^\n]+)\n([\s\S]+)/)
+      // 运行器写的注入行以这句开头（#97 审核意见 4：不在开头的不认）
+      const match = injected.match(/^\s*Base directory for this skill:\s*([^\n]+)\n([\s\S]+)/)
       if (!match) return
       const target = path.join(match[1].trim(), 'SKILL.md')
       // Skill 工具调起带 sourceToolUseID；斜杠命令调起没有，注入行的 parentUuid 指回斜杠那一行（recordUser 按「行 uuid:名字」开的请求）
@@ -453,8 +462,11 @@ async function parseTranscript(file, deps) {
         : row.parentUuid
           ? row.parentUuid + ':' + skillName(target)
           : null
+      if (requestId && failedRequests.has(requestId)) return
       const request = requestId ? requests.get(requestId) : undefined
-      const proof = bodyProof(match[2])
+      // 注入行没有执行回执，失败看工具结果（上面），正文里的「not found」之类只是技能说明的字（审核意见 4）
+      const body = match[2].trim()
+      const proof = body ? hash(body) : null
       if (proof && request?.name === skillName(target) && supportedInjection(meta)) {
         add(target, at, requestId, 'injection', proof, line, {
           requestLine: request.line,
@@ -463,6 +475,8 @@ async function parseTranscript(file, deps) {
       } else
         add(target, at, row.uuid || 'inject-' + line, 'pending', null, line, {
           reason: 'INJECTION_NOT_VERIFIED',
+          // 它指向的那次调用（哈希），给「认不出」提示先按编号配对（审核意见 3）
+          link: privateId(requestId),
         })
     } else {
       for (const match of injected.matchAll(
@@ -537,11 +551,11 @@ async function parseTranscript(file, deps) {
         continue
       }
       if (row.type === 'event_msg' && row.payload?.type === 'user_message') {
-        recordUser(row.payload.message || '', at, 'user-' + line)
+        recordUser(row.payload.message || '', at, 'user-' + line, true)
         continue
       }
       if (row.type === 'user' && !row.isMeta && typeof row.message?.content === 'string') {
-        recordUser(row.message.content, at, row.uuid || 'user-' + line)
+        recordUser(row.message.content, at, row.uuid || 'user-' + line, false)
       }
       handleToolBlocks(row, at)
       const payload = row.payload || {}
@@ -563,6 +577,7 @@ async function parseTranscript(file, deps) {
     add(null, request.at, id, 'pending', null, request.line, {
       name: request.name,
       epoch: request.epoch,
+      via: request.via,
       reason: 'REQUEST_ONLY',
     })
   }
