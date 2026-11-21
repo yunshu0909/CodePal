@@ -53,6 +53,7 @@ export default function useClaudeUsageStatus() {
   const loadStatus = useCallback(async () => {
     // 读失败：屏上已有接入状态就留着、标没更新；没有才清掉进 read_error 态
     const failRead = (message) => {
+      setChecked(false)
       if (shown.current) setStale(true)
       else setStatusState(null)
       setError(message)

@@ -63,8 +63,16 @@ export default function SessionStatusPage() {
     load()
     const api = window.electronAPI
     api.setSessionStatusPageVisible?.(true)
+    // 实时推送：会话列表这次没读出来、屏上有上次的列表就留着并提示没更新（和进页读取同一条规则）；读出来了提示就撤掉
     const off = api.onSessionStatusChanged?.((payload) => {
-      setData((prev) => (prev ? { ...prev, sessions: payload.sessions, total: payload.total, error: payload.error } : prev))
+      const prev = shown.current
+      if (!prev) return
+      if (payload.error && prev.enabled && !prev.error && prev.sessions?.length) {
+        setLoadError(payload.error)
+        return
+      }
+      setData({ ...prev, sessions: payload.sessions, total: payload.total, error: payload.error })
+      if (!payload.error) setLoadError(null)
     })
     const timer = setInterval(() => setTick((n) => n + 1), 30000)
     return () => {

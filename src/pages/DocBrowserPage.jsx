@@ -247,6 +247,12 @@ export default function DocBrowserPage() {
   // 竞态防护：快速连点时旧请求不覆盖新结果
   const loadFileSeqRef = useRef(0)
   const loadFolderSeqRef = useRef(0)
+  // 每个文件夹开始读文件的次数：搜索范围只收这个文件夹最近一次开始的那次读取（切回时的后台重读和手动展开重叠时，旧的不盖新的）
+  const listStarts = useRef({})
+  const startListing = (folderPath) => {
+    listStarts.current[folderPath] = (listStarts.current[folderPath] || 0) + 1
+    return listStarts.current[folderPath]
+  }
 
   const isSearchMode = searchQuery.trim().length > 0
   // 两栏之间可拖动调宽：默认 220，范围 200–500
@@ -261,8 +267,8 @@ export default function DocBrowserPage() {
         setFolders(result.data)
         if (quiet) {
           setFoldersStale(false)
-          // 列表里已经没有的文件夹，不再留在搜索范围里
-          const paths = new Set(result.data.map(f => f.path))
+          // 列表里已经没有、或已经找不到的文件夹，不再留在搜索范围里
+          const paths = new Set(result.data.filter(f => f.valid).map(f => f.path))
           setAllFilesCache(prev => Object.fromEntries(Object.entries(prev).filter(([p]) => paths.has(p))))
         }
       } else if (quiet) setFoldersStale(true)
@@ -281,14 +287,15 @@ export default function DocBrowserPage() {
    */
   const relistFolder = useCallback(async (folderPath, expanded) => {
     const seq = expanded ? ++loadFolderSeqRef.current : null
+    const mine = startListing(folderPath)
     const valid = () => !expanded || seq === loadFolderSeqRef.current
     try {
       const result = await window.electronAPI.docListFiles(folderPath)
       if (!valid()) return
       if (!result.success) throw new Error(result.error)
       if (expanded) setFiles(result.data)
-      // 等的时候被移除了（搜索范围里已经没有它）就不再放回去
-      setAllFilesCache(prev => (expanded || folderPath in prev ? { ...prev, [folderPath]: result.data } : prev))
+      // 等的时候被移除了（搜索范围里已经没有它）、或之后又开始读过它，就不再放回去
+      if (mine === listStarts.current[folderPath]) setAllFilesCache(prev => (expanded || folderPath in prev ? { ...prev, [folderPath]: result.data } : prev))
     } catch {
       if (valid()) setFilesStale(true)
     } finally {
@@ -381,13 +388,14 @@ export default function DocBrowserPage() {
     setExpandedDirs(new Set())
     setFilesLoading(true)
     const seq = ++loadFolderSeqRef.current
+    const mine = startListing(folder.path)
 
     try {
       const result = await window.electronAPI.docListFiles(folder.path)
       if (seq !== loadFolderSeqRef.current) return
       if (result.success) {
         setFiles(result.data)
-        setAllFilesCache(prev => ({ ...prev, [folder.path]: result.data }))
+        if (mine === listStarts.current[folder.path]) setAllFilesCache(prev => ({ ...prev, [folder.path]: result.data }))
       }
     } catch (err) {
       if (seq !== loadFolderSeqRef.current) return

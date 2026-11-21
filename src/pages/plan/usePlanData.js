@@ -193,7 +193,9 @@ export default function usePlanData(notify) {
       if (typeof remove === 'function') remove();
     };
   }, [refresh]);
-  const mutate = useCallback((id, kind, value, operationId) => {
+  // seenVersion：用户看着的那张卡的账本版本。切回时垫着上次的卡，它可能比刚读到的旧；
+  // 按用户看到的版本提交，账本已经变了主进程就拒绝，不会把旧设置配上新版本存进去
+  const mutate = useCallback((id, kind, value, operationId, seenVersion) => {
     const run = async () => {
       ++reads.current[id];
       ++seq.current[id];
@@ -206,7 +208,7 @@ export default function usePlanData(notify) {
         const payload = {
           planId: id,
           operationId,
-          expectedVersion: c.plan.version,
+          expectedVersion: seenVersion ?? c.plan.version,
           ...(kind === 'action' ? {
             action: value,
             cycleId: c.plan.cycles.at(-1)?.id
@@ -310,12 +312,12 @@ export default function usePlanData(notify) {
   return {
     cards: shown.map(c => ({
       ...c,
-      onSave: (draft, id) => mutate(c.planId, 'save', draft, id),
-      onAction: action => mutate(c.planId, 'action', action, globalThis.crypto.randomUUID()),
+      onSave: (draft, id) => mutate(c.planId, 'save', draft, id, c.plan.version),
+      onAction: action => mutate(c.planId, 'action', action, globalThis.crypto.randomUUID(), c.plan.version),
       onSaveCyclePrice: (cycleId, price) => mutate(c.planId, 'cycle-price', {
         cycleId,
         price
-      }, globalThis.crypto.randomUUID()),
+      }, globalThis.crypto.randomUUID(), c.plan.version),
       onRefreshPrice,
       onSaveLocalPrice,
       onClearLocalPrice,

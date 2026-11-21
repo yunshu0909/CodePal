@@ -54,7 +54,7 @@ function usePermissionMode(notify) {
   // 首次读取显示骨架；点「重试」重读时保持当前行内状态，不回到骨架
   // 读失败：已经显示着一个模式（切回时上次的）就留着、标没更新；没有才进「无法读取当前配置」
   const load = useCallback(async () => {
-    const failed = (prev) => (!prev.loading && !prev.error ? { ...prev, stale: true } : { loading: false, error: true, mode: null })
+    const failed = (prev) => (!prev.loading && !prev.error ? { ...prev, stale: true, checked: false } : { loading: false, error: true, mode: null, checked: false })
     try {
       const result = await window.electronAPI.getPermissionModeConfig()
       if (result?.success) setPerm({ loading: false, error: false, mode: result.isConfigured ? result.mode : null, checked: true })

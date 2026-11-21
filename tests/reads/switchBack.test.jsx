@@ -154,6 +154,21 @@ describe('会话状态', () => {
     expect(screen.getByText(STALE)).toBeInTheDocument()
   })
 
+  it('实时推送说会话列表这次没读出来：列表留着、提示没更新；下一次推送读出来了，提示撤掉', async () => {
+    const a = api()
+    let push
+    a.onSessionStatusChanged = vi.fn((cb) => { push = cb; return () => {} })
+    ;(await visit(<SessionStatusPage />)).unmount()
+    revisit(<SessionStatusPage />)
+    await act(async () => {})
+    await act(async () => push({ sessions: [], total: 0, error: '读不到会话' }))
+    expect(screen.getByTestId('ss-list')).toHaveTextContent('skills')
+    expect(screen.getByText(STALE)).toBeInTheDocument()
+    await act(async () => push({ sessions: [{ ...SESS[0], name: 'codepal' }], total: 1, error: null }))
+    expect(screen.getByTestId('ss-list')).toHaveTextContent('codepal')
+    expect(screen.queryByText(STALE)).toBeNull()
+  })
+
   it('换一个运行（新的接口）：第一次进照旧出骨架，不串用上次的', async () => {
     api()
     ;(await visit(<SessionStatusPage />)).unmount()
@@ -272,6 +287,23 @@ describe('插件管理', () => {
     expect(document.querySelector('.state-view--error')).toBeNull()
   })
 
+  it('切回时带回「正在保存…」、这次第一次读就失败：接着每秒查，保存做完那一行按读到的值放开', async () => {
+    vi.useFakeTimers()
+    const a = api()
+    a.devPluginRead = vi.fn(async () => ({ success: true, data: state({ saving: { claude: false, codex: true } }) }))
+    const first = render(<DevPluginPage />)
+    await act(async () => {})
+    first.unmount()
+    a.devPluginRead = vi.fn(async () => ({ success: false, error: { message: '读不到插件的安装信息' } }))
+    render(<DevPluginPage />)
+    await act(async () => {})
+    expect(screen.getByText(STALE)).toBeInTheDocument()
+    a.devPluginRead = vi.fn(async () => ({ success: true, data: state({ codex: side({ enabled: false }) }) }))
+    await act(async () => { await vi.advanceTimersByTimeAsync(1100) })
+    expect(toggleOf('Codex')).toHaveAttribute('aria-checked', 'false')
+    expect(toggleOf('Codex')).not.toHaveAttribute('aria-disabled', 'true')
+  })
+
   it('切回后重读失败：两行留着，提示这次没更新，不整块报错', async () => {
     const a = api()
     ;(await visit(<DevPluginPage />)).unmount()
@@ -352,8 +384,11 @@ describe('Claude Code 设置', () => {
     revisit(<PermissionModePage />)
     await act(async () => {})
     fireEvent.click(screen.getByRole('switch'))
+    fireEvent.click(popup())
+    fireEvent.click(within(await screen.findByRole('listbox')).getByRole('option', { name: /只读规划/ }))
     await act(async () => {})
     expect(a.saveClaudeUsageStatusConfig).not.toHaveBeenCalled()
+    expect(a.setPermissionMode).not.toHaveBeenCalled()
   })
 
   it('上次状态栏就没读出来：切回先显示「无法读取额度状态」那一行，不出骨架', async () => {
@@ -540,6 +575,20 @@ describe('订阅管理', () => {
     expect(notifyToast).toHaveBeenCalledWith({ message: 'Claude Code 用量读取失败，显示的是上次读到的结果', type: 'error' })
   })
 
+  it('垫着上次的卡时改订阅费：按看着的那一版提交（账本已经变了由主进程拒绝，不把旧设置配上新版本）', async () => {
+    const a = api()
+    ;(await visit(<PlanManagementPage />)).unmount()
+    a.readPlan = vi.fn(async ({ planId }) => ({ success: true, data: { plan: planId === 'claude' ? { ...plan, version: 2, billingDay: 5 } : { cycles: [], version: 0, stopped: false }, metadata: { type: 'Pro' }, today: '2026-09-16' } }))
+    a.queryPlan = vi.fn(() => new Promise(() => {}))
+    revisit(<PlanManagementPage />)
+    await act(async () => {})
+    fireEvent.click(screen.getByRole('button', { name: 'Claude Code 订阅设置' }))
+    fireEvent.change(screen.getByLabelText('订阅费'), { target: { value: '100' } })
+    fireEvent.keyDown(screen.getByLabelText('订阅费'), { key: 'Enter' })
+    await waitFor(() => expect(a.savePlan).toHaveBeenCalledTimes(1))
+    expect(a.savePlan.mock.calls[0][0].expectedVersion).toBe(1)
+  })
+
   it('改了订阅费再切回：显示改后的', async () => {
     const a = api()
     const first = await visit(<PlanManagementPage />)
@@ -647,6 +696,27 @@ describe('文档查阅', () => {
     expect(screen.getByText('renamed.md')).toBeInTheDocument()
     fireEvent.change(screen.getByPlaceholderText('搜索文件名...'), { target: { value: 'notes' } })
     expect(screen.queryByText('notes.md')).toBeNull()
+  })
+
+  it('切回时后台还在重读收起的文件夹、又手动展开了它：搜索范围用手动展开那次读到的', async () => {
+    const a = api()
+    const first = await visit(<DocBrowserPage />)
+    fireEvent.click(screen.getByText('Beta'))
+    await screen.findByText('notes.md')
+    fireEvent.click(screen.getByText('Alpha'))
+    await screen.findByText('readme.md')
+    first.unmount()
+    const slow = deferred()
+    a.docListFiles = vi.fn((p) => (p === BETA ? slow.promise : Promise.resolve({ success: true, data: FILES[p] })))
+    revisit(<DocBrowserPage />)
+    await act(async () => {})
+    a.docListFiles = vi.fn(async (p) => ({ success: true, data: p === BETA ? [file(BETA, 'new.md')] : FILES[p] }))
+    fireEvent.click(screen.getByText('Beta'))
+    await screen.findByText('new.md')
+    await act(async () => slow.resolve({ success: true, data: [file(BETA, 'old.md')] }))
+    fireEvent.change(screen.getByPlaceholderText('搜索文件名...'), { target: { value: '.md' } })
+    expect(screen.getByText('new.md')).toBeInTheDocument()
+    expect(screen.queryByText('old.md')).toBeNull()
   })
 
   it('切回后文件列表读失败、文件夹列表读成功：左栏的提示不被抹掉', async () => {

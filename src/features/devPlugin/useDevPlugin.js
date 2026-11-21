@@ -43,6 +43,8 @@ export default function useDevPlugin() {
     ? { status: 'ready', error: null, stale: false, versionText: memory.value.versionText, rows: memory.value.rows }
     : { status: 'loading', error: null, stale: false, versionText: '', rows: null }))
   useRemember(memory, view.rows ? view : null)
+  // 切回时带回来还在「正在保存…」的行（这次还没读到主进程的说法）
+  const restoredSaving = useRef(Object.fromEntries(TOOLS.map((tool) => [tool, Boolean(memory.value?.rows?.[tool]?.saving)])))
   const alive = useRef(true)
   // 每行的操作代次：每点一次开关 +1；读取开始时记下，回来时代次变了就不覆盖这一行
   const ops = useRef({ claude: 0, codex: 0 })
@@ -117,9 +119,10 @@ export default function useDevPlugin() {
     later(async () => {
       const result = await readOnce(tool)
       if (!alive.current || ops.current[tool] !== op) return
+      // 这次没查到：两行留着、提示没更新，接着每秒查，保存做完就按读到的值显示（不让这一行一直锁在保存中）
       if (!result.ok) {
-        busy.current[tool] = false
-        return showError(result.message)
+        showError(result.message)
+        return pollRow(tool, op)
       }
       if (result.data.saving && result.data.saving[tool]) return pollRow(tool, op)
       busy.current[tool] = false
@@ -149,7 +152,18 @@ export default function useDevPlugin() {
     setView((prev) => (prev.status === 'ready' ? prev : { ...prev, status: 'loading', error: null }))
     const result = await readOnce()
     if (!alive.current || token !== loadToken.current) return
-    if (!result.ok) return showError(result.message)
+    if (!result.ok) {
+      showError(result.message)
+      // 切回时带回来「正在保存…」的行：主进程那边可能早做完了，接着每秒查，别一直锁着
+      for (const tool of TOOLS) {
+        if (ops.current[tool] === startOps[tool] && !busy.current[tool] && restoredSaving.current[tool]) {
+          busy.current[tool] = true
+          pollRow(tool, ops.current[tool])
+        }
+      }
+      return
+    }
+    restoredSaving.current = {}
     const { data } = result
     const versionText = newerVersion(result)
     setView((prev) => {
