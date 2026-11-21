@@ -21,7 +21,7 @@ export function createSkillControlCache() {
   }
 
   const applySnapshot = (entry, snapshot) => {
-    publish(entry, { snapshot, status: 'ready', error: null, refreshState: 'idle' })
+    publish(entry, { snapshot, status: 'ready', error: null, refreshState: 'idle', stale: false })
   }
 
   /**
@@ -32,7 +32,8 @@ export function createSkillControlCache() {
   function entry(repoPath) {
     if (!entries.has(repoPath)) {
       entries.set(repoPath, {
-        state: { snapshot: null, status: 'loading', error: null, refreshState: 'idle', pendingKeys: new Set(), query: '', selectedId: '__overview' },
+        // stale：显示的是上次关应用前的快照（#101），还没被实时读取核对过
+        state: { snapshot: null, stale: false, status: 'loading', error: null, refreshState: 'idle', pendingKeys: new Set(), query: '', selectedId: '__overview' },
         listeners: new Set(), epoch: 0, read: null, queuedRead: null, writeTail: Promise.resolve(), interruptedLoader: null,
       })
     }
@@ -143,7 +144,7 @@ export function createSkillControlCache() {
    */
   function seed(target, snapshot) {
     if (!snapshot || target.state.snapshot || target.state.pendingKeys.size) return false
-    publish(target, { snapshot, status: 'ready', error: null })
+    publish(target, { snapshot, stale: true, status: 'ready', error: null })
     return true
   }
 

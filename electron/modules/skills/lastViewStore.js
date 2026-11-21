@@ -133,8 +133,10 @@ async function removeOrphans(directory) {
  * @returns {Promise<object|null>}
  */
 async function readOne(file, valid) {
+  let before
   let text
   try {
+    before = await fs.stat(file)
     text = await fs.readFile(file, 'utf8')
   } catch {
     return null
@@ -146,11 +148,28 @@ async function readOne(file, valid) {
     value = null
   }
   if (value && value.format === FORMAT && valid(value)) return value
-  await fs.rm(file, { force: true }).catch(() => {})
+  await dropIfUnchanged(file, before)
   return null
 }
 
+/**
+ * 只删读到的那一版坏文件：这期间有写在排队或文件已被换成新的，就不动（新写的那份是好的）。
+ * @param {string} file
+ * @param {import('fs').Stats} before - 读之前的文件信息
+ */
+async function dropIfUnchanged(file, before) {
+  if (queues.has(file)) return
+  const now = await fs.stat(file).catch(() => null)
+  if (!now || now.ino !== before.ino || now.mtimeMs !== before.mtimeMs || now.size !== before.size) return
+  await fs.rm(file, { force: true }).catch(() => {})
+}
+
 const isObject = (value) => Boolean(value) && typeof value === 'object' && !Array.isArray(value)
+const named = (item) => isObject(item) && typeof item.name === 'string' && item.name.length > 0
+// 页面直接拿来用的字段逐个看：每个 Skill 要有名字；次数要是数字
+const validSnapshot = (snapshot) => isObject(snapshot) && Array.isArray(snapshot.skills) && snapshot.skills.every(named)
+const validUsage = (data) => isObject(data) && Array.isArray(data.skills) &&
+  data.skills.every((skill) => named(skill) && Number.isFinite(skill.total))
 
 /**
  * 存上次的快照（读快照、写操作带回快照之后调）。
@@ -159,7 +178,7 @@ const isObject = (value) => Boolean(value) && typeof value === 'object' && !Arra
  * @returns {Promise<boolean>}
  */
 function saveLastSnapshot(homeDir, { repoPath, snapshot }) {
-  if (typeof repoPath !== 'string' || !repoPath || !isObject(snapshot) || !Array.isArray(snapshot.skills)) return Promise.resolve(false)
+  if (typeof repoPath !== 'string' || !repoPath || !validSnapshot(snapshot)) return Promise.resolve(false)
   return enqueue(fileOf(homeDir, 'snapshot'), { format: FORMAT, savedAt: new Date().toISOString(), repoPath, snapshot })
 }
 
@@ -190,7 +209,9 @@ function summarizeUsage(data) {
  */
 function saveLastUsage(homeDir, { cacheKey, windowDays, data }) {
   if (typeof cacheKey !== 'string' || !cacheKey || !isObject(data)) return Promise.resolve(false)
-  return enqueue(fileOf(homeDir, 'usage'), { format: FORMAT, savedAt: new Date().toISOString(), cacheKey, windowDays, data: summarizeUsage(data) })
+  const summary = summarizeUsage(data)
+  if (!validUsage(summary)) return Promise.resolve(false)
+  return enqueue(fileOf(homeDir, 'usage'), { format: FORMAT, savedAt: new Date().toISOString(), cacheKey, windowDays, data: summary })
 }
 
 /**
@@ -201,8 +222,8 @@ function saveLastUsage(homeDir, { cacheKey, windowDays, data }) {
 async function readLastView(homeDir) {
   await removeOrphans(lastViewDir(homeDir))
   const [snapshot, usage] = await Promise.all([
-    readOne(fileOf(homeDir, 'snapshot'), (value) => typeof value.repoPath === 'string' && isObject(value.snapshot) && Array.isArray(value.snapshot.skills)),
-    readOne(fileOf(homeDir, 'usage'), (value) => typeof value.cacheKey === 'string' && isObject(value.data) && Array.isArray(value.data.skills)),
+    readOne(fileOf(homeDir, 'snapshot'), (value) => typeof value.repoPath === 'string' && value.repoPath.length > 0 && validSnapshot(value.snapshot)),
+    readOne(fileOf(homeDir, 'usage'), (value) => typeof value.cacheKey === 'string' && value.cacheKey.length > 0 && validUsage(value.data)),
   ])
   return {
     snapshot: snapshot ? { repoPath: snapshot.repoPath, savedAt: snapshot.savedAt, data: snapshot.snapshot } : null,

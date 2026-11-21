@@ -5,7 +5,7 @@
  * - 栏头（不跟着列表滚）：搜索框（⌘F 聚焦、Esc 清空由页面处理）→ 一行「装载总览」→ 页签（v2.1.11，2026-10-03 用户定第 4 版）
  * - 页签：要处理 | 在用 | 没用（读不出次数时 要处理 | 资产库），为 0 的不出、只剩一个时整排不出；只读组跟在最后一个页签末尾；
  *   次数没读到时页签那一行是骨架；搜索时三组一起列、带组标题，页签变淡、数字换成搜到几个
- * - #101 次数在后台重读（显示的是旧数字）时，页签那一行右侧标「次数更新中」，各行数字照常显示
+ * - #101 次数在后台重读（显示的是旧数字）时，页签那一行右侧标「更新中」，各行数字照常显示
  * - Skill 一条：名字、一句话用途、每个工具的状态点、次数、问题标签
  * - 「要处理」一条：名字、一句话用途、在哪 · 几份、和资产库的关系（不一样用橙标签）
  * - 读取中骨架、整体读取失败、资产库为空、搜索无结果
@@ -218,15 +218,21 @@ export default function SkillList({ status, snapshot, groups, tabs, tab, onTabCh
     )
   }
 
+  // 页签那一行固定包一层：「更新中」出现、消失时页签不重新挂载，键盘焦点不丢
+  const updating = loaded && tabs !== null && hasLibrary && usageStatus === 'refreshing'
+  const note = updating ? <span className="sk-updating" role="status">更新中</span> : null
   let tabRow = null
   if (loaded && tabs === null && hasLibrary) {
     tabRow = <div className="sk-tabs-sk"><span className="np-sk np-sk--pulse sk-sk-160" /></div>
   } else if (loaded && tabs && tabs.length > 0) {
-    tabRow = <TabBar ariaLabel="Skill 分组" value={tab} onChange={onTabChange} options={tabs} disabled={searching} />
-  }
-  if (loaded && tabs !== null && hasLibrary && usageStatus === 'refreshing') {
-    const note = <span className="sk-updating" role="status">次数更新中</span>
-    tabRow = tabRow ? <div className="sk-tabs-row">{tabRow}{note}</div> : <div className="sk-tabs-row sk-tabs-row--bare">{note}</div>
+    tabRow = (
+      <div className="sk-tabs-row">
+        <TabBar ariaLabel="Skill 分组" value={tab} onChange={onTabChange} options={tabs} disabled={searching} />
+        {note}
+      </div>
+    )
+  } else if (note) {
+    tabRow = <div className="sk-tabs-row sk-tabs-row--bare">{note}</div>
   }
 
   return (

@@ -34,6 +34,7 @@ import {
   buildGroups,
   collectTargetOf,
   groupOfSelected,
+  groupIdsOfTab,
   gateCollectTarget,
   inboxId,
   inboxItemsOf,
@@ -53,6 +54,25 @@ import {
 import './skills.css'
 
 const TOOL_LABEL = Object.fromEntries(TOOLS.map((tool) => [tool.id, tool.label]))
+
+// 「重新读取」的代次跟着本次运行走，切走再切回不归零：回来时接着等那次重读，不把旧数字当成新的（#101）
+const usageTokens = new WeakMap()
+const offlineRun = {}
+
+/**
+ * @param {object|null} api - 当前运行的 electronAPI
+ * @returns {[number, Function]} 本次运行的次数刷新代次
+ */
+function useUsageToken(api) {
+  const run = api || offlineRun
+  const [token, setToken] = useState(() => usageTokens.get(run) || 0)
+  const bump = useCallback(() => {
+    const next = (usageTokens.get(run) || 0) + 1
+    usageTokens.set(run, next)
+    setToken(next)
+  }, [run])
+  return [usageTokens.get(run) ?? token, bump]
+}
 
 /** 命令返回的新快照里，这个名字还在要处理里吗 */
 function stillInInbox(result, name) {
@@ -121,8 +141,9 @@ export default function SkillsPage({ refreshSignal = 0 }) {
     refresh,
     execute,
     setActivation,
+    stale,
   } = useSkillControl(refreshSignal)
-  const [usageToken, setUsageToken] = useState(0)
+  const [usageToken, bumpUsageToken] = useUsageToken(typeof window !== 'undefined' ? window.electronAPI : null)
   const [collectTarget, setCollectTarget] = useState(null)
   const searchRef = useRef(null)
 
@@ -134,7 +155,9 @@ export default function SkillsPage({ refreshSignal = 0 }) {
   )
   const identity = useMemo(() => usageIdentityOf(skills), [skills])
   const refreshGeneration = `${usageToken}:${refreshSignal}`
-  const { status: usageStatus, usageMap, batchId } = useSkillUsage(usageNames, 30, refreshGeneration, identity)
+  // 上次关应用前的快照还没核对：只显示同一身份的旧次数，核对完再读（核对失败就照它读，免得一直挂着「更新中」）
+  const usageVerified = !stale || refreshState === 'error'
+  const { status: usageStatus, usageMap, batchId } = useSkillUsage(usageNames, 30, refreshGeneration, identity, { verified: usageVerified })
   const usageFailed = usageStatus === 'error'
   const groupFallback = needsUsageFallback(skills, usageMap, usageStatus)
   const groups = useMemo(() => buildGroups(skills, { usageMap, usageFailed: groupFallback, query: query.trim(), inbox }), [skills, usageMap, groupFallback, query, inbox])
@@ -183,6 +206,20 @@ export default function SkillsPage({ refreshSignal = 0 }) {
     if (next) setChosenTab(next)
   }, [selectedId, searching, ready, groupFallback])
 
+  // 次数更新完（#101 旧数字原地换新）选中的那条换了组（在用 ↔ 没用）：只在它不在当前页签里时跟过去，
+  // 其余时候不动用户自己点的页签
+  useEffect(() => {
+    if (searching || !ready || !tab) return
+    const groupId = groupOfSelected(baseGroups, selectedId)
+    if (!groupId) return
+    const tabIds = visibleTabsOf(baseGroups, groupFallback)
+    if (!tabIds.length || groupIdsOfTab(tab, tabIds).includes(groupId)) return
+    const next = tabOfGroup(groupId, tabIds)
+    if (next && next !== tab) setChosenTab(next)
+    // 只看分组变化；选中项、搜索变化由上面那个处理
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [baseGroups])
+
   // ⌘F / Ctrl+F 聚焦搜索框
   useEffect(() => {
     const onKey = (event) => {
@@ -196,9 +233,9 @@ export default function SkillsPage({ refreshSignal = 0 }) {
   }, [])
 
   const handleRefresh = useCallback(async () => {
-    setUsageToken((token) => token + 1)
+    bumpUsageToken()
     await refresh({ silent: true })
-  }, [refresh])
+  }, [refresh, bumpUsageToken])
 
   const handleToggle = useCallback(async (skill, toolId, enabled) => {
     const label = TOOL_LABEL[toolId]
@@ -354,7 +391,17 @@ export default function SkillsPage({ refreshSignal = 0 }) {
     if (inbox[0]) setSelectedId(inboxId(inbox[0].name))
   }, [inbox, setSelectedId])
 
-  const handleDelete = useCallback(async (skill) => {
+  const handleDelete = useCallback(async (shown) => {
+    // 显示的还是上次关应用前的快照：先等实时读取核对完，确认框按实际要删的位置写（删除撤不回）
+    let skill = shown
+    if (stale) {
+      const reread = await refresh({ silent: true })
+      skill = reread?.success ? (reread.data?.skills || []).find((item) => item.name === shown.name && item.managed) : null
+      if (!skill) {
+        toast.error('删除失败，什么都没改')
+        return
+      }
+    }
     const tools = TOOLS.filter((tool) => (skill.locations || []).some((location) => location.toolId === tool.id)).map((tool) => tool.label)
     const description = tools.length > 0
       ? `资产库里的和 ${tools.join(' 和 ')} 里的都会删掉，不能撤销。`
@@ -378,7 +425,7 @@ export default function SkillsPage({ refreshSignal = 0 }) {
       return
     }
     toast.error('删除失败，什么都没改')
-  }, [execute, setSelectedId])
+  }, [execute, setSelectedId, stale, refresh])
 
   const loading = status === 'loading' && !snapshot
   const failed = status === 'error' && !snapshot
@@ -419,7 +466,7 @@ export default function SkillsPage({ refreshSignal = 0 }) {
         usage={usageMap.get(selectedSkill.name)}
         usageFailed={usageFailed}
         usageStatus={usageStatus}
-        onRetryUsage={() => setUsageToken((token) => token + 1)}
+        onRetryUsage={bumpUsageToken}
         records={records}
         pluginNames={selectedSkill.managed ? selectedSkill.plugins || [] : []}
         pendingKeys={pendingKeys}

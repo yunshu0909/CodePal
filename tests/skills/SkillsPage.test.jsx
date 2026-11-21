@@ -540,7 +540,7 @@ describe('状态', () => {
     expect(names.some((name) => name.includes(':'))).toBe(false)
   })
 
-  // #101 用户 2026-11-21 定（题 1，原话「可以 按你推荐的来」）：重新读取时旧次数留着、标「次数更新中」，读完原地换
+  // #101 用户 2026-11-21 定（题 1，原话「可以 按你推荐的来」）：重新读取时旧次数留着、标「更新中」，读完原地换
   it('TC-041 USAGE_REFRESH 已有次数时再读：旧次数留着标更新中，读完原地换成新批次', async () => {
     await renderPage()
     await waitFor(() => expect(listItem('page-solution-design').textContent).toMatch(/7\s*次/))
@@ -550,10 +550,10 @@ describe('状态', () => {
     await waitFor(() => expect(api.aggregateSkillUsage.mock.calls.length).toBeGreaterThan(1))
     expect(listItem('page-solution-design').textContent).toMatch(/7\s*次/)
     expect(listItem('page-solution-design').querySelector('.np-sk')).toBeNull()
-    expect(screen.getByText('次数更新中')).toBeInTheDocument()
+    expect(screen.getByText('更新中', { selector: '.sk-updating' })).toBeInTheDocument()
     await act(async () => resolveUsage({ success: true, data: { skills: [{ name: 'page-solution-design', total: 8, claude: 8, codex: 0 }] } }))
     await waitFor(() => expect(listItem('page-solution-design').textContent).toMatch(/8\s*次/))
-    expect(screen.queryByText('次数更新中')).toBeNull()
+    expect(screen.queryByText('更新中', { selector: '.sk-updating' })).toBeNull()
   })
 
   it('TC-042 USAGE_ERROR 次数读不出：写 —；详情一句 + 重试；资产库两组合成一组（只剩它时不出页签），只读照常', async () => {

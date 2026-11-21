@@ -61,13 +61,12 @@ export default function useSkillControl(refreshSignal = 0) {
   const seedLastView = useCallback(async () => {
     if (!api?.getSkillsLastView) return
     const view = await cache.loadLastView(() => api.getSkillsLastView())
-    const saved = view?.snapshot
-    if (!saved?.data || typeof saved.repoPath !== 'string') return
-    const entry = cache.entry(saved.repoPath)
-    if (entry.state.snapshot || entry.state.pendingKeys.size) return
+    if (!view) return
+    // 次数和快照各自垫：实时列表先到了也还能用上同一身份的旧次数（本次运行已经读到次数就不用）。
     // 先垫次数再放快照：页面拿到快照的同一帧就能用上旧数字，不闪骨架
     if (view.usage) seedSkillUsageCache(api, view.usage)
-    cache.seed(entry, saved.data)
+    const saved = view.snapshot
+    if (saved?.data && typeof saved.repoPath === 'string') cache.seed(cache.entry(saved.repoPath), saved.data)
   }, [api, cache])
 
   useEffect(() => {

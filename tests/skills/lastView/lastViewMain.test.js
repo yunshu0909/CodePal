@@ -86,6 +86,23 @@ describe('#101 lastViewStore 存取', () => {
     expect((await store.readLastView(env.homeDir)).snapshot.data.skills[0].name).toBe('d')
   })
 
+  it('TC-101-04b 页面要用的字段坏了也算坏：Skill 没名字、次数不是数字', async () => {
+    await fs.mkdir(dir, { recursive: true })
+    await fs.writeFile(path.join(dir, 'snapshot.json'), JSON.stringify({ format: 1, repoPath: env.repoPath, snapshot: { skills: [null] } }))
+    await fs.writeFile(path.join(dir, 'usage.json'), JSON.stringify({ format: 1, cacheKey: 'k', data: { skills: [{ name: 'alpha', total: 'x' }] } }))
+    expect(await store.readLastView(env.homeDir)).toEqual({ snapshot: null, usage: null })
+    expect(await store.saveLastSnapshot(env.homeDir, { repoPath: env.repoPath, snapshot: { skills: [{}] } })).toBe(false)
+  })
+
+  it('TC-101-04c 读到坏文件时正好有新的一份在写：不删新写的那份', async () => {
+    await fs.mkdir(dir, { recursive: true })
+    await fs.writeFile(path.join(dir, 'snapshot.json'), 'broken')
+    const saving = store.saveLastSnapshot(env.homeDir, { repoPath: env.repoPath, snapshot: snap(['fresh']) })
+    await store.readLastView(env.homeDir)
+    await saving
+    expect((await store.readLastView(env.homeDir)).snapshot?.data.skills[0].name).toBe('fresh')
+  })
+
   it('TC-101-04 太大的不存；不像快照的不存', async () => {
     const huge = snap()
     huge.skills[0].description = 'x'.repeat(store.MAX_BYTES + 10)
@@ -137,6 +154,28 @@ describe('#101 IPC：读完存一份，新通道拿回', () => {
       const view = await handlers['skill-control:last-view']({})
       expect(view.data.snapshot?.data.skills[0].tools.codex.enabled).toBe(false)
     })
+  })
+
+  it('TC-101-06b 操作前开始、操作后才读完的那次读取不存：重开看到的是操作之后的样子', async () => {
+    let enabled = true
+    const slow = []
+    const getSnapshotFn = vi.fn(async () => {
+      const value = { ...snap(['alpha']), skills: [{ name: 'alpha', managed: true, tools: { codex: { enabled } } }] }
+      if (getSnapshotFn.mock.calls.length === 1) await new Promise((resolve) => slow.push(resolve))
+      return value
+    })
+    const { handlers } = setupControl({
+      getSkillControlSnapshotFn: getSnapshotFn,
+      executeSkillCommandFn: vi.fn(async () => { enabled = false; return { outcome: 'done' } }),
+    })
+    const early = handlers['skill-control:get-snapshot']({})
+    await vi.waitFor(() => expect(slow).toHaveLength(1))
+    expect((await handlers['skill-control:execute']({}, { skillName: 'alpha', toolId: 'codex', action: 'disable' })).success).toBe(true)
+    slow[0]()
+    expect((await early).data.skills[0].tools.codex.enabled).toBe(true)
+    await store.whenLastViewIdle()
+    const view = await store.readLastView(env.homeDir)
+    expect(view.snapshot.data.skills[0].tools.codex.enabled).toBe(false)
   })
 
   it('TC-101-07 读快照失败不存、不清掉上次的', async () => {

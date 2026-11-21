@@ -48,6 +48,7 @@ const { setDshIsolatedRunner } = require('./services/usageLogScanService')
 const { createDshWorkerRunner } = require('./services/dshUsageWorkerClient')
 const { registerSkillUsageHandlers } = require('./handlers/registerSkillUsageHandlers')
 const { registerSkillControlHandlers } = require('./handlers/registerSkillControlHandlers')
+const { whenLastViewIdle } = require('./modules/skills/lastViewStore')
 const { registerProjectInitHandlers } = require('./handlers/registerProjectInitHandlers')
 const { registerPermissionModeHandlers } = require('./handlers/permissionModeHandlers')
 const { registerModelConfigHandlers } = require('./handlers/modelConfigHandlers')
@@ -294,6 +295,8 @@ shutdownRegistry.register('dsh-worker', () => dshRunner.dispose())
 shutdownRegistry.register('models-watcher', () => modelsHandlers.stop())
 // 正在写的 Codex 配置要等写完，不能写到一半被中断
 shutdownRegistry.register('codex-config-writes', () => drainConfigQueue())
+// #101 Skills「上次的列表和次数」：排队的缓存写完再退，下次开应用看到的是最后一次的
+shutdownRegistry.register('skills-last-view', () => whenLastViewIdle())
 
 let shutdownFinished = false
 let shutdownPromise = null
