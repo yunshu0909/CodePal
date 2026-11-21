@@ -69,6 +69,7 @@ describe('启动预读', () => {
       await vi.advanceTimersByTimeAsync(300)
       await vi.runAllTimersAsync()
       expect(service.listRecent).toHaveBeenCalledTimes(1)
+      vi.useRealTimers() // 未处理的拒绝在下一轮事件循环前上报，用真定时器等一轮
       await new Promise((resolve) => setImmediate(resolve))
       expect(unhandled).not.toHaveBeenCalled()
       expect(warn).toHaveBeenCalled()
@@ -106,5 +107,17 @@ describe('内存索引不因闲置过期', () => {
     fs.unlinkSync(removed)
     const { sessions } = await svc.listRecent(options)
     expect(sessions.map((s) => s.title)).toEqual(['after'])
+  })
+
+  it('删掉的对话文件，下一次列表后从内存索引里清掉', async () => {
+    p.write('-a', 's1', stamp([L.user('keep')], { cwd: '/fixture/project' }))
+    const removed = p.write('-a', 's2', stamp([L.user('gone')], { cwd: '/fixture/project' }))
+    const options = { projectsDir: p.dir }
+    const base = svc.metadataIndexSizeForTests()
+    await svc.listRecent(options)
+    expect(svc.metadataIndexSizeForTests()).toBe(base + 2)
+    fs.unlinkSync(removed)
+    await svc.listRecent(options)
+    expect(svc.metadataIndexSizeForTests()).toBe(base + 1)
   })
 })

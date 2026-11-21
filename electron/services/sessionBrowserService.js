@@ -26,7 +26,8 @@ const TITLE_MAX = 80
 const TARGET_MAX = 60
 const SNIPPET_SIDE = 40
 const META_LIMIT = 10_000
-const META_MAX_AGE_MS = 10 * 60_000
+// 主进程内存索引：只在本次运行里，不写磁盘。不按闲置时间过期（#102：启动时预读，隔很久再进页也不用等）；
+// 文件身份一变就重读那一个，下一次完整列表没再见到的条目就清掉，总数封顶 META_LIMIT。
 const metadataIndex = new Map()
 const SAFE_ID = /^[a-zA-Z0-9_-]+$/
 
@@ -229,15 +230,19 @@ function metadataIdentity(stat) {
   return JSON.stringify([stat.dev, stat.ino, stat.size, stat.mtimeMs, stat.ctimeMs, stat.birthtimeMs])
 }
 
+function metadataKey(root, projectId, file) {
+  return JSON.stringify([root, projectId, file])
+}
+
 async function indexedSessionMeta(root, projectId, file) {
   const stat = await fsp.stat(file)
   const identity = metadataIdentity(stat)
-  const key = JSON.stringify([root, projectId, file])
+  const key = metadataKey(root, projectId, file)
   const prior = metadataIndex.get(key)
-  if (prior?.identity === identity && (prior.pending || Date.now() < prior.expires)) {
+  if (prior?.identity === identity && (prior.pending || prior.ready)) {
     return structuredClone(await (prior.pending || Promise.resolve(prior.value)))
   }
-  const entry = { identity, pending: null, value: null, expires: 0 }
+  const entry = { root, identity, pending: null, value: null, ready: false }
   metadataIndex.delete(key)
   metadataIndex.set(key, entry)
   while (metadataIndex.size > META_LIMIT) metadataIndex.delete(metadataIndex.keys().next().value)
@@ -246,7 +251,7 @@ async function indexedSessionMeta(root, projectId, file) {
     if (metadataIndex.get(key) === entry) {
       if (identity === metadataIdentity(after)) {
         entry.value = value
-        entry.expires = Date.now() + META_MAX_AGE_MS
+        entry.ready = true
       } else metadataIndex.delete(key)
     }
     return value
@@ -267,6 +272,7 @@ async function listRecent(options = {}) {
   if (signal?.aborted) throw cancelledError()
   const sessions = []
   const seenRoots = new Set()
+  const seenKeys = new Set()
   for (const { root, source } of sourceRoots(options)) {
     let realRoot
     let entries
@@ -293,6 +299,7 @@ async function listRecent(options = {}) {
         if (signal?.aborted) throw cancelledError()
         try {
           const file = await confinedFile(realRoot, entry.name, name.slice(0, -6))
+          seenKeys.add(metadataKey(realRoot, entry.name, file))
           const meta = await indexedSessionMeta(realRoot, entry.name, file)
           if (signal?.aborted) throw cancelledError()
           if (meta) meta.sessionId = name.slice(0, -6)
@@ -305,9 +312,9 @@ async function listRecent(options = {}) {
     }
   }
   if (signal?.aborted) throw cancelledError()
-  // Expiry cleanup is request-driven; no watcher or timer remains after leaving the page.
+  // Cleanup is request-driven; no watcher or timer. Only roots fully listed this time are pruned.
   for (const [key, entry] of metadataIndex) {
-    if (!entry.pending && Date.now() >= entry.expires) metadataIndex.delete(key)
+    if (!entry.pending && seenRoots.has(entry.root) && !seenKeys.has(key)) metadataIndex.delete(key)
   }
   sessions.sort((a, b) => (a.modifiedAt < b.modifiedAt ? 1 : a.modifiedAt > b.modifiedAt ? -1 : 0))
   return { projectsDirExists: seenRoots.size > 0, sessions }
@@ -400,4 +407,9 @@ async function searchSessions(keyword, options = {}) {
   return results
 }
 
-module.exports = { listRecent, readSessionPage, searchSessions, getProjectsDir, toMessage, isSystemTagMessage }
+/** 内存索引当前条数（测试用） */
+function metadataIndexSizeForTests() {
+  return metadataIndex.size
+}
+
+module.exports = { listRecent, readSessionPage, searchSessions, getProjectsDir, toMessage, isSystemTagMessage, metadataIndexSizeForTests }

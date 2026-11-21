@@ -480,6 +480,7 @@ registerNetworkDiagnosticsHandlers({
 
 registerSessionBrowserHandlers({
   ipcMain,
+  app,
 })
 
 registerSessionResumeHandlers({
